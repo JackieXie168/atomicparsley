@@ -208,7 +208,7 @@ short APar_FindPrecedingAtom(AtomicInfo thisAtom) {
 	return precedingAtom;
 }
 
-AtomicInfo APar_FindAtom(const char* atom_name, bool createMissing, bool stringFromShell) {
+AtomicInfo APar_FindAtom(const char* atom_name, bool createMissing, bool stringFromShell, bool findChild) {
 	short present_atom_level = 1; //from where out generalAtomicLevel starts
 	char* atom_hierarchy = strdup(atom_name);
 	char* found_hierarchy = (char *)malloc(sizeof(char)*1000); //that should hold it
@@ -229,18 +229,23 @@ AtomicInfo APar_FindAtom(const char* atom_name, bool createMissing, bool stringF
 					
 					if (atom_hierarchy == NULL) {
 						//we have found the proper hierarchy we want
-						//fprintf(stdout, "parent's name is %s (now at level %i)\n", parent_name, present_atom_level);
 						AtomicInfo parent_atom = APar_FindParentAtom(parsedAtoms[iter].AtomicNumber, parsedAtoms[iter].AtomicLevel);
+
 						if ( strncmp(parent_atom.AtomicName, parent_name, 4) == 0) {
 							thisAtom = parsedAtoms[iter];
 							break;
 						} else {
 							//we've come to the right level, & hieararchy, not strncmp through the atoms in this level
 							int next_atom = parsedAtoms[iter].NextAtomNumber;
-							while (parsedAtoms[next_atom].AtomicLevel == parsedAtoms[iter].AtomicLevel) {
-								if ( strncmp(parsedAtoms[next_atom].AtomicName, search_atom_name, 4) == 0) {
-									thisAtom = parsedAtoms[next_atom]; //this is IT!!!
-									//fprintf(stdout, "ooh. wow. it's here.\n");
+							while (parsedAtoms[next_atom].NextAtomNumber != 0) {
+								
+								if ( strncmp(parsedAtoms[next_atom].AtomicName, parent_name, 4) == 0) {
+									if (findChild) {
+										next_atom = parsedAtoms[next_atom].NextAtomNumber;
+										thisAtom = parsedAtoms[next_atom]; //this is IT!!!
+									} else {
+										thisAtom = parsedAtoms[next_atom]; //this is IT!!!
+									}
 									break;
 								} else {
 									next_atom = parsedAtoms[next_atom].NextAtomNumber;
@@ -927,7 +932,7 @@ void APar_DetermineAtomLengths() {
 ///////////////////////////////////////////////////////////////////////////////////////
 
 void APar_RemoveAtom(const char* atom_path, bool shellAtom) {
-	AtomicInfo desiredAtom = APar_FindAtom(atom_path, false, shellAtom);
+	AtomicInfo desiredAtom = APar_FindAtom(atom_path, false, shellAtom, false);
 	short preceding_atom_pos = APar_FindPrecedingAtom(desiredAtom);
 	AtomicInfo endingAtom = APar_LocateAtomInsertionPoint(atom_path, true);
 	if (endingAtom.AtomicNumber != 0) {
@@ -976,6 +981,7 @@ void APar_EncapulateData(AtomicInfo anAtom, const char* atomData, short binaryDa
 			
 		case AtomicDataClass_Text :
 			size_t data_length = strlen(atomData);
+			
 			if ( data_length >= 8 ) {
 				parsedAtoms[thisnum].AtomicData = (char*)malloc(sizeof(char)* data_length + 1);
 				memcpy(parsedAtoms[thisnum].AtomicData, atomData, data_length );
@@ -1083,8 +1089,8 @@ void APar_AddMetadataInfo(const char* m4aFile, const char* atom_path, const int 
 		APar_RemoveAtom(atom_path, shellAtom); //find the atom; don't create if it's "" to remove
 		APar_PrintAtomicTree();
 	} else {
-		AtomicInfo desiredAtom = APar_FindAtom(atom_path, true, shellAtom); //finds the atom; if not present, creates the atom
-		//fprintf(stdout, "... added %ith atom %s\n", atom_number, parsedAtoms[atom_number-1].AtomicName);
+		AtomicInfo desiredAtom = APar_FindAtom(atom_path, true, shellAtom, true); //finds the atom; if not present, creates the atom
+		
 		if (dataType == AtomicDataClass_Text) {
 			APar_EncapulateData(desiredAtom, atomPayload, 0, dataType);
 			
@@ -1145,12 +1151,12 @@ void APar_AddGenreInfo(const char* m4aFile, const char* atomPayload) {
 		genre_data[0] = (short)sizeof(genre_data)/sizeof(short);
 		
 		APar_RemoveAtom(custom_genre_atom, false);
-		genreAtom = APar_FindAtom(std_genre_data_atom, true, false);
+		genreAtom = APar_FindAtom(std_genre_data_atom, true, false, true);
 		APar_EncapulateData(genreAtom, atomPayload, genre_data, AtomicDataClass_Integer);
 
 	} else {
 		APar_RemoveAtom(standard_genre_atom, false);
-		genreAtom = APar_FindAtom(cstm_genre_data_atom, true, false);
+		genreAtom = APar_FindAtom(cstm_genre_data_atom, true, false, true);
 		APar_EncapulateData(genreAtom, atomPayload, 0, AtomicDataClass_Text);
 	}
 	return;
@@ -1159,7 +1165,7 @@ void APar_AddGenreInfo(const char* m4aFile, const char* atomPayload) {
 void APar_AddMetadataArtwork(const char* m4aFile, const char* artworkPath) {
 	modified_atoms = true;
 	const char* artwork_atom = "moov.udta.meta.ilst.covr";
-	AtomicInfo desiredAtom = APar_FindAtom(artwork_atom, true, false);
+	AtomicInfo desiredAtom = APar_FindAtom(artwork_atom, true, false, true);
 	desiredAtom = APar_CreateSparseAtom(artwork_atom, "data", NULL, 6);
 	//got to determine artwork class
 	APar_EncapulateData(desiredAtom, artworkPath, 0, APar_TestArtworkBinaryData(artworkPath) );
