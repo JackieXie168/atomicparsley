@@ -41,13 +41,18 @@
 #define Meta_disknum             'd'
 #define Meta_genre               'g'
 #define Meta_comment             'c'
+#define Meta_year                'y'
 #define Meta_lyrics              'l'
 #define Meta_composer            'w'
+#define Meta_copyright           'x'
 #define Meta_grouping            'G'
 #define Meta_compilation         'C'
 #define Meta_BPM                 'B'
 #define Meta_artwork             'r'
 #define Meta_StandardDate        'Z'
+#define Meta_advisory            'V'
+#define Metadata_Purge           'P'
+#define OPT_WriteBack            'O'
 
 bool modified_atoms = false;
 
@@ -56,14 +61,6 @@ static void kill_signal ( int sig );
 static void kill_signal (int sig) {
     exit(0);
 }
-
-static const char* quickHelp_text =
-"AtomicParsley shorthelp.\n"
-"Usage: AtomicParsley [m4aFILE]... [OPTION(s)]...[ARGUMENT(s)]...\n"
-"\n"
-"example: AtomicParsley /path/to.m4a --E \n"
-"------------------------------------------------------------------------------------------------\n"
-"long help available with:   AtomicParlsey -longhelp \n";
 
 static const char* longHelp_text =
 "AtomicParsley longhelp.\n"
@@ -79,7 +76,7 @@ static const char* longHelp_text =
 "                               Also prints out the hierarchical atom tree.\n"
 "\n"
 "------------------------------------------------------------------------------------------------\n"
-" Atom contents (printing on screen & extracting artworkd to files)\n"
+" Atom contents (printing on screen & extracting artwork(s) to files)\n"
 "\n"
 "  --textdata         ,  -t      prints contents of user data text items out (inc. # of any pics).\n"
 "\n"
@@ -97,12 +94,19 @@ static const char* longHelp_text =
 "  --tracknum         ,  -k   (num)|(num/tot)  Set the track number (or track number & total tracks).\n"
 "  --disk             ,  -d   (num)|(num/tot)  Set the disk number (or disk number & total disks).\n"
 "  --comment          ,  -c   (str)    Set the artist tag: \"moov.udta.meta.ilst.©cmt.data\"\n"
+"  --year             ,  -y   (num)    Set the year tag: \"moov.udta.meta.ilst.©day.data\"\n"
 "  --lyrics           ,  -l   (str)    Set the artist tag: \"moov.udta.meta.ilst.©lyr.data\"\n"
 "  --composer         ,  -w   (str)    Set the artist tag: \"moov.udta.meta.ilst.©wrt.data\"\n"
+"  --copyright        ,  -x   (str)    Set the copyright tag: \"moov.udta.meta.ilst.cprt.data\"\n"
 "  --grouping         ,  -G   (str)    Set the grouping tag: \"moov.udta.meta.ilst.©grp.data\"\n"
 "  --artwork          ,  -A   (/path)  Set (multiple) artwork (jpeg or png) tag: \"covr.data\"\n"
-"bpm (unimplemented)\n"
-"compilation (unimplemented)\n"
+"  --bpm              ,  -B   (num)    Set the tempo/bpm tag: \"moov.udta.meta.ilst.tmpo.data\"\n"
+"  --compilation      ,  -C   (bool)   Sets the \"cpil\" atom (true or false to delete the atom)\n"
+"  --advisory         ,  -y   (1of3)   Sets the iTunes lyrics advisory ('remove', 'clean', 'explicit') \n"
+"  --tagtime          ,  -Z            Set the Coordinated Univeral Time of tagging on \"tdtg\"*\n"
+"                                     *Denotes utterly non-standard behavior\n"
+"\n"
+"  --metaEnema        ,  -P            Douches away every atom under \"moov.udta.meta.ilst\" \n"
 "------------------------------------------------------------------------------------------------\n"
 "\n";
 
@@ -145,8 +149,7 @@ void GetBasePath(const char *filepath, char* &basepath) {
 int main( int argc, char *argv[])
 {
 	if (argc == 1) {
-		fprintf (stderr,"%s", quickHelp_text);
-		exit(0);
+		fprintf (stderr,"%s", longHelp_text); exit(0);
 	} else if (argc == 2 && ((strncmp(argv[1],"-v",2) == 0) || (strncmp(argv[1],"-version",2) == 0)) ) {
 		fprintf(stdout, "%s version: %s\n", argv[0], AtomicParsley_version);
 		exit(0);
@@ -172,20 +175,25 @@ int main( int argc, char *argv[])
 		{ "tracknum",         required_argument,  NULL,						Meta_tracknum },
 		{ "disknum",          required_argument,  NULL,						Meta_disknum },
 		{ "comment",          required_argument,  NULL,						Meta_comment },
+		{ "year",             required_argument,  NULL,						Meta_year },
 		{ "lyrics",           required_argument,  NULL,						Meta_lyrics },
 		{ "composer",         required_argument,  NULL,						Meta_composer },
+		{ "copyright",        required_argument,  NULL,						Meta_copyright },
 		{ "grouping",         required_argument,  NULL,						Meta_grouping },
-//		{ "compilation",      0,                  NULL,						Meta_compilation },
-//		{ "bpm",              required_argument,  NULL,						Meta_BPM },
-		{ "artwork",        required_argument,  NULL,						Meta_artwork },
-		{ "tagtime",        0,                  NULL,						Meta_StandardDate },
+    { "compilation",      required_argument,  NULL,						Meta_compilation },
+		{ "advisory",         required_argument,  NULL,						Meta_advisory },
+    { "bpm",              required_argument,  NULL,						Meta_BPM },
+		{ "artwork",          required_argument,  NULL,						Meta_artwork },
+		{ "tagtime",          0,                  NULL,						Meta_StandardDate },
+		{ "metaEnema",        0,                  NULL,						Metadata_Purge },
+		{ "writeBack",        0,                  NULL,						OPT_WriteBack },
 		{ 0, 0, 0, 0 }
 	};
 		
 	int c = -1;
 	int option_index = 0;
 	
-	c = getopt_long_only(argc, argv, "hTtEe:m:a:d:g:c:l:w:G:k:A:B:CZ", long_options, &option_index);
+	c = getopt_long_only(argc, argv, "hTtEe:m:a:d:g:c:l:w:y:G:k:A:B:C:V:ZP", long_options, &option_index);
 	
 	if (c == -1) {
 		if (argc < 3 && argc > 2) {
@@ -246,7 +254,7 @@ int main( int argc, char *argv[])
 		case META_add: {  //creating atoms directly from the shell is unimplemented, currently unusable
 			APar_ScanAtoms(m4afile);
 			
-			APar_AddMetadataInfo(m4afile, optarg, AtomicDataClass_Text, argv[optind], true);
+			//APar_AddMetadataInfo(m4afile, optarg, AtomicDataClass_Text, argv[optind], true);
 			break;
 		}
 		
@@ -299,6 +307,13 @@ int main( int argc, char *argv[])
 			break;
 		}
 		
+		case Meta_year : {
+			APar_ScanAtoms(m4afile);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.©day.data", AtomicDataClass_Text, optarg, false);
+			
+			break;
+		}
+		
 		case Meta_lyrics : {
 			APar_ScanAtoms(m4afile);
 			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.©lyr.data", AtomicDataClass_Text, optarg, false);
@@ -313,6 +328,13 @@ int main( int argc, char *argv[])
 			break;
 		}
 		
+		case Meta_copyright : {
+			APar_ScanAtoms(m4afile);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.cprt.data", AtomicDataClass_Text, optarg, false);
+			
+			break;
+		}
+		
 		case Meta_grouping : {
 			APar_ScanAtoms(m4afile);
 			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.©grp.data", AtomicDataClass_Text, optarg, false);
@@ -320,17 +342,34 @@ int main( int argc, char *argv[])
 			break;
 		}
 		
-		case Meta_compilation : { //AtomicDataClass_CPIL_TMPO class unimplemented; unusable
+		case Meta_compilation : {
 			APar_ScanAtoms(m4afile);
-			//APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.cpil.data", AtomicDataClass_CPIL_TMPO, optarg, false);
+			if (strncmp(optarg, "false", 5) == 0) {
+				APar_RemoveAtom("moov.udta.meta.ilst.cpil", false);
+			} else {
+				APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.cpil.data", AtomicDataClass_CPIL_TMPO, optarg, false);
+			}
+			break;
+		}
+		
+		case Meta_BPM : {
+			APar_ScanAtoms(m4afile);
+			if (strncmp(optarg, "0", 1) == 0) {
+				APar_RemoveAtom("moov.udta.meta.ilst.tmpo", false);
+			} else {
+				APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.tmpo.data", AtomicDataClass_CPIL_TMPO, optarg, false);
+			}
 			
 			break;
 		}
 		
-		case Meta_BPM : { //AtomicDataClass_CPIL_TMPO class unimplemented; unusable
+		case Meta_advisory : {
 			APar_ScanAtoms(m4afile);
-			//APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.tmpo.data", AtomicDataClass_CPIL_TMPO, optarg, false);
-			
+			if (strncmp(optarg, "remove", 6) == 0) {
+				APar_RemoveAtom("moov.udta.meta.ilst.rtng", false);
+			} else {
+				APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.rtng.data", AtomicDataClass_CPIL_TMPO, optarg, false);
+			}
 			break;
 		}
 		
@@ -342,11 +381,24 @@ int main( int argc, char *argv[])
 		
 		case Meta_StandardDate : {
 			//this tag will emerge will a trailing NULL; iTMS doesn't have the trailing NULL
+			
+			//...and apparently, ©day isn't the right tag for tagging time... well.... for another day & tag then (id3v2: TDTG)
+			//this is ¥REALLY¥ non-standard. I don't think any taggers would recognize it.
 			APar_ScanAtoms(m4afile);
 			char* formed_time = (char *)malloc(sizeof(char)*110);
 			APar_StandardTime(formed_time);
-			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.©day.data", AtomicDataClass_Text, formed_time, false);
+			//APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.©day.data", AtomicDataClass_Text, formed_time, false);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.tdtg.data", AtomicDataClass_Text, formed_time, false);
 			free(formed_time);
+		}
+		
+		case Metadata_Purge : {
+			APar_ScanAtoms(m4afile);
+			APar_RemoveAtom("moov.udta.meta.ilst", false);
+		}
+		
+		case OPT_WriteBack : {
+			alter_original = true;
 		}
 		
 		} /* end switch */
@@ -356,8 +408,11 @@ int main( int argc, char *argv[])
 	if (modified_atoms) {
 		APar_DetermineAtomLengths();
 		openSomeFile(m4afile, true);
-		APar_WriteFile(m4afile);
-		openSomeFile(m4afile, false);
+		APar_WriteFile(m4afile, alter_original);
+		if (!alter_original) {
+			//The file was opened orignally as read-only; when it came time to writeback into the original file, that FILE was closed, and a new one opened with write abilities, so to close a FILE that no longer exists would.... be retarded.
+			openSomeFile(m4afile, false);
+		}
 	}
 	return 0;
 }
