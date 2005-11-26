@@ -1,0 +1,47 @@
+{\rtf1\mac\ansicpg10000\cocoartf824\cocoasubrtf230
+{\fonttbl\f0\fswiss\fcharset77 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+\margl1440\margr1440\vieww10200\viewh11200\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\ql\qnatural\pardirnatural
+
+\f0\fs24 \cf0 Welcome to Atomic Parlsey.\
+\
+AtomicParsley is a command line program that can read and write iTunes-style metadata tags in m4a (and variant) files. Limited in scope to setting metadata of text, integer & binary artwork types, AtomicParley aims to be a lightweight tagger. Of particular note is support for multiple pieces of artwork, and leveraging of Mac OS X's Cocoa image handling functions to scale & compress artwork before embedding (written, but needs to be incorporated).\
+\
+Currently the cpil/tmp (compilation/bpm) tags aren't implemented. They will be eventually. Freestyle atom creation from the shell is also planned, but unimplemented. Unicode support is unknown, but will be (probably lackadaisically) pursued at a later date.\
+\
+You can set these tags:\
+\
+artist, title, album, track number (or tracknumber/totaltracks), disk number (or disknum/totaldisks), genre, comment, lyrics, composer, grouping, and an iTunes invisible tagging time (on "\'a9day"). Mutliple pieces of artwork (png or jpeg only) are allowed; other tags only allow 1 tag apiece (so 2 comments aren't possible).\
+\
+You can also:\
+\
+see the atom hierarchy (tree), view text/integer tags, extract artwork to separate files.\
+\
+Due to the beta nature of this software, a decision was made to prevent writing back into the originating audio file. This is because an errant atom or misaligned information can render an audio file unplayable. There is a possible recourse of retrieving the audio file by extracting the raw audio file to a separate file using a more extensive utility like gpac's mp4box. A drm protected file may be lost however. In the future, a way to remove the entire metadata atom hierarchy will be tested to remove ALL metadata (it's harmless - metadata isn't a requirement). This should render the file playable again.\
+\
+When writeout time comes, a temporary filename is created next to the original file. A "Foo-Boo (Whoo remix).m4a", becomes "Foo-Boo (Whoo remix)-temp-34508.m4a" with a random number.\
+\
+------------------------------\
+Compiling:\
+\
+You will need XCode's developer tools installed - gcc4 is the only compiler tested; should be able to compile on most Mac OS X versions - developed on Mac OS X 10.4.3.\
+\
+cd AtomicParlsey && ./build\
+\
+---------------------------\
+Usage:\
+\
+[AtomicParsley] [audio file] [bevy of options]\
+\
+AtomicParsley /path/to/song.m4a --artist "Yo' Mama" --title "You Owe Me Money" --album "Boy, get yo' lazzzy butt up\\!" --genre "Progressive Zydeco" --tracknum 1/2 --disknum 1/2 --comment 'Mama loves you (as long as you move out my house TODAY!!!)' --lyrics "Go, Go, GO\\! (repeat)" --composer "Your Diaper Changer" --grouping "Moving Music" --artwork ~/Desktop/greenfront.jpg --artwork ~/Desktop/greenback.png --tagtime\
+\
+AtomicParlsey /path/to/song.m4a -T (prints the atom tree to screen)\
+AtomicParsley /path/to/song.m4a -t (extracts the text & integer atoms)\
+\
+Atomicparsley /path/to/song.m4a -extractPix /some/far/off/path/basename\
+		(extracts to the same folder as "song_artwork_X.ext" where ext is jpg or png)\
+Atomicparsley /path/to/song.m4a -extractPixToPath\
+		(extracts pictures to any folder with basename_artwork_X.ext)\
+\
+Tag safely.}
