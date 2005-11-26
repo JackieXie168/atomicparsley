@@ -43,6 +43,7 @@ short generalAtomicLevel = 1;
 bool file_opened = false;
 FILE* source_file;
 bool parsedfile = false;
+bool alter_original = false;
 bool flag_drms_atom = false;
 
 long max_buffer = 4096*25;
@@ -60,12 +61,17 @@ off_t findFileSize(const char *path) {
 	return fileStats.st_size;
 }
 
+//#if defined(__ppc__)
 long longFromBigEndian(const char *string) {
 	long test;
 	memcpy(&test,string,4);
 	return test;
 }
+//#else
 
+//#endif
+
+//#if defined(__ppc__)
 void char4long(long lnum, char* data) {
 	data[0] = (lnum >> 24) & 0xff;
 	data[1] = (lnum >> 16) & 0xff;
@@ -73,12 +79,20 @@ void char4long(long lnum, char* data) {
 	data[3] = (lnum >>  0) & 0xff;
 	return;
 }
+//#else
 
+//#endif
+
+//#if defined(__ppc__)
 void char4short(short snum, char* data) {
 	data[0] = (snum >>  8) & 0xff;
 	data[1] = (snum >>  0) & 0xff;
 	return;
 }
+//#else
+
+//#endif
+
 
 char* extractAtomName(char *fileData) {
 	char *atom=(char *)malloc(sizeof(char)*5);
@@ -932,6 +946,7 @@ void APar_DetermineAtomLengths() {
 ///////////////////////////////////////////////////////////////////////////////////////
 
 void APar_RemoveAtom(const char* atom_path, bool shellAtom) {
+	modified_atoms = true;
 	AtomicInfo desiredAtom = APar_FindAtom(atom_path, false, shellAtom, false);
 	short preceding_atom_pos = APar_FindPrecedingAtom(desiredAtom);
 	AtomicInfo endingAtom = APar_LocateAtomInsertionPoint(atom_path, true);
@@ -1018,6 +1033,24 @@ void APar_EncapulateData(AtomicInfo anAtom, const char* atomData, short binaryDa
 			break;
 			
 		case AtomicDataClass_CPIL_TMPO :
+			//it's identical(for now) to the integer class - for those atoms like tmpo(bpm) that even go here - cpil/rtng doesn't
+			//it will be separate from the integer class for clarity's sake
+			
+			//the first member of the binaryData = # of members (sizeof on arrays become pointers & won't work when passed to a function)
+			parsedAtoms[thisnum].AtomicData = (char*)malloc(sizeof(char)* ((binaryData[0]-1) * sizeof(short))  ); // for genre: 3 * 2
+			
+			// set up a 2byte(2 char) buffer for short to char conversions, then copy each character into the main AtomicData char.
+			char *small_buf= (char*)malloc(sizeof(char)* 2);
+			for (short i = 0; i < binaryData[0]-1; i++) {
+				char4short(binaryData[i+1], small_buf);
+				parsedAtoms[thisnum].AtomicData[2 * i] = small_buf[0];
+				parsedAtoms[thisnum].AtomicData[(2 * i) + 1] = small_buf[1];
+			}
+			free(small_buf);
+			
+			parsedAtoms[thisnum].AtomicLength = (binaryData[0]-1) *2 + 12;
+			parsedAtoms[thisnum].AtomicDataClass = AtomicDataClass_Integer;
+
 			parsedAtoms[thisnum].AtomicDataClass = AtomicDataClass_CPIL_TMPO;
 			break;
 	}
@@ -1125,7 +1158,32 @@ void APar_AddMetadataInfo(const char* m4aFile, const char* atom_path, const int 
 			}
 			
 		} else if (dataType == AtomicDataClass_CPIL_TMPO) {
-			//figure out cpil/tmpo stuff
+			if ( strncmp(parsedAtoms[APar_FindPrecedingAtom(desiredAtom)].AtomicName, "cpil", 4) == 0 ) {
+				//compilations is 5 bytes of data after the data class.... no great way to handle that....
+				parsedAtoms[desiredAtom.AtomicNumber].AtomicData = strdup("\x01");
+				parsedAtoms[desiredAtom.AtomicNumber].AtomicDataClass = dataType;
+				parsedAtoms[desiredAtom.AtomicNumber].AtomicLength = 12 + 4 +1;  //offset + name + class + 4bytes null + \01
+				//APar_AtomicWriteTest(desiredAtom.AtomicNumber, true); //only the first byte will be valid
+				
+			} else if ( strncmp(parsedAtoms[APar_FindPrecedingAtom(desiredAtom)].AtomicName, "rtng", 4) == 0 ) {
+				//'rtng'(advisory rating) is 5 bytes of data after the data class.... no great way to handle that either.
+				if (strncmp(atomPayload, "clean", 5) == 0) {
+					parsedAtoms[desiredAtom.AtomicNumber].AtomicData = strdup("\x02"); //only \02 is clean
+				} else if (strncmp(atomPayload, "explicit", 8) == 0) {
+					parsedAtoms[desiredAtom.AtomicNumber].AtomicData = strdup("\x04"); //most non \00, \02 numbers are allowed
+				}
+				parsedAtoms[desiredAtom.AtomicNumber].AtomicDataClass = dataType;
+				parsedAtoms[desiredAtom.AtomicNumber].AtomicLength = 12 + 4 +1;  //offset + name + class + 4bytes null + \01
+			
+			} else if ( strncmp(parsedAtoms[APar_FindPrecedingAtom(desiredAtom)].AtomicName, "tmpo", 4) == 0 ) {
+				short bpm_value = 0;
+				sscanf(atomPayload, "%hd", &bpm_value); //sscanf into a short int
+				short bpm_data[4] = {0, 0, 0, bpm_value}; // number of elements + 3 shorts used in atom
+				bpm_data[0] = (short)sizeof(bpm_data)/sizeof(short);
+				APar_EncapulateData(desiredAtom, NULL, bpm_data, dataType);
+				
+			}
+			
 		}
 	}
 	return;
@@ -1291,36 +1349,30 @@ void APar_FileWrite_Buffered(FILE* dest_file, FILE *src_file, long dest_start, l
 	return;
 }
 
-void APar_BackupToTempFile(const char* m4aFile) {
-	long max_buffer = 4096*25;
-	FILE* temp_file;
+void APar_CompleteCopyFile(FILE* dest_file, FILE *src_file, long new_file_size, char* &buffer) {
+	//this function is used to duplicate the temp file back into the original file.
 	//hopefully, this reduces any memory strain due to modding an Apple Lossless m4a file (toting in at a pork choppy 50Megs)
 	//allocating 50MB would be.... quite the allocation, so we'll show restraint: 102400 bytes (goes through the while loop 512 times)
-	char* temp_file_name=(char*)malloc( sizeof(char)* (strlen(m4aFile) +12) );
-	char* file_buffer=(char*)malloc( sizeof(char)* max_buffer );
-	APar_DeriveNewPath(m4aFile, temp_file_name);
-	fprintf(stdout, "New path is %s\n", temp_file_name);
-	
-	temp_file = fopen(temp_file_name, "wr");
 	long file_pos = 0;
-	fprintf(stdout, "Our file size is %li\n", (long)file_size);
-	while (file_pos <= (long)file_size) {
-		if (file_pos + max_buffer <= (long)file_size ) {
-			APar_FileWrite_Buffered(temp_file, source_file, file_pos, file_pos, max_buffer, file_buffer);
+	while (file_pos <= new_file_size) {
+		if (file_pos + max_buffer <= new_file_size ) {
+			fseek(src_file, file_pos, SEEK_SET);
+			fread(buffer, 1, (size_t)max_buffer, src_file);
+			
+			fseek(dest_file, file_pos, SEEK_SET);
+			fwrite(buffer, (size_t)max_buffer, 1, dest_file);
 			file_pos += max_buffer;
+			
 		} else {
-			APar_FileWrite_Buffered(temp_file, source_file, file_pos, file_pos, ( (long)file_size - file_pos), file_buffer);
-			file_pos += ( (long)file_size - file_pos );
-			fprintf(stdout, "Ended writing at %li\n", file_pos);
+			fseek(src_file, file_pos, SEEK_SET);
+			fread(buffer, 1, (size_t)(new_file_size - file_pos), src_file);
+			
+			fseek(dest_file, file_pos, SEEK_SET);
+			fwrite(buffer, (size_t)(new_file_size - file_pos), 1, dest_file);
+			file_pos += new_file_size - file_pos;
 			break;
-		}
-		
+		}		
 	}
-	fclose(temp_file);
-	
-	free(temp_file_name);
-	file_buffer = NULL;
-	free(file_buffer);
 	return;
 }
 
@@ -1397,7 +1449,7 @@ long APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file, ch
 					bytes_written += max_buffer;
 				
 				} else { //we either came up on a short atom (most are), or the last bit of a really long atom
-				//fprintf(stdout, "Writing atom %s from file directly into buffer\n", parsedAtoms[this_atom].AtomicName);
+					//fprintf(stdout, "Writing atom %s from file directly into buffer\n", parsedAtoms[this_atom].AtomicName);
 					fseek(pic_file, bytes_written - 16, SEEK_SET);
 					fread(buffer, 1, (size_t)(parsedAtoms[this_atom].AtomicLength - bytes_written), pic_file);
 				
@@ -1456,16 +1508,24 @@ long APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file, ch
 				bytes_written += 4;
 			}
 		}
+		//parent_atom is only used for cpil/rtng
+		AtomicInfo parent_atom = APar_FindParentAtom(parsedAtoms[this_atom].AtomicNumber, parsedAtoms[this_atom].AtomicLevel);
+		
 		if (parsedAtoms[this_atom].AtomicData != NULL) {
 			long atom_data_size = 0;
 			//fwrite(conv_buffer, 4, 1, temp_file);
 			if (strncmp(parsedAtoms[this_atom].AtomicName, "stsd", 4) == 0) {
-				//fprintf(stdout, "stsd data\n");
-				//fprintf(stdout, "I want to write %li bytes.\n", parsedAtoms[this_atom].AtomicLength - 12);
-				//APar_AtomicWriteTest(this_atom, true);
-				//if (flag_drms_atom) 
 					atom_data_size = 4;
-				//}
+					
+			} else if ( (strncmp(parent_atom.AtomicName, "cpil", 4) == 0) || (strncmp(parent_atom.AtomicName, "rtng", 4) == 0) ) {
+				//cpil/rtng is difficult to handle: its 5 bytes; AtomicParsley works in 1byte chunks for text/art; 2 bytes for others
+				char4long( 0, conv_buffer);
+				fwrite(conv_buffer, 4, 1, temp_file);
+				bytes_written += 4;
+				
+				fwrite(parsedAtoms[this_atom].AtomicData, 1, 1, temp_file);
+				bytes_written += 1;	
+			
 			} else {
 				if (parsedAtoms[this_atom].AtomicDataClass == AtomicDataClass_Text) {
 					atom_data_size = parsedAtoms[this_atom].AtomicLength - 16;
@@ -1483,7 +1543,7 @@ long APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file, ch
 	return bytes_written;
 }
 
-void APar_WriteFile(const char* m4aFile) {
+void APar_WriteFile(const char* m4aFile, bool rewrite_original) {
 	char* file_buffer=(char*)malloc( sizeof(char)* max_buffer );
 	char* temp_file_name=(char*)malloc( sizeof(char)* (strlen(m4aFile) +12) );
 	char* data = (char*)malloc(sizeof(char)*4);
@@ -1529,14 +1589,29 @@ void APar_WriteFile(const char* m4aFile) {
 			}
 			thisAtomNumber = parsedAtoms[thisAtomNumber].NextAtomNumber;
 		}
-		
 		fclose(temp_file);
+		
 	} else {
 		fprintf(stdout, "An error occurred while trying to create a temp file.\n");
 		exit(1);
 	}
+	
+	if (rewrite_original) {
+		fclose(source_file);
+		FILE *originating_file = NULL;
+		originating_file = fopen(m4aFile, "wr");
+		temp_file = NULL;
+		temp_file = fopen(temp_file_name, "r"); //reopens as read-only
+		if (originating_file != NULL) {
+			APar_CompleteCopyFile(originating_file, temp_file, temp_file_bytes_written, file_buffer);
+			fclose(temp_file);
+			remove(temp_file_name); //this deletes the temp file so we don't have to suffer seeing it anymore. (I could pre-pend a '.' to it....)
+			fclose(originating_file);
+		} else {
+			fprintf(stdout, "AtomicParsley error: unable to open original file for writing; writeback failed - file is unaltered.\n");
+		}
+	}
 	//APar_PrintAtomicTree();
-	//APar_BackupToTempFile(m4aFile);
 	APar_FreeMemory();
 	free(temp_file_name);
 	file_buffer = NULL;
