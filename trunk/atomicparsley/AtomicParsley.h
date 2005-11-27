@@ -50,7 +50,7 @@ extern bool modified_atoms;
 
 extern bool alter_original;
 
-#define AtomicParsley_version	"0.7"
+#define AtomicParsley_version	"0.7.1"
 
 //--------------------------------------------------------------------------------------------------------------------------------//
 //--------------------------------------------------------------------------------------------------------------------------------//
@@ -84,6 +84,8 @@ void APar_WriteFile(const char* m4aFile, bool rewrite_original);
 // v0.6  GPL'ed at sourceforge.net
 // v0.65  11/25/2005  bugfixes to newly introduced bugs in APar_FindAtom; metaEnema to remove all metadata (safe even for m4p drm files); year implemented properly (tagtime moved onto non-standard 'tdtg' atom ala id3v2.4 - because I like that tag); added setting compilation "cpil" tag (an annoying 5byte tag); added advisory setting (maybe it'll give me a kick one cold winter day-do a "Get Info" in iTunes & in the main "Summary" tab view will be a new little icon next to artwork)
 // v0.7  11/26/2005 added a writeBack flag to for a less beta-like future; integrated NSImage resizing of artwor; environmental preferences for artwork modifications; build system mods for Mac-specific compiling; 
+// v0.7.1  11/27/2005 modified parsing & writing to support Apple Lossless (alac) mp4 files. The lovely "alac.alac" non-standard atoms (parents & carry data) caused unplayable files to be written.
 
 // goals for v0.99 supporting big endian systems
 // goals for 1.x UTF-8 support; perhaps even full blown UTF-16 (unlikely).
+// TODO: revisit how atoms are parsed to get around the tricks for atoms like 'alac', 'drms', 'stsd', 'mp4a' & their writing

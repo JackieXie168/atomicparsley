@@ -862,7 +862,8 @@ void ParseDRM_Atoms(FILE* file, long midJump, long drmLength) {
 			}
 			AtomizeFileInfo(parsedAtoms[atom_number], midJump, interDataSize, atom, atomLevel, -1, 0);
 			
-			if (strncmp(atom, "mp4a", 4) == 0) {
+			//it gets uglier & uglier... in an Apple Lossless m4a there is an "alac.alac" hierarchy.... very creative of Apple
+			if ( (strncmp(atom, "mp4a", 4) == 0) || ( (strncmp(atom, "alac", 4) == 0) && (atomLevel == 7) ) ) {
 				parsedAtoms[atom_number-1].AtomicData = (char *)malloc(sizeof(char)*24);
 				fseek (file, midJump+12, SEEK_SET);
 				fread(parsedAtoms[atom_number-1].AtomicData, 1, 24, file);
@@ -984,7 +985,6 @@ void APar_DetermineAtomLengths() {
 		next_atom = rev_atom_loop;
 		rev_atom_loop = APar_FindPrecedingAtom(parsedAtoms[rev_atom_loop]);
 		//fprintf(stdout, "current atom is named %s, num:%i\n", parsedAtoms[rev_atom_loop].AtomicName, parsedAtoms[rev_atom_loop].AtomicNumber);
-		//atom_size = parsedAtoms[rev_atom_loop].AtomicLength;
 
 		if (parsedAtoms[rev_atom_loop].AtomicLevel == ( parsedAtoms[next_atom].AtomicLevel - 1) ) {
 			//apparently, a newly created atom of some sort.... we'll need to discern if what kind of parent/container atom 
@@ -992,7 +992,9 @@ void APar_DetermineAtomLengths() {
 				atom_size += 12;
 			} else if ( strncmp(parsedAtoms[rev_atom_loop].AtomicName, "stsd", 4) == 0 ) {
 				atom_size += 16;
-			} else if ( (strncmp(parsedAtoms[rev_atom_loop].AtomicName, "drms", 4) == 0) || (strncmp(parsedAtoms[rev_atom_loop].AtomicName, "mp4a", 4) == 0 ) ) {
+			} else if ( (strncmp(parsedAtoms[rev_atom_loop].AtomicName, "drms", 4) == 0) || 
+			            (strncmp(parsedAtoms[rev_atom_loop].AtomicName, "mp4a", 4) == 0) ||
+									( (strncmp(parsedAtoms[rev_atom_loop].AtomicName, "alac", 4) == 0) && (parsedAtoms[rev_atom_loop].AtomicLevel == 7))) {
 				atom_size += 36;
 			} else {
 				atom_size += 8;
@@ -1011,7 +1013,6 @@ void APar_DetermineAtomLengths() {
 		}
 		
 	}
-	//fprintf(stdout, "atom %s, size: %li\n", parsedAtoms[38].AtomicName, parsedAtoms[38].AtomicLength);
 	//SimpleAtomPrintout();
 	//APar_PrintAtomicTree();
 	return;
@@ -1673,7 +1674,9 @@ void APar_WriteFile(const char* m4aFile, bool rewrite_original) {
 
 			if ( (thisAtom.AtomicData != NULL) || ( strncmp(thisAtom.AtomicName, "meta", 4)  == 0 && thisAtom.AtomicDataClass >= 0) ) {
 			//if ( (strlen(thisAtom.AtomicData) != 0) || (thisAtom.AtomicDataClass >= 0) ) {
-				if (strncmp(parsedAtoms[thisAtomNumber].AtomicName, "drms", 4) == 0 || strncmp(parsedAtoms[thisAtomNumber].AtomicName, "mp4a", 4) == 0) {
+				if ( (strncmp(parsedAtoms[thisAtomNumber].AtomicName, "drms", 4) == 0) || 
+				     (strncmp(parsedAtoms[thisAtomNumber].AtomicName, "mp4a", 4) == 0) || 
+						 (strncmp(parsedAtoms[thisAtomNumber].AtomicName, "alac", 4) == 0 && (parsedAtoms[thisAtomNumber].AtomicLevel == 7)) ) {
 					temp_file_bytes_written += APar_DRMS_WriteAtomically(temp_file, file_buffer, data, temp_file_bytes_written, thisAtomNumber);
 				} else {
 					temp_file_bytes_written += APar_WriteAtomically(source_file, temp_file, false, file_buffer, data, temp_file_bytes_written, thisAtomNumber);
