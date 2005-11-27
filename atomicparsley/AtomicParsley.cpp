@@ -49,6 +49,7 @@ FILE* source_file;
 bool parsedfile = false;
 bool alter_original = false;
 bool flag_drms_atom = false;
+bool Create__udta_meta_hdlr__atom = false;
 
 long max_buffer = 4096*25;
 
@@ -353,12 +354,12 @@ AtomicInfo APar_FindAtom(const char* atom_name, bool createMissing, bool stringF
 				//fprintf(stdout, "Atoms that need creation: \"%s\"\n", search_atom_name);
 				if (atom_hierarchy == NULL) {
 					if (createMissing) {
-						thisAtom = APar_CreateSparseAtom(found_hierarchy, search_atom_name, atom_hierarchy, present_atom_level);
+						thisAtom = APar_CreateSparseAtom(found_hierarchy, search_atom_name, atom_hierarchy, present_atom_level, true);
 					}
 				} else {
 					while (atom_hierarchy != NULL) {
 						if (createMissing) {
-							thisAtom = APar_CreateSparseAtom(found_hierarchy, search_atom_name, atom_hierarchy, present_atom_level);
+							thisAtom = APar_CreateSparseAtom(found_hierarchy, search_atom_name, atom_hierarchy, present_atom_level, true);
 						}
 						search_atom_name = strsep(&atom_hierarchy,".");
 						present_atom_level++;
@@ -398,8 +399,21 @@ AtomicInfo APar_LocateAtomInsertionPoint(const char* the_hierarchy, bool findLas
 		if ( (atom_hierarchy == NULL) && (present_atom_level == 1) ) {
 			
 			for (int i=0; i < atom_number; i++) {
-				if (findLastChild) { //this will add a Level1 atom at the end of all atoms (nowhere else, just the end)
-					if ( parsedAtoms[i].NextAtomNumber == 0 ) {
+				if (findLastChild) {
+					
+					if ( strncmp(search_atom_name, parsedAtoms[i].AtomicName, 4) == 0 ) { //this essentially searches for 'moov' atom children
+						int child_atom_num = parsedAtoms[i].NextAtomNumber;
+						while (parsedAtoms[child_atom_num].AtomicLevel > parsedAtoms[i].AtomicLevel) {
+							if (parsedAtoms[i].AtomicLevel == parsedAtoms[parsedAtoms[child_atom_num].NextAtomNumber].AtomicLevel) {
+								break; //we found the last child (in all likelyhood of a "moov" atom)
+							}
+						child_atom_num = parsedAtoms[child_atom_num].NextAtomNumber;
+						}
+						InsertionPointAtom = parsedAtoms[child_atom_num];
+						break;
+						
+					//this will add a Level1 atom at the end of all atoms (nowhere else, just the end)
+					} else if ( parsedAtoms[i].NextAtomNumber == 0 ) {
 						InsertionPointAtom = parsedAtoms[i];
 						break;
 					}
@@ -965,58 +979,6 @@ void APar_ScanAtoms(const char *path) {
 	return;
 }
 
-///////////////////////////////////////////////////////////////////////////////////////
-//                          Determine Atom Length                                    //
-///////////////////////////////////////////////////////////////////////////////////////
-
-void APar_DetermineAtomLengths() {
-	short last_atom = APar_FindLastAtom();
-	//fprintf(stdout, "Last atom is named %s, num:%i\n", parsedAtoms[last_atom].AtomicName, parsedAtoms[last_atom].AtomicNumber);
-	short rev_atom_loop = APar_FindPrecedingAtom(parsedAtoms[last_atom]);
-	
-	while (rev_atom_loop !=0) {
-		short next_atom = 0;
-		long atom_size = 0;
-		//fprintf(stdout, "preceding atom is named %s, num:%i\n", parsedAtoms[rev_atom_loop].AtomicName, parsedAtoms[rev_atom_loop].AtomicNumber);
-		
-		//if we were to eval our last atom, we would do it here, but it's either "free", "mdat", or a metadata "data" child atom
-		//which means, that it's either a top level atom, or a child (and not a container atom), so length has already been determined
-		//had it not (or we were on a mission to cover every base), we would eval the last atom before APar_FindPrecedingAtom.
-		next_atom = rev_atom_loop;
-		rev_atom_loop = APar_FindPrecedingAtom(parsedAtoms[rev_atom_loop]);
-		//fprintf(stdout, "current atom is named %s, num:%i\n", parsedAtoms[rev_atom_loop].AtomicName, parsedAtoms[rev_atom_loop].AtomicNumber);
-
-		if (parsedAtoms[rev_atom_loop].AtomicLevel == ( parsedAtoms[next_atom].AtomicLevel - 1) ) {
-			//apparently, a newly created atom of some sort.... we'll need to discern if what kind of parent/container atom 
-			if ( strncmp(parsedAtoms[rev_atom_loop].AtomicName, "meta", 4) == 0 ) {
-				atom_size += 12;
-			} else if ( strncmp(parsedAtoms[rev_atom_loop].AtomicName, "stsd", 4) == 0 ) {
-				atom_size += 16;
-			} else if ( (strncmp(parsedAtoms[rev_atom_loop].AtomicName, "drms", 4) == 0) || 
-			            (strncmp(parsedAtoms[rev_atom_loop].AtomicName, "mp4a", 4) == 0) ||
-									( (strncmp(parsedAtoms[rev_atom_loop].AtomicName, "alac", 4) == 0) && (parsedAtoms[rev_atom_loop].AtomicLevel == 7))) {
-				atom_size += 36;
-			} else {
-				atom_size += 8;
-			}
-		}
-		
-		while (parsedAtoms[next_atom].AtomicLevel > parsedAtoms[rev_atom_loop].AtomicLevel) { // eval all child atoms....
-			//fprintf(stdout, "\ttest child atom %s, level:%i (sum %li)\n", parsedAtoms[next_atom].AtomicName, parsedAtoms[next_atom].AtomicLevel, atom_size);
-			if (parsedAtoms[rev_atom_loop].AtomicLevel == ( parsedAtoms[next_atom].AtomicLevel - 1) ) { // only child atoms 1 level down
-				atom_size += parsedAtoms[next_atom].AtomicLength;
-				//fprintf(stdout, "\t\teval child atom %s, level:%i (sum %li)\n", parsedAtoms[next_atom].AtomicName, parsedAtoms[next_atom].AtomicLevel, atom_size); 
-				//fprintf(stdout, "\t\teval %s's child atom %s, level:%i (sum %li, added %li)\n", parsedAtoms[rev_atom_loop].AtomicName, parsedAtoms[next_atom].AtomicName, parsedAtoms[next_atom].AtomicLevel, atom_size, parsedAtoms[next_atom].AtomicLength);
-			}
-			next_atom = parsedAtoms[next_atom].NextAtomNumber; //increment to eval next atom
-			parsedAtoms[rev_atom_loop].AtomicLength = atom_size;
-		}
-		
-	}
-	//SimpleAtomPrintout();
-	//APar_PrintAtomicTree();
-	return;
-}
 
 ///////////////////////////////////////////////////////////////////////////////////////
 //                          Atom Removal Functions                                   //
@@ -1093,20 +1055,28 @@ void APar_EncapulateData(AtomicInfo anAtom, const char* atomData, short binaryDa
 			
 		case AtomicDataClass_Integer :
 			//the first member of the binaryData = # of members (sizeof on arrays become pointers & won't work when passed to a function)
-			parsedAtoms[thisnum].AtomicData = (char*)malloc(sizeof(char)* ((binaryData[0]-1) * sizeof(short))  ); // for genre: 3 * 2
-			
-			// set up a 2byte(2 char) buffer for short to char conversions, then copy each character into the main AtomicData char.
-			char *short_buf= (char*)malloc(sizeof(char)* 2);
-			for (short i = 0; i < binaryData[0]-1; i++) {
-				char4short(binaryData[i+1], short_buf);
-				parsedAtoms[thisnum].AtomicData[2 * i] = short_buf[0];
-				parsedAtoms[thisnum].AtomicData[(2 * i) + 1] = short_buf[1];
+			if ( strncmp(anAtom.AtomicName, "hdlr",4) == 0 ) {
+				
+				parsedAtoms[thisnum].AtomicData = (char*)malloc(sizeof(char)* 21);
+				//apparently, a TODO item is to revisit how AtomicData is stored/input; this is repulsive (but effective)
+				memcpy(parsedAtoms[thisnum].AtomicData, "\x00\x00\x00\x00\x6D\x64\x69\x72\x61\x70\x70\x6C\x00\x00\x00\x00\x00\x00\x00\x00\x00", 21 ); 
+				parsedAtoms[thisnum].AtomicLength = 33;
+				
+			} else {
+				parsedAtoms[thisnum].AtomicData = (char*)malloc(sizeof(char)* ((binaryData[0]-1) * sizeof(short))  ); // for genre: 3 * 2
+				
+				// set up a 2byte(2 char) buffer for short to char conversions, then copy each character into the main AtomicData char.
+				char *short_buf= (char*)malloc(sizeof(char)* 2);
+				for (short i = 0; i < binaryData[0]-1; i++) {
+					char4short(binaryData[i+1], short_buf);
+					parsedAtoms[thisnum].AtomicData[2 * i] = short_buf[0];
+					parsedAtoms[thisnum].AtomicData[(2 * i) + 1] = short_buf[1];
+				}
+				free(short_buf);
+				
+				parsedAtoms[thisnum].AtomicLength = (binaryData[0]-1) *2 + 12;
 			}
-			free(short_buf);
-			
-			parsedAtoms[thisnum].AtomicLength = (binaryData[0]-1) *2 + 12;
 			parsedAtoms[thisnum].AtomicDataClass = AtomicDataClass_Integer;
-			
 			break;
 			
 		case AtomicDataClass_CPIL_TMPO :
@@ -1135,9 +1105,10 @@ void APar_EncapulateData(AtomicInfo anAtom, const char* atomData, short binaryDa
 	return;
 }
 
-AtomicInfo APar_CreateSparseAtom(const char* present_hierarchy, char* new_atom_name, char* remaining_hierarchy, short atom_level) {
+AtomicInfo APar_CreateSparseAtom(const char* present_hierarchy, char* new_atom_name, 
+                                 char* remaining_hierarchy, short atom_level, bool asLastChild) {
 	//the end boolean value below tells the function to locate where that atom (and its children) end
-	AtomicInfo KeyInsertionAtom = APar_LocateAtomInsertionPoint(present_hierarchy, true);
+	AtomicInfo KeyInsertionAtom = APar_LocateAtomInsertionPoint(present_hierarchy, asLastChild);
 	bool atom_shunted = false; //only shunt the NextAtomNumber once (for the first atom that is missing.
 	int continuation_atom_number = KeyInsertionAtom.NextAtomNumber;
 	AtomicInfo new_atom;
@@ -1187,6 +1158,16 @@ AtomicInfo APar_CreateSparseAtom(const char* present_hierarchy, char* new_atom_n
 		
 		atom_number++;
 		atom_shunted = true;
+		
+		if (new_atom_name != NULL && remaining_hierarchy != NULL) {
+			if ( (strncmp(new_atom_name, "meta", 4) == 0) && (strncmp(remaining_hierarchy, "ilst", 4) == 0) ) { //causes a bus error
+				//fprintf(stdout, "a hdlr atom needs to be created\n");
+				if (!Create__udta_meta_hdlr__atom) {
+					Create__udta_meta_hdlr__atom = true;
+				}
+			}
+		} //ends create hdlr section
+		
 	}
 	
 	return new_atom;
@@ -1263,6 +1244,7 @@ void APar_AddMetadataInfo(const char* m4aFile, const char* atom_path, const int 
 			
 		}
 	}
+	
 	return;
 }
 
@@ -1301,7 +1283,7 @@ void APar_AddMetadataArtwork(const char* m4aFile, const char* artworkPath, char*
 	modified_atoms = true;
 	const char* artwork_atom = "moov.udta.meta.ilst.covr";
 	AtomicInfo desiredAtom = APar_FindAtom(artwork_atom, true, false, true);
-	desiredAtom = APar_CreateSparseAtom(artwork_atom, "data", NULL, 6);
+	desiredAtom = APar_CreateSparseAtom(artwork_atom, "data", NULL, 6, true);
 	
 	//determine if any picture preferences will impact the picture file in any way
 	myPicturePrefs = ExtractPicPrefs(env_PicOptions);
@@ -1315,7 +1297,7 @@ void APar_AddMetadataArtwork(const char* m4aFile, const char* artworkPath, char*
 		if (myPicturePrefs.addBOTHpix) {
 			//create another sparse atom to hold the new file path (otherwise the 2nd will just overwrite the 1st in EncapsulateData
 			desiredAtom = APar_FindAtom(artwork_atom, true, false, true);
-			desiredAtom = APar_CreateSparseAtom(artwork_atom, "data", NULL, 6);
+			desiredAtom = APar_CreateSparseAtom(artwork_atom, "data", NULL, 6, true);
 			APar_EncapulateData(desiredAtom, artworkPath, 0, APar_TestArtworkBinaryData(artworkPath) );
 		}
 	} else {
@@ -1409,6 +1391,74 @@ void APar_Readjust_STCO_atom(long supplemental_offset) {
 		}
 		thisAtomNumber = parsedAtoms[thisAtomNumber].NextAtomNumber;
 	}
+	return;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////
+//                          Determine Atom Length                                    //
+///////////////////////////////////////////////////////////////////////////////////////
+
+void APar_DetermineAtomLengths() {
+	if (Create__udta_meta_hdlr__atom) { //this boolean only gets set when the surrounding hierarchies are created
+		
+		//if Quicktime (Player at the least) is used to create any type of mp4 file, the entire udta hierarchy is missing
+		//if iTunes doesn't find this "moov.udta.meta.hdlr" atom (and its data), it refuses to let any information be changed
+		//the dreaded "Album Artwork Not Modifiable" shows up. It's because this atom is missing. Oddly, QT Player can see the info
+		//this only works for mp4/m4a files - it doesn't work for 3gp (it writes perfectly fine, iTunes plays it (not modifiable)
+		
+		//QuickTime (ISMA) exports still don't work properly because of the damn stsd atom's children (and there are 3 of them!!!)
+		
+		AtomicInfo hdlr_atom = APar_FindAtom("moov.udta.meta.hdlr", true, false, false);
+		hdlr_atom = APar_CreateSparseAtom("moov.udta.meta", "hdlr", NULL, 4, false);
+		APar_EncapulateData(hdlr_atom, NULL, NULL, AtomicDataClass_Integer);
+	}
+
+	
+	short last_atom = APar_FindLastAtom();
+	//fprintf(stdout, "Last atom is named %s, num:%i\n", parsedAtoms[last_atom].AtomicName, parsedAtoms[last_atom].AtomicNumber);
+	short rev_atom_loop = APar_FindPrecedingAtom(parsedAtoms[last_atom]);
+	
+	while (rev_atom_loop !=0) {
+		short next_atom = 0;
+		long atom_size = 0;
+		//fprintf(stdout, "preceding atom is named %s, num:%i\n", parsedAtoms[rev_atom_loop].AtomicName, parsedAtoms[rev_atom_loop].AtomicNumber);
+		
+		//if we were to eval our last atom, we would do it here, but it's either "free", "mdat", or a metadata "data" child atom
+		//which means, that it's either a top level atom, or a child (and not a container atom), so length has already been determined
+		//had it not (or we were on a mission to cover every base), we would eval the last atom before APar_FindPrecedingAtom.
+		next_atom = rev_atom_loop;
+		rev_atom_loop = APar_FindPrecedingAtom(parsedAtoms[rev_atom_loop]);
+		//fprintf(stdout, "current atom is named %s, num:%i\n", parsedAtoms[rev_atom_loop].AtomicName, parsedAtoms[rev_atom_loop].AtomicNumber);
+
+		if (parsedAtoms[rev_atom_loop].AtomicLevel == ( parsedAtoms[next_atom].AtomicLevel - 1) ) {
+			//apparently, a newly created atom of some sort.... we'll need to discern if what kind of parent/container atom 
+			if ( strncmp(parsedAtoms[rev_atom_loop].AtomicName, "meta", 4) == 0 ) {
+				atom_size += 12;
+			} else if ( strncmp(parsedAtoms[rev_atom_loop].AtomicName, "stsd", 4) == 0 ) {
+				atom_size += 16;
+			} else if ( (strncmp(parsedAtoms[rev_atom_loop].AtomicName, "drms", 4) == 0) || 
+			            (strncmp(parsedAtoms[rev_atom_loop].AtomicName, "mp4a", 4) == 0) ||
+									( (strncmp(parsedAtoms[rev_atom_loop].AtomicName, "alac", 4) == 0) && (parsedAtoms[rev_atom_loop].AtomicLevel == 7))) {
+				atom_size += 36;
+			} else {
+				atom_size += 8;
+			}
+		}
+		
+		while (parsedAtoms[next_atom].AtomicLevel > parsedAtoms[rev_atom_loop].AtomicLevel) { // eval all child atoms....
+			//fprintf(stdout, "\ttest child atom %s, level:%i (sum %li)\n", parsedAtoms[next_atom].AtomicName, parsedAtoms[next_atom].AtomicLevel, atom_size);
+			if (parsedAtoms[rev_atom_loop].AtomicLevel == ( parsedAtoms[next_atom].AtomicLevel - 1) ) { // only child atoms 1 level down
+				atom_size += parsedAtoms[next_atom].AtomicLength;
+				//fprintf(stdout, "\t\teval child atom %s, level:%i (sum %li)\n", parsedAtoms[next_atom].AtomicName, parsedAtoms[next_atom].AtomicLevel, atom_size); 
+				//fprintf(stdout, "\t\teval %s's child atom %s, level:%i (sum %li, added %li)\n", parsedAtoms[rev_atom_loop].AtomicName, parsedAtoms[next_atom].AtomicName, parsedAtoms[next_atom].AtomicLevel, atom_size, parsedAtoms[next_atom].AtomicLength);
+			}
+			next_atom = parsedAtoms[next_atom].NextAtomNumber; //increment to eval next atom
+			parsedAtoms[rev_atom_loop].AtomicLength = atom_size;
+		}
+		
+	}
+	//SimpleAtomPrintout();
+	//APar_PrintAtomicTree();
 	return;
 }
 

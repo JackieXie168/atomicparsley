@@ -66,7 +66,8 @@ void APar_PrintAtomicTree();
 void APar_ScanAtoms(const char *path);
 
 void APar_DetermineAtomLengths();
-AtomicInfo APar_CreateSparseAtom(const char* present_hierarchy, char* new_atom_name, char* remaining_hierarchy, short atom_level);
+AtomicInfo APar_CreateSparseAtom(const char* present_hierarchy, char* new_atom_name,
+                                 char* remaining_hierarchy, short atom_level, bool asLastChild);
 
 void APar_AddMetadataInfo(const char* m4aFile, const char* atom_path, const int dataType, const char* atomPayload, bool shellAtom);
 void APar_AddGenreInfo(const char* m4aFile, const char* atomPayload);
