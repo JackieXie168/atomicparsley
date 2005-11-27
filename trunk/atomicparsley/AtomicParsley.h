@@ -41,6 +41,7 @@ struct AtomicInfo  {
 	int AtomicDataClass;
 	char* AtomicData;
 	int NextAtomNumber; //out first atom is numbered 0; the last points back to it - so watch it!
+	bool tempFile; //used to delete temp pic files (if set as an environmental preference)
 };
 
 extern bool parsedfile;
@@ -49,7 +50,7 @@ extern bool modified_atoms;
 
 extern bool alter_original;
 
-#define AtomicParsley_version	"0.65"
+#define AtomicParsley_version	"0.7"
 
 //--------------------------------------------------------------------------------------------------------------------------------//
 //--------------------------------------------------------------------------------------------------------------------------------//
@@ -69,7 +70,7 @@ AtomicInfo APar_CreateSparseAtom(const char* present_hierarchy, char* new_atom_n
 
 void APar_AddMetadataInfo(const char* m4aFile, const char* atom_path, const int dataType, const char* atomPayload, bool shellAtom);
 void APar_AddGenreInfo(const char* m4aFile, const char* atomPayload);
-void APar_AddMetadataArtwork(const char* m4aFile, const char* artworkPath);
+void APar_AddMetadataArtwork(const char* m4aFile, const char* artworkPath, char* env_PicOptions);
 void APar_StandardTime(char* &formed_time);
 void APar_RemoveAtom(const char* atom_path, bool shellAtom);
 
@@ -81,8 +82,8 @@ void APar_WriteFile(const char* m4aFile, bool rewrite_original);
 // v0.5  11/22/2005 Writes artist properly of variable lengths properly into an iTMS m4p file properly (other files don't fare well due to the stsd atom non-standard nature); a number of code-uglifying workarounds were employed to get get that far;
 // v0.6  11/25/2005 Added genre string/numerical support, support for genre's dual-atom ©gen/gnre nature, genre string->integer; bug fixes to APar_LocateAtomInsertionPoint when an atom is missing; APar_CreateSparseAtom for ordinary non-data atoms are now type -1 (which means they aren't of any interest to us besides length & name); implemnted the Integer data class; char4short; verified iTunes standard genres only go up to "Hard Rock"; added jpg/png artwork embedding into "covr" atoms; slight bugfix for APar_FindAtom (created spurious trailing "covr" atoms).
 // v0.6  GPL'ed at sourceforge.net
-// v0.7  bugfixes to newly introduced bugs in APar_FindAtom; metaEnema to remove all metadata (safe even for m4p drm files); year implemented properly (tagtime moved onto non-standard 'tdtg' atom ala id3v2.4 - because I like that tag); added setting compilation "cpil" tag (an annoying 5byte tag); added advisory setting (maybe it'll give me a kick one cold winter day-do a "Get Info" in iTunes & in the main "Summary" tab view will be a new little icon next to artwork); added a writeBack flag to for a less beta-like future
+// v0.65  11/25/2005  bugfixes to newly introduced bugs in APar_FindAtom; metaEnema to remove all metadata (safe even for m4p drm files); year implemented properly (tagtime moved onto non-standard 'tdtg' atom ala id3v2.4 - because I like that tag); added setting compilation "cpil" tag (an annoying 5byte tag); added advisory setting (maybe it'll give me a kick one cold winter day-do a "Get Info" in iTunes & in the main "Summary" tab view will be a new little icon next to artwork)
+// v0.7  11/26/2005 added a writeBack flag to for a less beta-like future; integrated NSImage resizing of artwor; environmental preferences for artwork modifications; build system mods for Mac-specific compiling; 
 
-// goals for v0.7: integrate "APar_NSImage.mm" NSImage resizing of artwork; environmental preferences for artwork modifications prior to embedding; "cpil" & "tmpo" atom support;
 // goals for v0.99 supporting big endian systems
 // goals for 1.x UTF-8 support; perhaps even full blown UTF-16 (unlikely).

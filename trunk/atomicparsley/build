@@ -4,15 +4,26 @@ if [ ! -e obj_files ] ; then
 	mkdir obj_files
 fi
 
+OS=`uname -s`
+
 g++ -g -O2 -Wall -MT obj_files/AtomicParsley_genres.o -MD -MP -MF "./obj_files/AtomicParsley_genres.Tpo" -c -o obj_files/AtomicParsley_genres.o AtomicParsley_genres.cpp
 
 g++ -g -O2 -Wall -MT AP_iconv.o -MD -MP -MF "./obj_files/AP_iconv.Tpo" -c -o obj_files/AP_iconv.o AP_iconv.cpp
 
-g++ -g -O2 -Wall -MT obj_files/AtomicParsley.o -MD -MP -MF "./obj_files/AtomicParsley.Tpo" -c -o obj_files/AtomicParsley.o AtomicParsley.cpp
+if [ OS="Darwin" ] ; then
+  g++ -g -O2 -Wall -MT obj_files/AP_NSImage.o -MD -MP -MF "./obj_files/AP_NSImage.Tpo" -c -o obj_files/AP_NSImage.o AP_NSImage.mm
+fi
+
+g++ -g -O2 -Wall -Wno-unused -MT obj_files/AtomicParsley.o -MD -MP -MF "./obj_files/AtomicParsley.Tpo" -c -o obj_files/AtomicParsley.o AtomicParsley.cpp
 
 g++ -I../AtomicParsley -g -O2 -Wall -MT obj_files/main.o -MD -MP -MF "./obj_files/main.Tpo" -c -o obj_files/main.o main.cpp
 
-g++ -Wl,-headerpad,20 -g -O2 -Wall -liconv -o AtomicParsley obj_files/AtomicParsley_genres.o obj_files/AP_iconv.o obj_files/AtomicParsley.o obj_files/main.o
+if [ OS="Darwin" ] ; then
+  g++ -Wl,-headerpad,20 -g -O2 -Wall -liconv -framework Cocoa -o AtomicParsley obj_files/AtomicParsley_genres.o obj_files/AP_iconv.o obj_files/AP_NSImage.o obj_files/AtomicParsley.o obj_files/main.o
+else
+  g++ -Wl,-headerpad,20 -g -O2 -Wall -liconv -framework Cocoa -o AtomicParsley obj_files/AtomicParsley_genres.o obj_files/AP_iconv.o obj_files/AtomicParsley.o obj_files/main.o
+fi
 
-strip -x AtomicParsley
-
+if [ OS="Darwin" ] ; then
+  strip -x AtomicParsley
+fi

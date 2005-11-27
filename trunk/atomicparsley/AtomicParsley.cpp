@@ -31,6 +31,10 @@
 #include "AtomicParsley_genres.h"
 #include "AP_iconv.h"
 
+#if defined(__ppc__)
+#include "AP_NSImage.h"
+#endif
+
 ///////////////////////////////////////////////////////////////////////////////////////
 //                               Global Variables                                    //
 ///////////////////////////////////////////////////////////////////////////////////////
@@ -49,6 +53,78 @@ bool flag_drms_atom = false;
 long max_buffer = 4096*25;
 
 long mdat_start=0;
+
+struct PicPrefs myPicturePrefs;
+bool parsed_prefs = false;
+
+///////////////////////////////////////////////////////////////////////////////////////
+//                        Picture Preferences Functions                              //
+///////////////////////////////////////////////////////////////////////////////////////
+
+PicPrefs ExtractPicPrefs(char* env_PicOptions) {
+	if (!parsed_prefs) {
+		
+		parsed_prefs = true; //only set default values & parse once
+		
+		myPicturePrefs.max_dimension=0; //dimensions won't be used to alter image
+		myPicturePrefs.dpi = 72;
+		myPicturePrefs.max_Kbytes = 0; //no target size to shoot for
+		myPicturePrefs.allJPEG = false;
+		myPicturePrefs.allPNG = false;
+		myPicturePrefs.addBOTHpix = false;
+		char* this_pref;
+		while (env_PicOptions != NULL) {
+			this_pref = strsep(&env_PicOptions,":");
+			char* a_pref = strdup(this_pref);
+			if (strncmp(a_pref,"MaxDimensions=",14) == 0) {
+				char* MaxDimPref = strsep(&a_pref,"=");
+				long DimensionNumber=strtol(a_pref, NULL, 10);
+				//fprintf(stdout, "dimensions %i\n", (int)DimensionNumber);
+				myPicturePrefs.max_dimension = (int)DimensionNumber;
+				
+			} else if (strncmp(a_pref,"DPI=",4) == 0) {
+				char* TotalDPI = strsep(&a_pref,"=");
+				long dpiNumber=strtol(a_pref, NULL, 10);
+				//fprintf(stdout, "dpi %i\n", (int)dpiNumber);
+				myPicturePrefs.dpi = (int)dpiNumber;
+				
+			} else if (strncmp(a_pref,"MaxKBytes=",10) == 0) {
+				char* MaxBytes = strsep(&a_pref,"=");
+				long bytesNumber=strtol(a_pref, NULL, 10);
+				//fprintf(stdout, "dpi %i\n", (int)dpiNumber);
+				myPicturePrefs.max_Kbytes = (int)bytesNumber*1024;
+				
+			} else if (strncmp(a_pref,"AllPixJPEG=",11) == 0) {
+				char* onlyJPEG = strsep(&a_pref,"=");
+				if (strncmp(a_pref, "true", 4) == 0) {
+					//fprintf(stdout, "it's true\n");
+					myPicturePrefs.allJPEG = true;
+				}
+				
+			} else if (strncmp(a_pref,"AllPixPNG=",10) == 0) {
+				char* onlyPNG = strsep(&a_pref,"=");
+				if (strncmp(a_pref, "true", 4) == 0) {
+					//fprintf(stdout, "it's true\n");
+					myPicturePrefs.allPNG = true;
+				}
+				
+			} else if (strncmp(a_pref,"AddBothPix=",11) == 0) {
+				char* addBoth = strsep(&a_pref,"=");
+				if (strncmp(a_pref, "true", 4) == 0) {
+					//fprintf(stdout, "it's true\n");
+					myPicturePrefs.addBOTHpix = true;
+				}
+				
+			} else if (strncmp(a_pref,"SquareUp",7) == 0) {
+				myPicturePrefs.squareUp = true;
+				
+			} else if (strncmp(a_pref,"removeTempPix",7) == 0) {
+				myPicturePrefs.removeTempPix = true;
+			}
+		}
+	}
+	return myPicturePrefs;
+}
 
 ///////////////////////////////////////////////////////////////////////////////////////
 //                               Generic Functions                                   //
@@ -1220,13 +1296,35 @@ void APar_AddGenreInfo(const char* m4aFile, const char* atomPayload) {
 	return;
 }
 
-void APar_AddMetadataArtwork(const char* m4aFile, const char* artworkPath) {
+void APar_AddMetadataArtwork(const char* m4aFile, const char* artworkPath, char* env_PicOptions) {
 	modified_atoms = true;
 	const char* artwork_atom = "moov.udta.meta.ilst.covr";
 	AtomicInfo desiredAtom = APar_FindAtom(artwork_atom, true, false, true);
 	desiredAtom = APar_CreateSparseAtom(artwork_atom, "data", NULL, 6);
-	//got to determine artwork class
+	
+	//determine if any picture preferences will impact the picture file in any way
+	myPicturePrefs = ExtractPicPrefs(env_PicOptions);
+
+#if defined(__ppc__)
+	char* resized_filepath = ResizeGivenImage(artworkPath , myPicturePrefs);
+	if ( strncmp(resized_filepath, "/", 1) == 0 ) {
+		APar_EncapulateData(desiredAtom, resized_filepath, 0, APar_TestArtworkBinaryData(resized_filepath) );
+		parsedAtoms[desiredAtom.AtomicNumber].tempFile = true; //THIS desiredAtom holds the temp pic file path
+		
+		if (myPicturePrefs.addBOTHpix) {
+			//create another sparse atom to hold the new file path (otherwise the 2nd will just overwrite the 1st in EncapsulateData
+			desiredAtom = APar_FindAtom(artwork_atom, true, false, true);
+			desiredAtom = APar_CreateSparseAtom(artwork_atom, "data", NULL, 6);
+			APar_EncapulateData(desiredAtom, artworkPath, 0, APar_TestArtworkBinaryData(artworkPath) );
+		}
+	} else {
+		APar_EncapulateData(desiredAtom, artworkPath, 0, APar_TestArtworkBinaryData(artworkPath) );
+	}
+#else
+	//perhaps some libjpeg based resizing/modification for non-Mac OS X based platforms
 	APar_EncapulateData(desiredAtom, artworkPath, 0, APar_TestArtworkBinaryData(artworkPath) );
+#endif
+
 	return;
 }
 
@@ -1463,6 +1561,13 @@ long APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file, ch
 			
 		}//ends if(pic_file)
 		fclose(pic_file);
+		
+		if (myPicturePrefs.removeTempPix && parsedAtoms[this_atom].tempFile ) {
+			//reopen the picture file to delete if this IS a temp file (and the env pref was given)
+			pic_file = fopen(parsedAtoms[this_atom].AtomicData, "w");
+			remove(parsedAtoms[this_atom].AtomicData);
+			fclose(pic_file);
+		}		
 				
 	} else if (from_file) {
 		// here we read in the original atom into the buffer. If the length is greater than our buffer length,
