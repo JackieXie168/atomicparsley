@@ -106,7 +106,25 @@ static const char* longHelp_text =
 "  --tagtime          ,  -Z            Set the Coordinated Univeral Time of tagging on \"tdtg\"*\n"
 "                                     *Denotes utterly non-standard behavior\n"
 "\n"
+"  --writeBack        ,  -O            If given, writes the file back into original file; deletes temp\n"
+"\n"
 "  --metaEnema        ,  -P            Douches away every atom under \"moov.udta.meta.ilst\" \n"
+"------------------------------------------------------------------------------------------------\n"
+"                   Environmental Variables (affecting picture placement)\n"
+"\n"
+" export these variables in your shell to set these flags; preferences are separated by colons (:)\n"
+"\n"
+" MaxDimensions=400 (default: 0; unlimited); sets maximum pixel dimensions\n"
+" DPI=72            (default: 72); sets dpi\n"
+" MaxKBytes=100     (default: 0; unlimited);  maximum kilobytes for file (jpeg only)\n"
+" AddBothPix=true   (default: false); add original & converted pic (for archival purposes)\n"
+" AllPixJPEG | AllPixPNG =true (default: false); force conversion to a specific picture format\n"
+" SquareUp          (include to square images to largest dimension, allows an [ugly] 160x1200->1200x1200)\n"
+" removeTempPix     (include to delete temp pic files created when resizing images after tagging)\n"
+"\n"
+" Examples: (bash-style)\n"
+" export PIC_OPTIONS=\"MaxDimensions=400:DPI=72:MaxKBytes=100:AddBothPix=true:AllPixJPEG=true\"\n"
+" export PIC_OPTIONS=\"SquareUp:removeTempPix\"\n"
 "------------------------------------------------------------------------------------------------\n"
 "\n";
 
@@ -374,8 +392,9 @@ int main( int argc, char *argv[])
 		}
 		
 		case Meta_artwork : { //handled differently: there can be multiple "moov.udta.meta.ilst.covr.data" atoms
+			char* env_PicOptions = getenv("PIC_OPTIONS");
 			APar_ScanAtoms(m4afile);
-			APar_AddMetadataArtwork(m4afile, optarg);
+			APar_AddMetadataArtwork(m4afile, optarg, env_PicOptions);
 			break;
 		}
 		
