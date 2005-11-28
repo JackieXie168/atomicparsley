@@ -534,8 +534,9 @@ void APar_ExtractAAC_Artwork(AtomicInfo thisAtom, char* pic_output_path, short a
   return;
 }
 
-void APar_ExtractDataAtom(const char* path, AtomicInfo thisAtom, int this_atom_number) {
+void APar_ExtractDataAtom(int this_atom_number) {
 	if ( source_file != NULL ) {
+		AtomicInfo thisAtom = parsedAtoms[this_atom_number];
 		char* genre_string;
 		char* parent_atom_name=(char*)malloc( sizeof(char)*4);
 		AtomicInfo parent_atom_stats = parsedAtoms[this_atom_number-1];
@@ -550,42 +551,82 @@ void APar_ExtractDataAtom(const char* path, AtomicInfo thisAtom, int this_atom_n
 
 			if (thisAtom.AtomicDataClass == 1) {
 				fprintf(stdout,"%s\n", data_payload);
-			} else { //else only 1(text) & 0(integer) data atoms are passed to this function
+			} else {
+			
 				char* primary_number_data = (char*)malloc( sizeof(char) * 4 );
 				long primary_number = 0;
 				long secondary_OF_number = 0;
 				
+				for (int i=0; i < 4; i++) {
+							primary_number_data[i] = '\0';
+				}
 				
-				if (thisAtom.AtomicLength > 23 )  { //trkn & disk are 24; gnre ^ ©day are 18 & 20
+				if ( (strncmp(parent_atom_name, "trkn", 4) == 0) || (strncmp(parent_atom_name, "disk", 4) == 0) ) {
 					char* secondary_OF_number_data = (char*)malloc( sizeof(char) * 4 );
 					secondary_OF_number_data[2] = data_payload[4];
 					secondary_OF_number_data[3] = data_payload[5];
 					secondary_OF_number = longFromBigEndian(secondary_OF_number_data);
 					free(secondary_OF_number_data);
-				}
-				
-				if (strncmp(parent_atom_name, "gnre", 4) == 0) {
-					if ( thisAtom.AtomicLength-16 < 3 ) { //oh, a 1byte int for genre number
-						for (int i=0; i < 2; i++) {
-							primary_number_data[i+2] = data_payload[i];
-							GenreIntToString(&genre_string, longFromBigEndian(primary_number_data) );
-							//fprintf(stdout, "Our new string... is %s", genre_string);
-						}
-					}
-				} else {
+					
 					for (int i=0; i < 4; i++) {
 						primary_number_data[i] = data_payload[i]; //we want the 4 byte 'atom' in data [4,5,6,7]
 					}
 					primary_number = longFromBigEndian(primary_number_data);
-				}
-								
-				if (strncmp(parent_atom_name, "gnre", 4) == 0) {
-					fprintf(stdout, "%s\n", genre_string);
-				} else if (secondary_OF_number != 0) {
-					fprintf(stdout, "%li of %li\n", primary_number, secondary_OF_number);
-				} else {
+					
+					if (secondary_OF_number != 0) {
+						fprintf(stdout, "%li of %li\n", primary_number, secondary_OF_number);
+					} else {
+						fprintf(stdout, "%li\n", primary_number);
+					}
+					
+				} else if (strncmp(parent_atom_name, "gnre", 4) == 0) {
+					if ( thisAtom.AtomicLength-16 < 3 ) { //oh, a 1byte int for genre number
+						for (int i=0; i < 2; i++) {
+							primary_number_data[i+2] = data_payload[i];
+							GenreIntToString(&genre_string, longFromBigEndian(primary_number_data) );
+						}
+						fprintf(stdout,"%s\n", genre_string);
+					}
+					
+				}	else if (strncmp(parent_atom_name, "tmpo", 4) == 0) {
+					primary_number_data[2] = data_payload[0];
+					primary_number_data[3] = data_payload[1];
+					primary_number = longFromBigEndian(primary_number_data);
 					fprintf(stdout, "%li\n", primary_number);
+
+				} else if (strncmp(parent_atom_name, "cpil", 4) == 0) {
+					primary_number_data[3] = data_payload[0];
+					primary_number = longFromBigEndian(primary_number_data);
+					if (primary_number == 1) {
+						fprintf(stdout, "true\n");
+					} else {
+						fprintf(stdout, "false\n");
+					}
+					
+				} else if (strncmp(parent_atom_name, "stik", 4) == 0) { //no idea what this atom is; resembles cpil
+					primary_number_data[3] = data_payload[0];
+					primary_number = longFromBigEndian(primary_number_data);
+					if (primary_number == 1) {
+						fprintf(stdout, "true\n");
+					} else {
+						fprintf(stdout, "false\n");
+					}
+
+				} else if (strncmp(parent_atom_name, "rtng", 4) == 0) {
+					primary_number_data[3] = data_payload[0];
+					primary_number = longFromBigEndian(primary_number_data);
+					if (primary_number == 2) {
+						fprintf(stdout, "Clean Lyrics\n");
+					} else if (primary_number != 0 ) {
+						fprintf(stdout, "Explicit Lyrics\n");
+					} else {
+						fprintf(stdout, "Inoffensive\n");
+					}
+					
+				} else {
+					fprintf(stdout, "%s\n", data_payload);
 				}
+					
 				free(primary_number_data);
 				primary_number_data=NULL;
 				free(data_payload);
@@ -610,9 +651,11 @@ void APar_PrintDataAtoms(const char *path, bool extract_pix, char* pic_output_pa
 			AtomicInfo parent = APar_FindParentAtom(thisAtom.NextAtomNumber, thisAtom.AtomicLevel);
 			strncpy(parent_atom, parent.AtomicName, 4);
 			
-			if ( (thisAtom.AtomicDataClass == 1 || thisAtom.AtomicDataClass == 0) && !extract_pix ) {
+			if ( (thisAtom.AtomicDataClass == AtomicDataClass_Integer ||
+            thisAtom.AtomicDataClass == AtomicDataClass_Text || 
+            thisAtom.AtomicDataClass == AtomicDataClass_CPIL_TMPO) && !extract_pix ) {
 				fprintf(stdout, "Atom \"%s\" contains: ", parent_atom);
-				APar_ExtractDataAtom(path, thisAtom, i);
+				APar_ExtractDataAtom(i);
 			} else if (strncmp(parent_atom,"covr", 4) == 0) {
 				artwork_count++;
 				if (extract_pix) {
