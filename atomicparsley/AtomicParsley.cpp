@@ -682,7 +682,7 @@ void APar_PrintDataAtoms(const char *path, bool extract_pix, char* pic_output_pa
 //               Generic (parsing/reading, writing) Atom creation                    //
 ///////////////////////////////////////////////////////////////////////////////////////
 
-void AtomizeFileInfo(AtomicInfo &thisAtom, long Astart, long Alength, char* Astring, short Alevel, int Aclass, int NextAtomNum) {
+void APar_AtomizeFileInfo(AtomicInfo &thisAtom, long Astart, long Alength, char* Astring, short Alevel, int Aclass, int NextAtomNum) {
 	thisAtom.AtomicStart = Astart;
 	thisAtom.AtomicLength = Alength;
 	
@@ -781,7 +781,7 @@ void APar_PrintAtomicTree() {
 	return;
 }
 
-void SimpleAtomPrintout() {
+void APar_SimpleAtomPrintout() {
 	//loop through each atom in the struct array (which holds the offset info/data)
  	for (int i=0; i < atom_number; i++) { 
 		AtomicInfo thisAtom = parsedAtoms[i]; 
@@ -820,7 +820,7 @@ void APar_PrintAtomicDataTree() {
 //                      File scanning & atom parsing                                 //
 ///////////////////////////////////////////////////////////////////////////////////////
 
-short GetCurrentAtomDepth(long atom_start, long atom_length) {
+short APar_GetCurrentAtomDepth(long atom_start, long atom_length) {
 	short level = 1;
 	for (int i = 0; i < atom_number; i++) {
 		AtomicInfo thisAtom = parsedAtoms[i];
@@ -835,7 +835,7 @@ short GetCurrentAtomDepth(long atom_start, long atom_length) {
 	return level;
 }
 
-bool testforChildAtom(char *fileData, long sizeofParentAtom, char* atom) {
+bool APar_TestforChildAtom(char *fileData, long sizeofParentAtom, char* atom) {
 	if (strncmp(atom, "data", 4) == 0 ) {
 		return false;
 	}
@@ -854,7 +854,7 @@ bool testforChildAtom(char *fileData, long sizeofParentAtom, char* atom) {
 	}
 }
 
-short determineDataType(char* atom) {
+short APar_DetermineDataType(char* atom) {
 	
 	char*data_type = (char*)malloc(sizeof(char)*4);
 	for (int i=0; i < 4; i++) {
@@ -866,7 +866,7 @@ short determineDataType(char* atom) {
 	return (int)type_of_data;
 }
 
-void ParseDRM_Atoms(FILE* file, long midJump, long drmLength) {
+void APar_Parse_stsd_Atoms(FILE* file, long midJump, long drmLength) {
 	//fprintf(stdout,"---> drms atom %s begins #: %li \t to %li\n", parsedAtoms[atom_number-1].AtomicName, midJump, drmLength);
 	//we get placed right before "moov" (or whatever), but since either an atom can contain data OR another atom,
 	//right after this top-level atom must be another atom
@@ -883,7 +883,7 @@ void ParseDRM_Atoms(FILE* file, long midJump, long drmLength) {
 		char *atom = extractAtomName(data);
 		interDataSize = longFromBigEndian(data);
 				
-		AtomizeFileInfo(parsedAtoms[atom_number], midJump, interDataSize, atom, atomLevel, -1, 0);
+		APar_AtomizeFileInfo(parsedAtoms[atom_number], midJump, interDataSize, atom, atomLevel, -1, 0);
 		
 		if (strncmp(atom, "drms", 4) == 0) {
 			//this needs to be done in order to maintain integrity of modified files
@@ -896,7 +896,7 @@ void ParseDRM_Atoms(FILE* file, long midJump, long drmLength) {
 										 // 983bytes (and the next atom 36 bytes away) says that it *IS* a parent atom.... very odd indeed.
 			atomLevel++;
 			flag_drms_atom = true;
-		} else if ( testforChildAtom(data, interDataSize, atom) ) { 
+		} else if ( APar_TestforChildAtom(data, interDataSize, atom) ) { 
 			midJump += 8; //skip a head a grand total of... 8 *WHOLE* bytes - what progress!
 			atomLevel++; 
 		} else {
@@ -909,15 +909,15 @@ void ParseDRM_Atoms(FILE* file, long midJump, long drmLength) {
 	if (!flag_drms_atom) {
 		char *atom = (char *) malloc(4);
 		long static_midjump = midJump;
-		while ( midJump <= drmLength + static_midjump) {
+		while ( midJump <= drmLength + static_midjump - 16) { //16 bytes accounts for what we added for stsd's length
 			fread(data, 1, 12, file);
 			atom = extractAtomName(data);
 			interDataSize = longFromBigEndian(data);
 			
-			if ( interDataSize > drmLength) {
+			if ( interDataSize > drmLength || interDataSize < 8) {
 				break;
 			}
-			AtomizeFileInfo(parsedAtoms[atom_number], midJump, interDataSize, atom, atomLevel, -1, 0);
+			APar_AtomizeFileInfo(parsedAtoms[atom_number], midJump, interDataSize, atom, atomLevel, -1, 0);
 			
 			//it gets uglier & uglier... in an Apple Lossless m4a there is an "alac.alac" hierarchy.... very creative of Apple
 			if ( (strncmp(atom, "mp4a", 4) == 0) || ( (strncmp(atom, "alac", 4) == 0) && (atomLevel == 7) ) ) {
@@ -928,7 +928,7 @@ void ParseDRM_Atoms(FILE* file, long midJump, long drmLength) {
 				
 				atomLevel++;
 				midJump += 36;
-			} else if ( testforChildAtom(data, interDataSize, atom) ) { 
+			} else if ( APar_TestforChildAtom(data, interDataSize, atom) ) { 
 				midJump += 8; //skip a head a grand total of... 8 *WHOLE* bytes - what progress!
 				atomLevel++; 
 			} else {
@@ -967,7 +967,7 @@ void APar_ScanAtoms(const char *path) {
 				dataSize = longFromBigEndian(data);
 				jump = dataSize;
 				
-				AtomizeFileInfo(parsedAtoms[atom_number], 0, jump, atom, generalAtomicLevel, -1, 0);
+				APar_AtomizeFileInfo(parsedAtoms[atom_number], 0, jump, atom, generalAtomicLevel, -1, 0);
 				
 				fseek(file, jump, SEEK_SET);
 				
@@ -979,30 +979,32 @@ void APar_ScanAtoms(const char *path) {
 					//fprintf(stdout, "atom: %s @ offset: %li \n", atom, jump);
 					
 					if (strncmp(atom, "data", 4) == 0) {
-						atom_class=determineDataType(data);
+						atom_class=APar_DetermineDataType(data);
 					} else {
 						atom_class = -1;
 					}
 					
 					dataSize = longFromBigEndian(data);
 					
-					AtomizeFileInfo(parsedAtoms[atom_number], jump, dataSize, atom, generalAtomicLevel, atom_class, 0);
+					APar_AtomizeFileInfo(parsedAtoms[atom_number], jump, dataSize, atom, generalAtomicLevel, atom_class, 0);
 					
 					if (strncmp(atom, "stsd", 4) == 0) {
 						//For now, this will be treated as a special scenario, and it is... odd... and partly broken
-						ParseDRM_Atoms(file, jump+16, dataSize);
+						APar_Parse_stsd_Atoms(file, jump+16, dataSize);
 					}
 					
 					if (strncmp(atom, "meta", 4) == 0) {
 						jump += 12;
-					} else if ( testforChildAtom(data, dataSize, atom) ) { // if bytes 9-12 are less than bytes 1-4 (and not 0) we have a child; if its a data atom, all bets are off
+					} else if ( strncmp(atom, "tkhd", 4) == 0 ) {
+            jump += dataSize; //tkhd atoms are always 92 bytes long; don't even bother to test for any children
+					} else if ( APar_TestforChildAtom(data, dataSize, atom) ) { // if bytes 9-12 are less than bytes 1-4 (and not 0) we have a child; if its a data atom, all bets are off
 						jump += 8; //skip a head a grand total of... 8 *WHOLE* bytes - what progress!
 					} else if ( generalAtomicLevel > 1 ) { // apparently, we didn't have a child
 						jump += dataSize;
 					} else {
 						jump += dataSize;
 					}
-					generalAtomicLevel = GetCurrentAtomDepth(jump, dataSize);
+					generalAtomicLevel = APar_GetCurrentAtomDepth(jump, dataSize);
 					
 					fseek(file, jump, SEEK_SET); 
 					free(atom);
@@ -1500,7 +1502,7 @@ void APar_DetermineAtomLengths() {
 		}
 		
 	}
-	//SimpleAtomPrintout();
+	//APar_SimpleAtomPrintout();
 	//APar_PrintAtomicTree();
 	return;
 }
