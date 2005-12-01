@@ -468,7 +468,8 @@ AtomicInfo APar_LocateAtomInsertionPoint(const char* the_hierarchy, bool findLas
 		}
 
 	}		
-	free(atom_hierarchy);	
+	free(atom_hierarchy);	// A "Deallocation of a pointer not malloced" occured for a screwed up m4a file (for gnre & ©grp ONLY oddly)
+	atom_hierarchy = NULL;
 	return InsertionPointAtom;
 }
 
@@ -648,7 +649,7 @@ void APar_PrintDataAtoms(const char *path, bool extract_pix, char* pic_output_pa
 		
 			//we want to print out the parent atom's name, not "data", that would be retarded (also, I tried that way first).
 			char* parent_atom = (char*)malloc(sizeof(char)*4);
-			AtomicInfo parent = APar_FindParentAtom(thisAtom.NextAtomNumber, thisAtom.AtomicLevel);
+			AtomicInfo parent = APar_FindParentAtom(i, thisAtom.AtomicLevel);
 			strncpy(parent_atom, parent.AtomicName, 4);
 			
 			if ( (thisAtom.AtomicDataClass == AtomicDataClass_Integer ||
@@ -1032,13 +1033,23 @@ void APar_ScanAtoms(const char *path) {
 void APar_RemoveAtom(const char* atom_path, bool shellAtom) {
 	modified_atoms = true;
 	AtomicInfo desiredAtom = APar_FindAtom(atom_path, false, shellAtom, false);
-	short preceding_atom_pos = APar_FindPrecedingAtom(desiredAtom);
-	AtomicInfo endingAtom = APar_LocateAtomInsertionPoint(atom_path, true);
-	if (endingAtom.AtomicNumber != 0) {
-		//leaves the unwanted atoms in place, but NextAtomNumber skips around those atoms, and won't be used anymore.
-		parsedAtoms[preceding_atom_pos].NextAtomNumber = endingAtom.NextAtomNumber;
-	} else {
-		//fprintf(stdout, "i have nothing to remove.\n");
+	
+	char* atom_hierarchy = strdup(atom_path);
+	char *search_atom_name = strsep(&atom_hierarchy,".");
+	while (atom_hierarchy != NULL) {
+		search_atom_name = strsep(&atom_hierarchy,".");
+	}
+	
+	if (strncmp(search_atom_name, desiredAtom.AtomicName, 4) == 0) { //only remove an atom we have a matching name for	
+		short preceding_atom_pos = APar_FindPrecedingAtom(desiredAtom);
+		AtomicInfo endingAtom = APar_LocateAtomInsertionPoint(atom_path, true);
+		if (endingAtom.AtomicNumber != 0) {
+			//leaves the unwanted atoms in place, but NextAtomNumber skips around those atoms, and won't be used anymore.
+			parsedAtoms[preceding_atom_pos].NextAtomNumber = endingAtom.NextAtomNumber;
+		} else {
+			//fprintf(stdout, "i have nothing to remove.\n");
+		}
+		free(atom_hierarchy);
 	}
 	return;
 }
@@ -1223,7 +1234,7 @@ void APar_AddMetadataInfo(const char* m4aFile, const char* atom_path, const int 
 	//shellAtom is only for iconv use - © can be \302\251, \251 or who even knows in other encodings
 	if ( strlen(atomPayload) == 0) {
 		APar_RemoveAtom(atom_path, shellAtom); //find the atom; don't create if it's "" to remove
-		APar_PrintAtomicTree();
+		//APar_PrintAtomicTree();
 	} else {
 		AtomicInfo desiredAtom = APar_FindAtom(atom_path, true, shellAtom, true); //finds the atom; if not present, creates the atom
 		
@@ -1327,32 +1338,36 @@ void APar_AddGenreInfo(const char* m4aFile, const char* atomPayload) {
 void APar_AddMetadataArtwork(const char* m4aFile, const char* artworkPath, char* env_PicOptions) {
 	modified_atoms = true;
 	const char* artwork_atom = "moov.udta.meta.ilst.covr";
-	AtomicInfo desiredAtom = APar_FindAtom(artwork_atom, true, false, true);
-	desiredAtom = APar_CreateSparseAtom(artwork_atom, "data", NULL, 6, true);
+	if (strncasecmp(artworkPath, "REMOVE_ALL", 10) == 0) {
+		APar_RemoveAtom(artwork_atom, false);
 	
-	//determine if any picture preferences will impact the picture file in any way
-	myPicturePrefs = ExtractPicPrefs(env_PicOptions);
+	} else {
+		AtomicInfo desiredAtom = APar_FindAtom(artwork_atom, true, false, true);
+		desiredAtom = APar_CreateSparseAtom(artwork_atom, "data", NULL, 6, true);
+	
+		//determine if any picture preferences will impact the picture file in any way
+		myPicturePrefs = ExtractPicPrefs(env_PicOptions);
 
 #if defined(__ppc__)
-	char* resized_filepath = ResizeGivenImage(artworkPath , myPicturePrefs);
-	if ( strncmp(resized_filepath, "/", 1) == 0 ) {
-		APar_EncapulateData(desiredAtom, resized_filepath, 0, APar_TestArtworkBinaryData(resized_filepath) );
-		parsedAtoms[desiredAtom.AtomicNumber].tempFile = true; //THIS desiredAtom holds the temp pic file path
+		char* resized_filepath = ResizeGivenImage(artworkPath , myPicturePrefs);
+		if ( strncmp(resized_filepath, "/", 1) == 0 ) {
+			APar_EncapulateData(desiredAtom, resized_filepath, 0, APar_TestArtworkBinaryData(resized_filepath) );
+			parsedAtoms[desiredAtom.AtomicNumber].tempFile = true; //THIS desiredAtom holds the temp pic file path
 		
-		if (myPicturePrefs.addBOTHpix) {
-			//create another sparse atom to hold the new file path (otherwise the 2nd will just overwrite the 1st in EncapsulateData
-			desiredAtom = APar_FindAtom(artwork_atom, true, false, true);
-			desiredAtom = APar_CreateSparseAtom(artwork_atom, "data", NULL, 6, true);
+			if (myPicturePrefs.addBOTHpix) {
+				//create another sparse atom to hold the new file path (otherwise the 2nd will just overwrite the 1st in EncapsulateData
+				desiredAtom = APar_FindAtom(artwork_atom, true, false, true);
+				desiredAtom = APar_CreateSparseAtom(artwork_atom, "data", NULL, 6, true);
+				APar_EncapulateData(desiredAtom, artworkPath, 0, APar_TestArtworkBinaryData(artworkPath) );
+			}
+		} else {
 			APar_EncapulateData(desiredAtom, artworkPath, 0, APar_TestArtworkBinaryData(artworkPath) );
 		}
-	} else {
-		APar_EncapulateData(desiredAtom, artworkPath, 0, APar_TestArtworkBinaryData(artworkPath) );
-	}
 #else
-	//perhaps some libjpeg based resizing/modification for non-Mac OS X based platforms
-	APar_EncapulateData(desiredAtom, artworkPath, 0, APar_TestArtworkBinaryData(artworkPath) );
+		//perhaps some libjpeg based resizing/modification for non-Mac OS X based platforms
+		APar_EncapulateData(desiredAtom, artworkPath, 0, APar_TestArtworkBinaryData(artworkPath) );
 #endif
-
+	}
 	return;
 }
 
@@ -1360,14 +1375,10 @@ void APar_StandardTime(char* &formed_time) {
 	//ISO 8601 Coordinated Universal Time (UTC)
   time_t rawtime;
   struct tm *timeinfo;
-	char formatted_date[100];
 
   time (&rawtime);
-  //timeinfo = localtime (&rawtime); // this would get us LOCAL time (good old EST)
-	timeinfo = gmtime (&rawtime);
-	//time should emerge in "2005-09-01T08:20:25Z" format: 2005-09-01T17:25:30Z
-	strftime(formatted_date ,100 , "%Y-%m-%dT%H:%M:%SZ", timeinfo); //that hanging Z is there; denotes the UTC
-	strcpy(formed_time,formatted_date);
+  timeinfo = gmtime (&rawtime);
+	strftime(formed_time ,100 , "%Y-%m-%dT%H:%M:%SZ", timeinfo); //that hanging Z is there; denotes the UTC
 	
 	return;
 }

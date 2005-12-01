@@ -52,7 +52,57 @@
 #define Meta_StandardDate        'Z'
 #define Meta_advisory            'V'
 #define Metadata_Purge           'P'
+#define Meta_URL                 'u'
+#define Meta_Information         'i'
 #define OPT_WriteBack            'O'
+
+
+/*
+http://developer.apple.com/documentation/QuickTime/APIREF/UserDataIdentifiers.htm#//apple_ref/doc/constant_group/User_Data_Identifiers
+©aut		author
+©cmt		comment
+©cpy		Copyright
+©des		description
+©dir		Director
+©dis		Disclaimer
+©nam		FullName
+©hst		HostComuter
+©inf		Information
+©key		Keywords
+©mak		Make
+©mod		Model
+©fmt		Format
+©prd		Producer
+©PRD		Product
+©swr		Software
+©req		SpecialPlaybackRequirements
+©wrn		Warning
+©wrt		Writer
+©ed1		EditDate1
+©chp		TextChapter
+©src		OriginalSource
+©prf		Performers
+
+http://developer.apple.com/documentation/QuickTime/APIREF/MetadataKeyConstants.htm#//apple_ref/doc/constant_group/Metadata_Key_Constants
+auth		Author
+cmmt		comment
+dtor		Director
+name		DisplayName
+info		Information
+prod		Producer
+
+http://developer.apple.com/documentation/QuickTime/APIREF/UserDataIDs.htm#//apple_ref/doc/constant_group/User_Data_IDs
+©enc		Encoded By
+©ope		OriginalArtist
+©url		URLLink*/
+
+/*
+Apparently, iTunes places comment as "©cmt" (UserDataID) as opposed to "cmmt" (MetaDataConstant)
+And yet iTunes (or iTMS) puts copyright as "cprt" instead of "©cpy"
+
+so I believe that I can use ©ed1 to store UTC tagging time (id3v2.4 = TDTG); and ©url can carry WOAR; ©inf can be WXXX
+as ©ope is TOPE.... so.... mood would be ©moo (TMOO)
+*/
 
 bool modified_atoms = false;
 
@@ -103,8 +153,10 @@ static const char* longHelp_text =
 "  --bpm              ,  -B   (num)    Set the tempo/bpm tag: \"moov.udta.meta.ilst.tmpo.data\"\n"
 "  --compilation      ,  -C   (bool)   Sets the \"cpil\" atom (true or false to delete the atom)\n"
 "  --advisory         ,  -y   (1of3)   Sets the iTunes lyrics advisory ('remove', 'clean', 'explicit') \n"
-"  --tagtime          ,  -Z            Set the Coordinated Univeral Time of tagging on \"tdtg\"*\n"
-"                                     *Denotes utterly non-standard behavior\n"
+"  --tagtime          ,  -Z            Set the Coordinated Univeral Time of tagging on \"©ed1\"*\n"
+"  --information      ,  -i            Set an information tag on \"moov.udta.meta.ilst.©inf.data\"*\n"
+"  --url              ,  -u            Set a URL tag on \"moov.udta.meta.ilst.©url.data\"*\n"
+"                                     *Denotes utterly non-standard behavior; invisible to iTunes\n"
 "\n"
 "  --writeBack        ,  -O            If given, writes the file back into original file; deletes temp\n"
 "\n"
@@ -205,13 +257,15 @@ int main( int argc, char *argv[])
 		{ "tagtime",          0,                  NULL,						Meta_StandardDate },
 		{ "metaEnema",        0,                  NULL,						Metadata_Purge },
 		{ "writeBack",        0,                  NULL,						OPT_WriteBack },
+		{ "information",      required_argument,  NULL,           Meta_Information },
+		{ "url",              required_argument,  NULL,           Meta_URL },
 		{ 0, 0, 0, 0 }
 	};
 		
 	int c = -1;
 	int option_index = 0;
 	
-	c = getopt_long_only(argc, argv, "hTtEe:m:a:d:g:c:l:w:y:G:k:A:B:C:V:ZP", long_options, &option_index);
+	c = getopt_long_only(argc, argv, "hTtEe:m:a:d:g:c:i:l:u:w:y:G:k:A:B:C:V:ZP", long_options, &option_index);
 	
 	if (c == -1) {
 		if (argc < 3 && argc > 2) {
@@ -346,6 +400,7 @@ int main( int argc, char *argv[])
 			break;
 		}
 		
+		//if copyright is switched to ©cpy tag, then QTplayer can see the copyright, but iTunes no longer will.
 		case Meta_copyright : {
 			APar_ScanAtoms(m4afile);
 			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.cprt.data", AtomicDataClass_Text, optarg, false);
@@ -401,23 +456,42 @@ int main( int argc, char *argv[])
 		case Meta_StandardDate : {
 			//this tag will emerge will a trailing NULL; iTMS doesn't have the trailing NULL
 			
-			//...and apparently, ©day isn't the right tag for tagging time... well.... for another day & tag then (id3v2: TDTG)
-			//this is ¥REALLY¥ non-standard. I don't think any taggers would recognize it.
+			//tagging time will be carried on the "edits list 1" atom; unrecognized by anything - an extrapolation of info
 			APar_ScanAtoms(m4afile);
 			char* formed_time = (char *)malloc(sizeof(char)*110);
 			APar_StandardTime(formed_time);
-			//APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.©day.data", AtomicDataClass_Text, formed_time, false);
-			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.tdtg.data", AtomicDataClass_Text, formed_time, false);
+			//APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.tdtg.data", AtomicDataClass_Text, formed_time, false);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.©ed1.data", AtomicDataClass_Text, formed_time, false);
 			free(formed_time);
+			break;
+		}
+		
+		case Meta_URL : {
+			//though I've never come across a "©url" atom, its likely to be this
+			APar_ScanAtoms(m4afile);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.©url.data", AtomicDataClass_Text, optarg, false);
+			
+			break;
+		}
+		
+		case Meta_Information : {
+			//though I've never come across a "©url" atom, its likely to be this
+			APar_ScanAtoms(m4afile);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.©inf.data", AtomicDataClass_Text, optarg, false);
+			
+			break;
 		}
 		
 		case Metadata_Purge : {
 			APar_ScanAtoms(m4afile);
 			APar_RemoveAtom("moov.udta.meta.ilst", false);
+			
+			break;
 		}
 		
 		case OPT_WriteBack : {
 			alter_original = true;
+			break;
 		}
 		
 		} /* end switch */
