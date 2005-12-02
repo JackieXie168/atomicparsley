@@ -299,6 +299,20 @@ short APar_FindPrecedingAtom(AtomicInfo thisAtom) {
 	return precedingAtom;
 }
 
+short APar_FindPrecedingAtomNumber(short an_atom_num) {
+	short precedingAtom = 0;
+	short iter = 0;
+	while (parsedAtoms[iter].NextAtomNumber != 0) {
+		if (parsedAtoms[iter].NextAtomNumber == parsedAtoms[an_atom_num].NextAtomNumber) {
+			break;
+		} else {
+			precedingAtom = iter;
+			iter=parsedAtoms[iter].NextAtomNumber;
+		}
+	}
+	return precedingAtom;
+}
+
 AtomicInfo APar_FindAtom(const char* atom_name, bool createMissing, bool stringFromShell, bool findChild) {
 	short present_atom_level = 1; //from where out generalAtomicLevel starts
 	char* atom_hierarchy = strdup(atom_name);
@@ -550,8 +564,13 @@ void APar_ExtractDataAtom(int this_atom_number) {
 			fseek(source_file, thisAtom.AtomicStart+16, SEEK_SET);
 			fread(data_payload, 1, thisAtom.AtomicLength-16, source_file);
 
-			if (thisAtom.AtomicDataClass == 1) {
+			if (thisAtom.AtomicDataClass == AtomicDataClass_Text) {
+				if (thisAtom.AtomicLength < 20 ) {
+					//tvnn was showing up with 4 chars instead of 3; easier to null it out for now
+					data_payload[thisAtom.AtomicLength-16] = '\00';
+				}
 				fprintf(stdout,"%s\n", data_payload);
+				
 			} else {
 			
 				char* primary_number_data = (char*)malloc( sizeof(char) * 4 );
@@ -607,10 +626,14 @@ void APar_ExtractDataAtom(int this_atom_number) {
 				} else if (strncmp(parent_atom_name, "stik", 4) == 0) { //no idea what this atom is; resembles cpil
 					primary_number_data[3] = data_payload[0];
 					primary_number = longFromBigEndian(primary_number_data);
-					if (primary_number == 1) {
-						fprintf(stdout, "true\n");
+					if (primary_number == 5) {
+						fprintf(stdout, "Whacked Bookmarkable (only plays once per iTunes session)\n");
+					} else if (primary_number == 6) {
+						fprintf(stdout, "Music Video\n");
+					} else if (primary_number == 10) {
+						fprintf(stdout, "TV Show\n");
 					} else {
-						fprintf(stdout, "false\n");
+						fprintf(stdout, "Movie\n");
 					}
 
 				} else if (strncmp(parent_atom_name, "rtng", 4) == 0) {
@@ -625,7 +648,15 @@ void APar_ExtractDataAtom(int this_atom_number) {
 					}
 					
 				} else {
-					fprintf(stdout, "%s\n", data_payload);
+					if (thisAtom.AtomicLength >= 20 ) {
+					  for (int i=0; i < 4; i++) {
+						  primary_number_data[i] = data_payload[i]; 
+					  }
+					  primary_number = longFromBigEndian(primary_number_data);
+						fprintf(stdout, "%li\n", primary_number);
+					} else {
+					  fprintf(stdout, "%s\n", data_payload);
+					}
 				}
 					
 				free(primary_number_data);
@@ -869,76 +900,86 @@ short APar_DetermineDataType(char* atom) {
 
 void APar_Parse_stsd_Atoms(FILE* file, long midJump, long drmLength) {
 	//fprintf(stdout,"---> drms atom %s begins #: %li \t to %li\n", parsedAtoms[atom_number-1].AtomicName, midJump, drmLength);
-	//we get placed right before "moov" (or whatever), but since either an atom can contain data OR another atom,
-	//right after this top-level atom must be another atom
+	//stsd atom carrys data (8bytes )
 	short stsd_entry_atom_number = atom_number-1;
 	long stsd_entry_pos = midJump;
 	char *data = (char *) malloc(12);
 	long interDataSize = 0;
+	long stsd_progress = 16;
 	short atomLevel = generalAtomicLevel+1;
 	fseek(file, midJump, SEEK_SET);
 	
-	//this only works on files that have the "moov" atom at the beginning (like an iTMS m4p file)
-	while ( midJump <= (long)drmLength) {
+	//this now works anywhere the stsd atom is situated
+	while ( stsd_progress < drmLength) {
 		fread(data, 1, 12, file);
 		char *atom = extractAtomName(data);
 		interDataSize = longFromBigEndian(data);
+		
+		if ( interDataSize > drmLength || interDataSize < 8) {
+			break; //we only get here if there is some oddball atom here under stsd that has a dataclass
+		}
 				
 		APar_AtomizeFileInfo(parsedAtoms[atom_number], midJump, interDataSize, atom, atomLevel, -1, 0);
 		
 		if (strncmp(atom, "drms", 4) == 0) {
 			//this needs to be done in order to maintain integrity of modified files
-			parsedAtoms[atom_number-1].AtomicData = (char *)malloc(sizeof(char)*27);
-			fseek (file, midJump+12, SEEK_SET);
-			fread(parsedAtoms[atom_number-1].AtomicData, 1, 27, file);
+			parsedAtoms[atom_number-1].AtomicData = (char *)malloc(sizeof(char)*28);
+			fseek (file, midJump+8, SEEK_SET);
+			fread(parsedAtoms[atom_number-1].AtomicData, 1, 28, file); //store the entire atom (data class won't even be used; only the length & atom name are created)
 			parsedAtoms[atom_number-1].AtomicDataClass = AtomicDataClass_Integer;
 			//APar_AtomicWriteTest(atom_number-1, true);
 			midJump += 36; //drms is so odd.... it contains data so it should *NOT* have any child atoms, and yet...
 										 // 983bytes (and the next atom 36 bytes away) says that it *IS* a parent atom.... very odd indeed.
+			stsd_progress += 36;		
 			atomLevel++;
 			flag_drms_atom = true;
+			
+		} else if (strncmp(atom, "drmi", 4) == 0) {
+			//a new drm atom in a different trkn than the first - appeared (first for me) in an iTMS TV Show episode (Lost 209)
+			parsedAtoms[atom_number-1].AtomicData = (char *)malloc(sizeof(char)*78); //74
+			fseek (file, midJump+8, SEEK_SET); //12
+			fread(parsedAtoms[atom_number-1].AtomicData, 1, 78, file); //store the entire atom (data class won't even be used; only the length & atom name are created)
+			midJump += 86;
+			stsd_progress += 86;	
+			parsedAtoms[atom_number-1].AtomicDataClass = AtomicDataClass_Integer;
+			atomLevel++;
+			flag_drms_atom = true; //although almost assuredly, we already set this to true by finding a "drms" atom before this atom
+			
+		} else if ( (strncmp(atom, "mp4a", 4) == 0) || ( (strncmp(atom, "alac", 4) == 0) && (atomLevel == 7) ) ) {
+				parsedAtoms[atom_number-1].AtomicData = (char *)malloc(sizeof(char)*28);
+				fseek (file, midJump+8, SEEK_SET); //fseek to just after the atom name
+				fread(parsedAtoms[atom_number-1].AtomicData, 1, 28, file); //store the entire atom (data class won't even be used; only the length & atom name are created)
+				parsedAtoms[atom_number-1].AtomicDataClass = AtomicDataClass_Integer;
+				atomLevel++;
+				midJump += 36;
+				stsd_progress += 36;
+		
+		} else if (strncmp(atom, "skcr", 4) == 0) { //it has a "0x00 00 00 10, so it will appear to have a child
+			midJump += interDataSize;
+			stsd_progress += interDataSize;	
+			
+		//If I were on a mission, this is the place I would also make an exception for "stsd.drms.sinf.schi.righ" which contains "evID","plat","aver","tran" & "medi"
+		//but we aren't, and so we just copy it whole. Unlike "skcr" where accomidations DON'T have to be made to write it, "righ" children atoms would need... coddling
+		
 		} else if ( APar_TestforChildAtom(data, interDataSize, atom) ) { 
 			midJump += 8; //skip a head a grand total of... 8 *WHOLE* bytes - what progress!
+			stsd_progress += 8;	
 			atomLevel++; 
+			
 		} else {
 			midJump += interDataSize;
+			stsd_progress += interDataSize;	
+			atomLevel = APar_GetCurrentAtomDepth(midJump, interDataSize);
 		} 
+		
+		if (stsd_progress >=  drmLength) {
+			break; //we have completed stsd parsing
+		}
+
 		free(atom);
 		fseek(file, midJump, SEEK_SET);
 	}
-	
-	if (!flag_drms_atom) {
-		char *atom = (char *) malloc(4);
-		long static_midjump = midJump;
-		while ( midJump <= drmLength + static_midjump - 16) { //16 bytes accounts for what we added for stsd's length
-			fread(data, 1, 12, file);
-			atom = extractAtomName(data);
-			interDataSize = longFromBigEndian(data);
-			
-			if ( interDataSize > drmLength || interDataSize < 8) {
-				break;
-			}
-			APar_AtomizeFileInfo(parsedAtoms[atom_number], midJump, interDataSize, atom, atomLevel, -1, 0);
-			
-			//it gets uglier & uglier... in an Apple Lossless m4a there is an "alac.alac" hierarchy.... very creative of Apple
-			if ( (strncmp(atom, "mp4a", 4) == 0) || ( (strncmp(atom, "alac", 4) == 0) && (atomLevel == 7) ) ) {
-				parsedAtoms[atom_number-1].AtomicData = (char *)malloc(sizeof(char)*24);
-				fseek (file, midJump+12, SEEK_SET);
-				fread(parsedAtoms[atom_number-1].AtomicData, 1, 24, file);
-				parsedAtoms[atom_number-1].AtomicDataClass = AtomicDataClass_Integer;
-				
-				atomLevel++;
-				midJump += 36;
-			} else if ( APar_TestforChildAtom(data, interDataSize, atom) ) { 
-				midJump += 8; //skip a head a grand total of... 8 *WHOLE* bytes - what progress!
-				atomLevel++; 
-			} else {
-				midJump += interDataSize;
-			}
-		}
-		free(atom);
-		//exit(1);
-	}
+
 	parsedAtoms[stsd_entry_atom_number].AtomicData = (char *)malloc(sizeof(char)*4 );
 	fseek(file, stsd_entry_pos+12, SEEK_SET);
 	fread(parsedAtoms[stsd_entry_atom_number].AtomicData, 4, 1, file);
@@ -990,7 +1031,7 @@ void APar_ScanAtoms(const char *path) {
 					APar_AtomizeFileInfo(parsedAtoms[atom_number], jump, dataSize, atom, generalAtomicLevel, atom_class, 0);
 					
 					if (strncmp(atom, "stsd", 4) == 0) {
-						//For now, this will be treated as a special scenario, and it is... odd... and partly broken
+						//For now, this will be treated as a special scenario, and it is... odd... and mostly working
 						APar_Parse_stsd_Atoms(file, jump+16, dataSize);
 					}
 					
@@ -1279,6 +1320,21 @@ void APar_AddMetadataInfo(const char* m4aFile, const char* atom_path, const int 
 				parsedAtoms[desiredAtom.AtomicNumber].AtomicLength = 12 + 4 +1;  //offset + name + class + 4bytes null + \01
 				//APar_AtomicWriteTest(desiredAtom.AtomicNumber, true); //only the first byte will be valid
 				
+			} else if ( strncmp(parsedAtoms[APar_FindPrecedingAtom(desiredAtom)].AtomicName, "stik", 4) == 0 ) {
+				//compilations is 5 bytes of data after the data class.... no great way to handle that....  TV Show
+				if (strncmp(atomPayload, "TV Show", 6) == 0) {
+				  parsedAtoms[desiredAtom.AtomicNumber].AtomicData = strdup("\x0A");
+				} else if (strncmp(atomPayload, "Whacked Bookmark", 16) == 0) {
+					parsedAtoms[desiredAtom.AtomicNumber].AtomicData = strdup("\x05");
+				} else if (strncmp(atomPayload, "Music Video", 11) == 0) {
+					parsedAtoms[desiredAtom.AtomicNumber].AtomicData = strdup("\x06");
+				} else if (strncmp(atomPayload, "Movie", 11) == 0) {
+					parsedAtoms[desiredAtom.AtomicNumber].AtomicData = strdup("\x01"); //it could be anything, but some nums make iTunes slower it seems
+				}
+				parsedAtoms[desiredAtom.AtomicNumber].AtomicDataClass = dataType;
+				parsedAtoms[desiredAtom.AtomicNumber].AtomicLength = 12 + 4 +1;  //offset + name + class + 4bytes null + \01
+				//APar_AtomicWriteTest(desiredAtom.AtomicNumber, true); //only the first byte will be valid
+				
 			} else if ( strncmp(parsedAtoms[APar_FindPrecedingAtom(desiredAtom)].AtomicName, "rtng", 4) == 0 ) {
 				//'rtng'(advisory rating) is 5 bytes of data after the data class.... no great way to handle that either.
 				if (strncmp(atomPayload, "clean", 5) == 0) {
@@ -1407,46 +1463,39 @@ long APar_DetermineMediaData_AtomPosition() {
 	return mdat_position - mdat_start;
 }
 
-void APar_Readjust_STCO_atom(long supplemental_offset) {
-	short thisAtomNumber = 0;
-	while (parsedAtoms[thisAtomNumber].NextAtomNumber != 0) {
-		AtomicInfo thisAtom = parsedAtoms[thisAtomNumber];
-		//fprintf(stdout, "our atom is %s\n", thisAtom.AtomicName);
-		if ( strncmp(thisAtom.AtomicName, "stco", 4) == 0 ) {
-			//fprintf(stdout, "GOT IT: atom is %s\n", thisAtom.AtomicName);
-			APar_AtomicRead(parsedAtoms[thisAtomNumber].AtomicNumber);
-			parsedAtoms[thisAtomNumber].AtomicDataClass = AtomicDataClass_Integer;
-			//readjust
-			
-			char* stco_entries = (char *)malloc(sizeof(char)*4);
-			memcpy(stco_entries, parsedAtoms[thisAtomNumber].AtomicData, 4);
-			long entries = longFromBigEndian(stco_entries);
-			
-			char* an_entry = (char *)malloc(sizeof(char)*4);
-			
-			for(long i=1; i<=entries; i++) {
-				//read 4 bytes of the atom into a 4 char long an_entry to eval it
-				for (int c = 0; c <=3; c++ ) {
-					//first stco entry is the number of entries; every other one is an actual offset value
-					an_entry[c] = parsedAtoms[thisAtomNumber].AtomicData[i*4 + c];
-				}
-				long this_entry = longFromBigEndian(an_entry);
-				this_entry += supplemental_offset; //this is where we add our new mdat offset difference
-				char4long(this_entry, an_entry);
-				//and put the data back into AtomicData...
-				for (int c = 0; c <=3; c++ ) {
-					//first stco entry is the number of entries; every other one is an actual offset value
-					parsedAtoms[thisAtomNumber].AtomicData[i*4 + c] = an_entry[c];
-				}
-			}
-			
-			free(an_entry);
-			free(stco_entries);
-			//end readjustment
-			//APar_AtomicWriteTest(parsedAtoms[thisAtomNumber].AtomicNumber, true);
+void APar_Readjust_STCO_atom(long supplemental_offset, short stco_number) {
+	AtomicInfo thisAtom = parsedAtoms[stco_number];
+	//fprintf(stdout, "Just checking stco = %s\n", thisAtom.AtomicName);
+	APar_AtomicRead(stco_number);
+	parsedAtoms[stco_number].AtomicDataClass = AtomicDataClass_Integer;
+	//readjust
+	
+	char* stco_entries = (char *)malloc(sizeof(char)*4);
+	memcpy(stco_entries, parsedAtoms[stco_number].AtomicData, 4);
+	long entries = longFromBigEndian(stco_entries);
+	
+	char* an_entry = (char *)malloc(sizeof(char)*4);
+	
+	for(long i=1; i<=entries; i++) {
+		//read 4 bytes of the atom into a 4 char long an_entry to eval it
+		for (int c = 0; c <=3; c++ ) {
+			//first stco entry is the number of entries; every other one is an actual offset value
+			an_entry[c] = parsedAtoms[stco_number].AtomicData[i*4 + c];
 		}
-		thisAtomNumber = parsedAtoms[thisAtomNumber].NextAtomNumber;
+		long this_entry = longFromBigEndian(an_entry);
+		this_entry += supplemental_offset; //this is where we add our new mdat offset difference
+		char4long(this_entry, an_entry);
+		//and put the data back into AtomicData...
+		for (int c = 0; c <=3; c++ ) {
+			//first stco entry is the number of entries; every other one is an actual offset value
+			parsedAtoms[stco_number].AtomicData[i*4 + c] = an_entry[c];
+		}
 	}
+	
+	free(an_entry);
+	free(stco_entries);
+	//end readjustment
+	//APar_AtomicWriteTest(parsedAtoms[thisAtomNumber].AtomicNumber, true);
 	return;
 }
 
@@ -1455,14 +1504,12 @@ void APar_Readjust_STCO_atom(long supplemental_offset) {
 ///////////////////////////////////////////////////////////////////////////////////////
 
 void APar_DetermineAtomLengths() {
-	if (Create__udta_meta_hdlr__atom) { //this boolean only gets set when the surrounding hierarchies are created
+	if (Create__udta_meta_hdlr__atom) { //this boolean only gets set when the surrounding hierarchies (utda.meta & udta.meta.ilst) are created
 		
 		//if Quicktime (Player at the least) is used to create any type of mp4 file, the entire udta hierarchy is missing
 		//if iTunes doesn't find this "moov.udta.meta.hdlr" atom (and its data), it refuses to let any information be changed
 		//the dreaded "Album Artwork Not Modifiable" shows up. It's because this atom is missing. Oddly, QT Player can see the info
 		//this only works for mp4/m4a files - it doesn't work for 3gp (it writes perfectly fine, iTunes plays it (not modifiable)
-		
-		//QuickTime (ISMA) exports still don't work properly because of the damn stsd atom's children (and there are 3 of them!!!)
 		
 		AtomicInfo hdlr_atom = APar_FindAtom("moov.udta.meta.hdlr", true, false, false);
 		hdlr_atom = APar_CreateSparseAtom("moov.udta.meta", "hdlr", NULL, 4, false);
@@ -1485,17 +1532,32 @@ void APar_DetermineAtomLengths() {
 		next_atom = rev_atom_loop;
 		rev_atom_loop = APar_FindPrecedingAtom(parsedAtoms[rev_atom_loop]);
 		//fprintf(stdout, "current atom is named %s, num:%i\n", parsedAtoms[rev_atom_loop].AtomicName, parsedAtoms[rev_atom_loop].AtomicNumber);
+		short previous_atom = APar_FindPrecedingAtomNumber(rev_atom_loop);
 
 		if (parsedAtoms[rev_atom_loop].AtomicLevel == ( parsedAtoms[next_atom].AtomicLevel - 1) ) {
 			//apparently, a newly created atom of some sort.... we'll need to discern if what kind of parent/container atom 
 			if ( strncmp(parsedAtoms[rev_atom_loop].AtomicName, "meta", 4) == 0 ) {
 				atom_size += 12;
+				
 			} else if ( strncmp(parsedAtoms[rev_atom_loop].AtomicName, "stsd", 4) == 0 ) {
 				atom_size += 16;
-			} else if ( (strncmp(parsedAtoms[rev_atom_loop].AtomicName, "drms", 4) == 0) || 
-			            (strncmp(parsedAtoms[rev_atom_loop].AtomicName, "mp4a", 4) == 0) ||
-									( (strncmp(parsedAtoms[rev_atom_loop].AtomicName, "alac", 4) == 0) && (parsedAtoms[rev_atom_loop].AtomicLevel == 7))) {
-				atom_size += 36;
+
+			//video drm
+			} else if (strncmp(parsedAtoms[previous_atom].AtomicName, "stsd", 4) == 0) {
+				if (strncmp(parsedAtoms[rev_atom_loop].AtomicName, "drmi", 4) == 0) {
+					atom_size += 86;
+				
+				//chapter atoms from Apple's chapter tool make 3 trkn hierarchies with these types; if any new ones show up, they default to the next "else": +36
+				} else if ( (strncmp(parsedAtoms[rev_atom_loop].AtomicName, "text", 4) == 0) || 
+										(strncmp(parsedAtoms[rev_atom_loop].AtomicName, "jpeg", 4) == 0) ||
+										(strncmp(parsedAtoms[rev_atom_loop].AtomicName, "tx3g", 4) == 0) ) {
+					atom_size += 16;
+					
+				} else {
+					//all the other nonstandard atoms directly after stsd: "drms", "mp4a", "alac" (and any new ones that may come up will default to +36 - watch for it)
+					atom_size += 36;
+				}
+			
 			} else {
 				atom_size += 8;
 			}
@@ -1584,22 +1646,29 @@ void APar_CompleteCopyFile(FILE* dest_file, FILE *src_file, long new_file_size, 
 long APar_DRMS_WriteAtomically(FILE* temp_file, char* &buffer, char* &conv_buffer, long bytes_written_tally, short this_number) {
 	long bytes_written = 0;
 
-	char4long(parsedAtoms[this_number].AtomicLength, conv_buffer);
+	char4long(parsedAtoms[this_number].AtomicLength, conv_buffer); //write the atom length
 	fseek(temp_file, bytes_written_tally, SEEK_SET);
 	fwrite(conv_buffer, 4, 1, temp_file);
 	bytes_written += 4;
 	
-	fwrite(parsedAtoms[this_number].AtomicName, 4, 1, temp_file);
+	fwrite(parsedAtoms[this_number].AtomicName, 4, 1, temp_file); //write the atom name
 	bytes_written += 4;
 	
-	char4long(parsedAtoms[this_number].AtomicLength, conv_buffer);
-	fseek(temp_file, bytes_written_tally + bytes_written, SEEK_SET);
-	fwrite(conv_buffer, 4, 1, temp_file);
-	bytes_written += 4;
+	//char4long(parsedAtoms[this_number].AtomicLength, conv_buffer);
+	//fseek(temp_file, bytes_written_tally + bytes_written, SEEK_SET);
+	//fwrite(conv_buffer, 4, 1, temp_file); 
+	//bytes_written += 4;
 	
-	fseek(temp_file, bytes_written_tally + bytes_written, SEEK_SET);
-	fwrite(parsedAtoms[this_number].AtomicData, 24, 1, temp_file);
-	bytes_written += 24;
+	if (strncmp(parsedAtoms[this_number].AtomicName, "drmi", 4) == 0) {
+		fseek(temp_file, bytes_written_tally + bytes_written, SEEK_SET);
+	  fwrite(parsedAtoms[this_number].AtomicData, 78, 1, temp_file); //74
+	  bytes_written += 78;
+	} else {
+		//if (strncmp(parsedAtoms[this_number].AtomicName, "drms", 4) == 0) {
+	  fseek(temp_file, bytes_written_tally + bytes_written, SEEK_SET);
+	  fwrite(parsedAtoms[this_number].AtomicData, 28, 1, temp_file);
+	  bytes_written += 28;
+	}
 	return bytes_written;
 }
 
@@ -1683,6 +1752,7 @@ long APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file, ch
 		while (bytes_written <= parsedAtoms[this_atom].AtomicLength) {
 			if (bytes_written + max_buffer <= (long)parsedAtoms[this_atom].AtomicLength ) {
 				//fprintf(stdout, "Writing atom %s from file looping into buffer\n", parsedAtoms[this_atom].AtomicName);
+				//read&write occurs from & including atom name through end of atom
 				fseek(source_file, (bytes_written + parsedAtoms[this_atom].AtomicStart), SEEK_SET);
 				fread(buffer, 1, (size_t)max_buffer, source_file);
 				
@@ -1729,7 +1799,9 @@ long APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file, ch
 			if (strncmp(parsedAtoms[this_atom].AtomicName, "stsd", 4) == 0) {
 					atom_data_size = 4;
 					
-			} else if ( (strncmp(parent_atom.AtomicName, "cpil", 4) == 0) || (strncmp(parent_atom.AtomicName, "rtng", 4) == 0) ) {
+			} else if ( (strncmp(parent_atom.AtomicName, "cpil", 4) == 0) || 
+									(strncmp(parent_atom.AtomicName, "rtng", 4) == 0) ||
+									(strncmp(parent_atom.AtomicName, "stik", 4) == 0) ) {
 				//cpil/rtng is difficult to handle: its 5 bytes; AtomicParsley works in 1byte chunks for text/art; 2 bytes for others
 				char4long( 0, conv_buffer);
 				fwrite(conv_buffer, 4, 1, temp_file);
@@ -1764,10 +1836,7 @@ void APar_WriteFile(const char* m4aFile, bool rewrite_original) {
 	short thisAtomNumber = 0;
 	
 	long mdat_offset = APar_DetermineMediaData_AtomPosition();
-	if (mdat_offset != 0 ) {
-		//stco atom will need to be readjusted
-		APar_Readjust_STCO_atom(mdat_offset);
-	}
+
 	APar_DeriveNewPath(m4aFile, temp_file_name);
 	temp_file = fopen(temp_file_name, "wr");
 	if (temp_file != NULL) {
@@ -1776,12 +1845,20 @@ void APar_WriteFile(const char* m4aFile, bool rewrite_original) {
 		while (true) {
 			AtomicInfo thisAtom = parsedAtoms[thisAtomNumber];
 			//the loop where the critical determination is made
-			//AtomicDataClass comes into play for a missing "moov.udta.meta" atom, his has a data type class, but no actual data
+			if (strncmp(parsedAtoms[thisAtomNumber].AtomicName, "stco", 4) == 0) {
+					if (mdat_offset != 0 ) {
+						//stco atom will need to be readjusted
+						APar_Readjust_STCO_atom(mdat_offset, thisAtomNumber);
+						temp_file_bytes_written += APar_WriteAtomically(source_file, temp_file, false, file_buffer, data, temp_file_bytes_written, thisAtomNumber);
+					} else {
+						temp_file_bytes_written += APar_WriteAtomically(source_file, temp_file, true, file_buffer, data, temp_file_bytes_written, thisAtomNumber);
+					}
 
-			if ( (thisAtom.AtomicData != NULL) || ( strncmp(thisAtom.AtomicName, "meta", 4)  == 0 && thisAtom.AtomicDataClass >= 0) ) {
-			//if ( (strlen(thisAtom.AtomicData) != 0) || (thisAtom.AtomicDataClass >= 0) ) {
+			//AtomicDataClass comes into play for a missing "moov.udta.meta" atom, his has a data type class, but no actual data (or conversely, no type with 4 bytes of data
+			} else if ( (thisAtom.AtomicData != NULL) || ( strncmp(thisAtom.AtomicName, "meta", 4)  == 0 && thisAtom.AtomicDataClass >= 0) ) {
 				if ( (strncmp(parsedAtoms[thisAtomNumber].AtomicName, "drms", 4) == 0) || 
-				     (strncmp(parsedAtoms[thisAtomNumber].AtomicName, "mp4a", 4) == 0) || 
+				     (strncmp(parsedAtoms[thisAtomNumber].AtomicName, "drmi", 4) == 0) || 
+						 (strncmp(parsedAtoms[thisAtomNumber].AtomicName, "mp4a", 4) == 0) || 
 						 (strncmp(parsedAtoms[thisAtomNumber].AtomicName, "alac", 4) == 0 && (parsedAtoms[thisAtomNumber].AtomicLevel == 7)) ) {
 					temp_file_bytes_written += APar_DRMS_WriteAtomically(temp_file, file_buffer, data, temp_file_bytes_written, thisAtomNumber);
 				} else {
