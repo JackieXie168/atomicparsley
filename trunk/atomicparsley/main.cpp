@@ -54,6 +54,7 @@
 #define Metadata_Purge           'P'
 #define Meta_URL                 'u'
 #define Meta_Information         'i'
+#define Meta_stik                'S'
 #define OPT_WriteBack            'O'
 
 
@@ -156,11 +157,17 @@ static const char* longHelp_text =
 "  --tagtime          ,  -Z            Set the Coordinated Univeral Time of tagging on \"©ed1\"*\n"
 "  --information      ,  -i            Set an information tag on \"moov.udta.meta.ilst.©inf.data\"*\n"
 "  --url              ,  -u            Set a URL tag on \"moov.udta.meta.ilst.©url.data\"*\n"
+"  --stik             ,  -S   (1of4)   Sets the iTunes \"stik\" atom (options available below) \n"
+"                                           (\"Movie\", \"Whacked Bookmark\", \"Music Video\", \"TV Show\") \n"
 "                                     *Denotes utterly non-standard behavior; invisible to iTunes\n"
 "\n"
 "  --writeBack        ,  -O            If given, writes the file back into original file; deletes temp\n"
 "\n"
 "  --metaEnema        ,  -P            Douches away every atom under \"moov.udta.meta.ilst\" \n"
+"\n"
+" To delete a single atom, set the tag to null (except artwork):\n"
+"  --artist \"\" --lyrics \"\"\n"
+"  --artwork REMOVE_ALL \n"
 "------------------------------------------------------------------------------------------------\n"
 "                   Environmental Variables (affecting picture placement)\n"
 "\n"
@@ -259,13 +266,14 @@ int main( int argc, char *argv[])
 		{ "writeBack",        0,                  NULL,						OPT_WriteBack },
 		{ "information",      required_argument,  NULL,           Meta_Information },
 		{ "url",              required_argument,  NULL,           Meta_URL },
+		{ "stik",             required_argument,  NULL,           Meta_stik },
 		{ 0, 0, 0, 0 }
 	};
 		
 	int c = -1;
 	int option_index = 0;
 	
-	c = getopt_long_only(argc, argv, "hTtEe:m:a:d:g:c:i:l:u:w:y:G:k:A:B:C:V:ZP", long_options, &option_index);
+	c = getopt_long_only(argc, argv, "hTtEe:m:a:d:g:c:i:l:u:w:y:G:k:A:B:C:S:V:ZP", long_options, &option_index);
 	
 	if (c == -1) {
 		if (argc < 3 && argc > 2) {
@@ -478,6 +486,13 @@ int main( int argc, char *argv[])
 			//though I've never come across a "©url" atom, its likely to be this
 			APar_ScanAtoms(m4afile);
 			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.©inf.data", AtomicDataClass_Text, optarg, false);
+			
+			break;
+		}
+		
+		case Meta_stik : {
+			APar_ScanAtoms(m4afile);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.stik.data", AtomicDataClass_CPIL_TMPO, optarg, false);
 			
 			break;
 		}
