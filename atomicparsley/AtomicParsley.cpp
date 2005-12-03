@@ -1346,12 +1346,22 @@ void APar_AddMetadataInfo(const char* m4aFile, const char* atom_path, const int 
 				parsedAtoms[desiredAtom.AtomicNumber].AtomicLength = 12 + 4 +1;  //offset + name + class + 4bytes null + \01
 			
 			} else if ( strncmp(parsedAtoms[APar_FindPrecedingAtom(desiredAtom)].AtomicName, "tmpo", 4) == 0 ) {
+				//this sets a 6byte data value (the whole atom length is 18; 4bytes offset, 4bytes name, 4bytes datatype, 6 bytes data) hex 0x12
 				short bpm_value = 0;
 				sscanf(atomPayload, "%hd", &bpm_value); //sscanf into a short int
 				short bpm_data[4] = {0, 0, 0, bpm_value}; // number of elements + 3 shorts used in atom
 				bpm_data[0] = (short)sizeof(bpm_data)/sizeof(short);
 				APar_EncapulateData(desiredAtom, NULL, bpm_data, dataType);
-				
+			
+			} else if ( (strncmp(parsedAtoms[APar_FindPrecedingAtom(desiredAtom)].AtomicName, "tvsn", 4) == 0) ||
+			            (strncmp(parsedAtoms[APar_FindPrecedingAtom(desiredAtom)].AtomicName, "tves", 4) == 0) ) {
+				//this sets a 8byte data value (the whole atom length is 20; 4bytes offset, 4bytes name, 4bytes datatype, 6 bytes data) hex 0x14
+				short data_value = 0;
+				sscanf(atomPayload, "%hd", &data_value); //sscanf into a short int
+				short given_data[5] = {0, 0, 0, 0, data_value}; // number of elements (doesn't go into atom value) + 4 shorts used in atom (does go into atom)
+				given_data[0] = (short)sizeof(given_data)/sizeof(short);
+				APar_EncapulateData(desiredAtom, NULL, given_data, dataType);
+			
 			}
 			
 		}

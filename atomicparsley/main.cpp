@@ -55,6 +55,12 @@
 #define Meta_URL                 'u'
 #define Meta_Information         'i'
 #define Meta_stik                'S'
+#define Meta_description         'p'
+#define Meta_TV_Network          'n'
+#define Meta_TV_ShowName         'H'
+#define Meta_TV_EpisodeNumber    'N'
+#define Meta_TV_SeasonNumber     'U'
+#define Meta_TV_Episode          'I'
 #define OPT_WriteBack            'O'
 
 
@@ -159,6 +165,12 @@ static const char* longHelp_text =
 "  --url              ,  -u            Set a URL tag on \"moov.udta.meta.ilst.©url.data\"*\n"
 "  --stik             ,  -S   (1of4)   Sets the iTunes \"stik\" atom (options available below) \n"
 "                                           (\"Movie\", \"Whacked Bookmark\", \"Music Video\", \"TV Show\") \n"
+"  --description      ,  -p   (str)    Sets the description - used in TV shows\n"
+"  --TVNetwork        ,  -n   (str)    Sets the TV Network\n"
+"  --TVShowName       ,  -H   (str)    Sets the TV Show name\n"
+"  --TVEpisode        ,  -I   (str)    Sets the TV Episode:\"209\", but its a string: \"209 Part 1\"\n"
+"  --TVEpisodeNum     ,  -N   (num)    Sets the TV Episode number\n"
+"  --TVSeasonNum      ,  -U   (num)    Sets the TV Season number\n"
 "                                     *Denotes utterly non-standard behavior; invisible to iTunes\n"
 "\n"
 "  --writeBack        ,  -O            If given, writes the file back into original file; deletes temp\n"
@@ -267,13 +279,19 @@ int main( int argc, char *argv[])
 		{ "information",      required_argument,  NULL,           Meta_Information },
 		{ "url",              required_argument,  NULL,           Meta_URL },
 		{ "stik",             required_argument,  NULL,           Meta_stik },
+    { "description",      required_argument,  NULL,           Meta_description },
+    { "TVNetwork",        required_argument,  NULL,           Meta_TV_Network },
+    { "TVShowName",       required_argument,  NULL,           Meta_TV_ShowName },
+    { "TVEpisode",        required_argument,  NULL,           Meta_TV_Episode },
+    { "TVEpisodeNum",     required_argument,  NULL,           Meta_TV_EpisodeNumber },
+    { "TVSeasonNum",      required_argument,  NULL,           Meta_TV_SeasonNumber },
 		{ 0, 0, 0, 0 }
 	};
 		
 	int c = -1;
-	int option_index = 0;
+	int option_index = 0; 
 	
-	c = getopt_long_only(argc, argv, "hTtEe:m:a:d:g:c:i:l:u:w:y:G:k:A:B:C:S:V:ZP", long_options, &option_index);
+	c = getopt_long_only(argc, argv, "hTtEe:m:a:d:g:c:i:l:n:p:u:w:y:G:k:A:B:C:H:I:N:S:U:V:ZP", long_options, &option_index);
 	
 	if (c == -1) {
 		if (argc < 3 && argc > 2) {
@@ -493,6 +511,48 @@ int main( int argc, char *argv[])
 		case Meta_stik : {
 			APar_ScanAtoms(m4afile);
 			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.stik.data", AtomicDataClass_CPIL_TMPO, optarg, false);
+			
+			break;
+		}
+		
+		case Meta_description : {
+			APar_ScanAtoms(m4afile);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.desc.data", AtomicDataClass_Text, optarg, false);
+			
+			break;
+		}
+		
+		case Meta_TV_Network : {
+			APar_ScanAtoms(m4afile);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.tvnn.data", AtomicDataClass_Text, optarg, false); //iTunes: no null-term; AP: null-terminated
+			
+			break;
+		}
+		
+		case Meta_TV_ShowName : {
+			APar_ScanAtoms(m4afile);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.tvsh.data", AtomicDataClass_Text, optarg, false); //iTunes: no null-term; AP: null-terminated
+			
+			break;
+		}
+		
+		case Meta_TV_Episode : { //if the show "ABC Lost 209", its "209"
+			APar_ScanAtoms(m4afile);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.tven.data", AtomicDataClass_Text, optarg, false); //iTunes: no null-term; AP: null-terminated
+			
+			break;
+		}
+		
+		case Meta_TV_SeasonNumber : { //if the show "ABC Lost 209", its 2; integer 2 not char "2"
+			APar_ScanAtoms(m4afile);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.tvsn.data", AtomicDataClass_CPIL_TMPO, optarg, false);
+			
+			break;
+		}
+		
+		case Meta_TV_EpisodeNumber : { //if the show "ABC Lost 209", its 2; integer 9 not char "9"
+			APar_ScanAtoms(m4afile);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.tves.data", AtomicDataClass_CPIL_TMPO, optarg, false);
 			
 			break;
 		}

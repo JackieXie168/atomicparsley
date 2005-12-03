@@ -64,7 +64,7 @@ extern bool modified_atoms;
 
 extern bool alter_original;
 
-#define AtomicParsley_version	"0.7.3"
+#define AtomicParsley_version	"0.7.4"
 
 //--------------------------------------------------------------------------------------------------------------------------------//
 //--------------------------------------------------------------------------------------------------------------------------------//
@@ -103,8 +103,8 @@ v0.7    11/26/2005 added a writeBack flag to for a less beta-like future; integr
 v0.7.1  11/27/2005 modified parsing & writing to support Apple Lossless (alac) mp4 files. The lovely "alac.alac" non-standard atoms (parents & carry data) caused unplayable files to be written. Only QT ISMA files get screwed now (no idea about Nero)
 v0.7.2  11/29/2005 creates iTunes-required meta.hdlr; all the tags now get spit back when reading them (--textdata); slight fix to how atoms are parsed; all known m4a files now tag properly: iTunes (m4a, m4b, chapterized, alac), Quicktime (ISMA & mpeg4 - change filename ext to .m4a to see art; all QT products require the meta.hdlr addition), faac, Helix Producer & Nero; slight change to how PrintDataAtoms called FindParentAtom; added tag time on "©ed1" (edit date-might only really belong directly under udta); added "©url" to hold url; fixes to APar_RemoveAtom; added cli ability to remove all artwork
 v0.7.3  12/02/2005 handles stsd (and child) atoms better; modifies all stco offsets when needed (not just the first); new oddball iTMS video "drmi" atom handling; new "skid" atom support (sets iTunes GetInfo->options:Movie,TV Show, Music Video); writes iTMS video drm TV shows well now; diffs in a hex editor are moov atom length, and then into stco, so all is well
+v0.7.4  12/03/2005 "desc", "tvnn", "tvsh", "tven" & "tves" setting 
 
-//TODO "desc", "tvnn", "tvsh", "tven" & "tves" setting 
 */
 // goals for 0.8 Switch over to uint8, 16, & 32 to carry data; char got unweildy for non-textual data; short sucked for odd bytes.
 // goals for v0.99 supporting big endian systems
