@@ -26,14 +26,13 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <time.h>
+#include <math.h>
 
 #include "AtomicParsley.h"
 #include "AtomicParsley_genres.h"
 #include "AP_iconv.h"
 
-#if defined(__ppc__)
 #include "AP_NSImage.h"
-#endif
 
 ///////////////////////////////////////////////////////////////////////////////////////
 //                               Global Variables                                    //
@@ -54,6 +53,10 @@ bool Create__udta_meta_hdlr__atom = false;
 long max_buffer = 4096*25;
 
 long mdat_start=0;
+long new_file_size = 0; //used for the progressbar
+short max_display_width = 75;
+char* file_progress_buffer=(char*)malloc( sizeof(char)* (max_display_width+10) ); //+5 for any overflow in "%100", or "|"
+
 
 struct PicPrefs myPicturePrefs;
 bool parsed_prefs = false;
@@ -402,6 +405,7 @@ AtomicInfo APar_FindAtom(const char* atom_name, bool createMissing, bool stringF
 AtomicInfo APar_LocateAtomInsertionPoint(const char* the_hierarchy, bool findLastChild) {
 	//fprintf(stdout, "Searching for this path %s\n", the_hierarchy);
 	AtomicInfo InsertionPointAtom;
+	InsertionPointAtom.AtomicNumber=0;
 	short present_atom_level = 1;
 	int nextAtom = 0;
 	int pre_parent_atom = 0;
@@ -460,6 +464,14 @@ AtomicInfo APar_LocateAtomInsertionPoint(const char* the_hierarchy, bool findLas
 							}
 							pre_parent_atom = nextAtom;
 							nextAtom = parsedAtoms[nextAtom].NextAtomNumber;
+							if ( (parsedAtoms[nextAtom].AtomicLevel < present_atom_level) && (pre_parent_atom != 0) ) {
+								InsertionPointAtom = parsedAtoms[pre_parent_atom];
+								break;
+							} else if ( parsedAtoms[nextAtom].NextAtomNumber == 0) {
+								//end o' the line
+								InsertionPointAtom = parsedAtoms[nextAtom];
+								break;
+							}
 						} else {
 							InsertionPointAtom = parsedAtoms[pre_parent_atom];
 							break;
@@ -477,7 +489,6 @@ AtomicInfo APar_LocateAtomInsertionPoint(const char* the_hierarchy, bool findLas
 		nextAtom = thisAtom.NextAtomNumber;
 		
 		if (thisAtom.NextAtomNumber == 0 ) {
-			InsertionPointAtom = parsedAtoms[0]; // we return the first atom (since a NULL can't be returned, and the first atom is req.)
 			break;
 		}
 
@@ -493,6 +504,18 @@ short APar_FindLastAtom() {
 		this_atom_num = parsedAtoms[this_atom_num].NextAtomNumber;
 	}
 	return this_atom_num;
+}
+
+short APar_FindEndingAtom() {
+	short end_atom_num = 0; //start our search with the first atom
+	while (true) {
+		if ( (parsedAtoms[end_atom_num].NextAtomNumber == 0) || (end_atom_num == atom_number-1) ) {
+			break;
+		} else {
+			end_atom_num = parsedAtoms[end_atom_num].NextAtomNumber;
+		}
+	}
+	return end_atom_num;
 }
 
 bool APar_AtomHasChildren(short thisAtom) {
@@ -801,8 +824,8 @@ void APar_PrintAtomicTree() {
 	}
 		
 	fprintf(stdout, "------------------------------------------------------\n");
-	fprintf(stdout, "Total size: %i bytes; %i atoms total.\n", (int)file_size, atom_number-1);
-	fprintf(stdout, "Aac data: %li bytes; %li bytes all other atoms (%2.3f%% fluff).\n", 
+	fprintf(stdout, "Total size: %i bytes; %i atoms total. AtomicParsley v%s\n", (int)file_size, atom_number-1, AtomicParsley_version);
+	fprintf(stdout, "Media data: %li bytes; %li bytes all other atoms (%2.3f%% atom overhead).\n", 
 												aacData, (long)(file_size - aacData), (float)(file_size - aacData)/(float)file_size * 100 );
 	fprintf(stdout, "Total free atoms: %li bytes; %2.3f%% waste.\n", freeSpace, (float)freeSpace/(float)file_size * 100 );
 	fprintf(stdout, "------------------------------------------------------\n");
@@ -868,7 +891,7 @@ short APar_GetCurrentAtomDepth(long atom_start, long atom_length) {
 }
 
 bool APar_TestforChildAtom(char *fileData, long sizeofParentAtom, char* atom) {
-	if (strncmp(atom, "data", 4) == 0 ) {
+	if ( strncmp(atom, "data", 4) == 0  || strncmp(atom, "mdat", 4) == 0 ){
 		return false;
 	}
 	long sizeofChild;
@@ -934,7 +957,7 @@ void APar_Parse_stsd_Atoms(FILE* file, long midJump, long drmLength) {
 			atomLevel++;
 			flag_drms_atom = true;
 			
-		} else if (strncmp(atom, "drmi", 4) == 0) {
+		} else if (strncmp(atom, "drmi", 4) == 0) { //TODO TODO TODO: just as a drmi atom is 86 bytes, so is avc1 (hex length of 0x83
 			//a new drm atom in a different trkn than the first - appeared (first for me) in an iTMS TV Show episode (Lost 209)
 			parsedAtoms[atom_number-1].AtomicData = (char *)malloc(sizeof(char)*78); //74
 			fseek (file, midJump+8, SEEK_SET); //12
@@ -1028,6 +1051,10 @@ void APar_ScanAtoms(const char *path) {
 					
 					dataSize = longFromBigEndian(data);
 					
+					if (dataSize == 0) { //terminate at quicktime's 4byte null termination
+						break;
+					}
+					
 					APar_AtomizeFileInfo(parsedAtoms[atom_number], jump, dataSize, atom, generalAtomicLevel, atom_class, 0);
 					
 					if (strncmp(atom, "stsd", 4) == 0) {
@@ -1066,7 +1093,6 @@ void APar_ScanAtoms(const char *path) {
 	return;
 }
 
-
 ///////////////////////////////////////////////////////////////////////////////////////
 //                          Atom Removal Functions                                   //
 ///////////////////////////////////////////////////////////////////////////////////////
@@ -1081,16 +1107,77 @@ void APar_RemoveAtom(const char* atom_path, bool shellAtom) {
 		search_atom_name = strsep(&atom_hierarchy,".");
 	}
 	
-	if (strncmp(search_atom_name, desiredAtom.AtomicName, 4) == 0) { //only remove an atom we have a matching name for	
-		short preceding_atom_pos = APar_FindPrecedingAtom(desiredAtom);
-		AtomicInfo endingAtom = APar_LocateAtomInsertionPoint(atom_path, true);
-		if (endingAtom.AtomicNumber != 0) {
-			//leaves the unwanted atoms in place, but NextAtomNumber skips around those atoms, and won't be used anymore.
-			parsedAtoms[preceding_atom_pos].NextAtomNumber = endingAtom.NextAtomNumber;
+  if (desiredAtom.AtomicName != NULL) {
+    if (strncmp(search_atom_name, desiredAtom.AtomicName, 4) == 0) { //only remove an atom we have a matching name for	
+      short preceding_atom_pos = APar_FindPrecedingAtom(desiredAtom);
+      AtomicInfo endingAtom = APar_LocateAtomInsertionPoint(atom_path, true);
+      if (endingAtom.AtomicNumber != 0) {
+        //leaves the unwanted atoms in place, but NextAtomNumber skips around those atoms, and won't be used anymore.
+        parsedAtoms[preceding_atom_pos].NextAtomNumber = endingAtom.NextAtomNumber;
+      } else {
+        //fprintf(stdout, "i have nothing to remove.\n");
+      }
+    }
+    free(atom_hierarchy);
+  }
+  return;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////
+//                          Atom Moving Functions                                   //
+///////////////////////////////////////////////////////////////////////////////////////
+
+void APar_MoveAtom(short this_atom_number, short new_position) {
+	short precedingAtom = 0;
+	short lastStationaryAtom = 0;
+	short iter = 0;
+	
+	//look for the preceding atom (either directly before of the same level, or moov's last nth level child
+	while (parsedAtoms[iter].NextAtomNumber != 0) {
+		if (parsedAtoms[iter].NextAtomNumber == this_atom_number) {
+			precedingAtom = iter;
+			break;
 		} else {
-			//fprintf(stdout, "i have nothing to remove.\n");
+			if (parsedAtoms[iter].NextAtomNumber == 0) { //we found the last atom (which we end our search on)
+				break;
+			}
 		}
-		free(atom_hierarchy);
+		iter=parsedAtoms[iter].NextAtomNumber;
+	}
+	
+	iter = 0;
+	
+	//search where to insert our new atom
+	while (parsedAtoms[iter].NextAtomNumber != 0) {
+		//fprintf(stdout, "At %s\n", parsedAtoms[iter].AtomicName);
+		if (parsedAtoms[iter].NextAtomNumber == new_position) {
+			lastStationaryAtom = iter;
+			break;
+		}
+		iter=parsedAtoms[iter].NextAtomNumber;
+		if (parsedAtoms[iter].NextAtomNumber == 0) { //we found the last atom
+				lastStationaryAtom = iter;
+				break;
+		}
+
+	}
+	//fprintf(stdout, "%s preceded by %s, last would be %s\n", parsedAtoms[this_atom_number].AtomicName, parsedAtoms[precedingAtom].AtomicName, parsedAtoms[lastStationaryAtom].AtomicName);
+	
+	//APar_PrintAtomicTree();
+	parsedAtoms[lastStationaryAtom].NextAtomNumber = this_atom_number;
+	parsedAtoms[precedingAtom].NextAtomNumber = parsedAtoms[this_atom_number].NextAtomNumber;
+	parsedAtoms[this_atom_number].NextAtomNumber = new_position;
+
+	return;
+}
+
+void APar_Move_mdat_Atoms() {
+	short iter = 0;
+	while (parsedAtoms[iter].NextAtomNumber != 0) {
+		iter=parsedAtoms[iter].NextAtomNumber;
+		if ( (strncmp(parsedAtoms[iter].AtomicName, "mdat", 4) == 0) && (parsedAtoms[iter].AtomicLevel == 1) ) {
+			APar_MoveAtom(iter, 0);
+		}
 	}
 	return;
 }
@@ -1105,6 +1192,7 @@ void APar_EncapulateData(AtomicInfo anAtom, const char* atomData, short binaryDa
 	//fprintf(stdout, "Working on atom %s, num %i\n", parsedAtoms[thisnum].AtomicName, parsedAtoms[thisnum].AtomicNumber);
 	bool picture_exists = false;
 	off_t picture_size = 0;
+	size_t data_length;
 	
 	switch (atomDataClass) {
 	
@@ -1131,7 +1219,7 @@ void APar_EncapulateData(AtomicInfo anAtom, const char* atomData, short binaryDa
 			break;
 			
 		case AtomicDataClass_Text :
-			size_t data_length = strlen(atomData);
+			data_length = strlen(atomData);
 			
 			if ( data_length >= 8 ) {
 				parsedAtoms[thisnum].AtomicData = (char*)malloc(sizeof(char)* data_length + 1);
@@ -1207,13 +1295,15 @@ AtomicInfo APar_CreateSparseAtom(const char* present_hierarchy, char* new_atom_n
 	//the end boolean value below tells the function to locate where that atom (and its children) end
 	AtomicInfo KeyInsertionAtom = APar_LocateAtomInsertionPoint(present_hierarchy, asLastChild);
 	bool atom_shunted = false; //only shunt the NextAtomNumber once (for the first atom that is missing.
-	int continuation_atom_number = KeyInsertionAtom.NextAtomNumber;
+	int continuation_atom_number = 0;
 	AtomicInfo new_atom;
 	//fprintf(stdout, "Our KEY insertion atom is \"%s\"", KeyInsertionAtom.AtomicName);
+	continuation_atom_number = KeyInsertionAtom.NextAtomNumber;
+	
 	while (new_atom_name != NULL) {
 		//the atom should be created first, so that we can determine these size issues first
 		//new_atom_name = strsep(&missing_hierarchy,".");
-		//fprintf(stdout, "At %s, adding new atom \"%s\" at level %i\n", present_hierarchy, new_atom_name, atom_level);
+		//fprintf(stdout, "At %s, adding new atom \"%s\" at level %i, after %s\n", present_hierarchy, new_atom_name, atom_level, parsedAtoms[APar_FindPrecedingAtomNumber(KeyInsertionAtom.AtomicNumber)].AtomicName);
 
 		new_atom = parsedAtoms[atom_number];
 		
@@ -1268,6 +1358,18 @@ AtomicInfo APar_CreateSparseAtom(const char* present_hierarchy, char* new_atom_n
 	}
 	
 	return new_atom;
+}
+
+void APar_Verify__udta_meta_hdlr__atom() {
+	const char* udta_meta_hdlr__atom = "moov.udta.meta.hdlr";
+	AtomicInfo hdlrAtom = APar_FindAtom(udta_meta_hdlr__atom, false, false, false);
+	//argh, for whatever freason, that FindAtom finds "meta" when it exits, not "hdlr"; TODO: fix that
+	hdlrAtom = parsedAtoms[hdlrAtom.NextAtomNumber];
+
+	if ( strncmp(hdlrAtom.AtomicName, "hdlr", 4) != 0 ) {
+		Create__udta_meta_hdlr__atom = true;
+	}
+	return;
 }
 
 void APar_AddMetadataInfo(const char* m4aFile, const char* atom_path, const int dataType, const char* atomPayload, bool shellAtom) {
@@ -1469,7 +1571,7 @@ long APar_DetermineMediaData_AtomPosition() {
 			mdat_position +=thisAtom.AtomicLength;
 		}
 		thisAtomNumber = parsedAtoms[thisAtomNumber].NextAtomNumber;
-	}
+	}	
 	return mdat_position - mdat_start;
 }
 
@@ -1513,8 +1615,28 @@ void APar_Readjust_STCO_atom(long supplemental_offset, short stco_number) {
 //                          Determine Atom Length                                    //
 ///////////////////////////////////////////////////////////////////////////////////////
 
+void APar_DetermineNewFileLength() {
+	short thisAtomNumber = 0;
+	while (true) {		
+		if (parsedAtoms[thisAtomNumber].AtomicLevel == 1) {				
+	    new_file_size += parsedAtoms[thisAtomNumber].AtomicLength; //used in progressbar
+		}
+		if (parsedAtoms[thisAtomNumber].NextAtomNumber == 0) {
+			break;
+		}
+		thisAtomNumber = parsedAtoms[thisAtomNumber].NextAtomNumber;
+	}
+	return;
+}
+
 void APar_DetermineAtomLengths() {
-	if (Create__udta_meta_hdlr__atom) { //this boolean only gets set when the surrounding hierarchies (utda.meta & udta.meta.ilst) are created
+
+	APar_Verify__udta_meta_hdlr__atom();
+	//APar_PrintAtomicTree();
+
+	APar_Move_mdat_Atoms();
+	
+	if (Create__udta_meta_hdlr__atom) { //this boolean gets set in APar_Verify__udta_meta_hdlr__atom; the hdlr atom (with data) is required by iTunes to enable tagging
 		
 		//if Quicktime (Player at the least) is used to create any type of mp4 file, the entire udta hierarchy is missing
 		//if iTunes doesn't find this "moov.udta.meta.hdlr" atom (and its data), it refuses to let any information be changed
@@ -1525,7 +1647,6 @@ void APar_DetermineAtomLengths() {
 		hdlr_atom = APar_CreateSparseAtom("moov.udta.meta", "hdlr", NULL, 4, false);
 		APar_EncapulateData(hdlr_atom, NULL, NULL, AtomicDataClass_Integer);
 	}
-
 	
 	short last_atom = APar_FindLastAtom();
 	//fprintf(stdout, "Last atom is named %s, num:%i\n", parsedAtoms[last_atom].AtomicName, parsedAtoms[last_atom].AtomicNumber);
@@ -1585,6 +1706,7 @@ void APar_DetermineAtomLengths() {
 		}
 		
 	}
+	APar_DetermineNewFileLength();
 	//APar_SimpleAtomPrintout();
 	//APar_PrintAtomicTree();
 	return;
@@ -1593,6 +1715,41 @@ void APar_DetermineAtomLengths() {
 ///////////////////////////////////////////////////////////////////////////////////////
 //                          Atom Writing Functions                                   //
 ///////////////////////////////////////////////////////////////////////////////////////
+
+void APar_ShellProgressBar(long bytes_written) {
+	strcpy(file_progress_buffer, "Progress: ");
+	
+	if (bytes_written == 0) {
+		for (int i = 0; i <= max_display_width; i++) {
+			strcat(file_progress_buffer, "=");
+			if (i == max_display_width) {
+				sprintf(file_progress_buffer, "%s>%d%%", file_progress_buffer, 100);
+			}
+		}
+	} else {
+	
+		int display_progress = (int)lroundf( (float)bytes_written/(float)new_file_size * 100 *( (float)max_display_width/100) );
+		int percentage_complete = (int)lroundf( (float)bytes_written/(float)new_file_size * 100 );
+		
+		for (int i = 0; i <= max_display_width; i++) {
+			if (i < display_progress ) {
+				strcat(file_progress_buffer, "=");
+			} else if (i == display_progress) {
+				sprintf(file_progress_buffer, "%s>%d%%", file_progress_buffer, percentage_complete);
+			} else {
+				strcat(file_progress_buffer, "-");
+			}
+		}
+	}
+	strcat(file_progress_buffer, "|");
+	
+	//char* file_progress=(char*)malloc( sizeof(char)* (strlen(file_progress_buffer) -1) );
+	//strncpy(file_progress, file_progress_buffer, strlen(file_progress_buffer) -1);
+	
+	fprintf(stdout, "%s\r", file_progress_buffer);
+	fflush(stdout);
+	return;
+}
 
 void APar_DeriveNewPath(const char *filePath, char* &temp_path) {
 	char* suffix = strrchr(filePath, '.');
@@ -1664,11 +1821,6 @@ long APar_DRMS_WriteAtomically(FILE* temp_file, char* &buffer, char* &conv_buffe
 	fwrite(parsedAtoms[this_number].AtomicName, 4, 1, temp_file); //write the atom name
 	bytes_written += 4;
 	
-	//char4long(parsedAtoms[this_number].AtomicLength, conv_buffer);
-	//fseek(temp_file, bytes_written_tally + bytes_written, SEEK_SET);
-	//fwrite(conv_buffer, 4, 1, temp_file); 
-	//bytes_written += 4;
-	
 	if (strncmp(parsedAtoms[this_number].AtomicName, "drmi", 4) == 0) {
 		fseek(temp_file, bytes_written_tally + bytes_written, SEEK_SET);
 	  fwrite(parsedAtoms[this_number].AtomicData, 78, 1, temp_file); //74
@@ -1731,6 +1883,8 @@ long APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file, ch
 					fseek(temp_file, (bytes_written_tally + bytes_written), SEEK_SET);
 					fwrite(buffer, (size_t)max_buffer, 1, temp_file);
 					bytes_written += max_buffer;
+					
+					APar_ShellProgressBar(bytes_written);
 				
 				} else { //we either came up on a short atom (most are), or the last bit of a really long atom
 					//fprintf(stdout, "Writing atom %s from file directly into buffer\n", parsedAtoms[this_atom].AtomicName);
@@ -1740,6 +1894,8 @@ long APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file, ch
 					fseek(temp_file, (bytes_written_tally + bytes_written), SEEK_SET);
 					fwrite(buffer, (size_t)(parsedAtoms[this_atom].AtomicLength - bytes_written), 1, temp_file);
 					bytes_written += parsedAtoms[this_atom].AtomicLength - bytes_written;
+					
+					APar_ShellProgressBar(bytes_written);
 				
 					break;
 				} //endif
@@ -1770,6 +1926,8 @@ long APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file, ch
 				fwrite(buffer, (size_t)max_buffer, 1, temp_file);
 				bytes_written += max_buffer;
 				
+				APar_ShellProgressBar(bytes_written);
+				
 			} else { //we either came up on a short atom (most are), or the last bit of a really long atom
 				//fprintf(stdout, "Writing atom %s from file directly into buffer\n", parsedAtoms[this_atom].AtomicName);
 				fseek(source_file, (bytes_written + parsedAtoms[this_atom].AtomicStart), SEEK_SET);
@@ -1778,6 +1936,8 @@ long APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file, ch
 				fseek(temp_file, (bytes_written_tally + bytes_written), SEEK_SET);
 				fwrite(buffer, (size_t)(parsedAtoms[this_atom].AtomicLength - bytes_written), 1, temp_file);
 				bytes_written += parsedAtoms[this_atom].AtomicLength - bytes_written;
+				
+				APar_ShellProgressBar(bytes_written);
 				
 				break;
 			}
@@ -1832,8 +1992,11 @@ long APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file, ch
 			//bytes_written += (long)(strlen(parsedAtoms[this_atom].AtomicData)+1);
 			fwrite(parsedAtoms[this_atom].AtomicData, atom_data_size, 1, temp_file);
 			bytes_written += atom_data_size;
+			
+			APar_ShellProgressBar(bytes_written);
 		}
 	}
+	
 	return bytes_written;
 }
 
@@ -1851,6 +2014,8 @@ void APar_WriteFile(const char* m4aFile, bool rewrite_original) {
 	temp_file = fopen(temp_file_name, "wr");
 	if (temp_file != NULL) {
 		//body of atom writing here
+		
+		fprintf(stdout, "\nStarted writing to temp file.\n");
 		
 		while (true) {
 			AtomicInfo thisAtom = parsedAtoms[thisAtomNumber];
@@ -1890,6 +2055,8 @@ void APar_WriteFile(const char* m4aFile, bool rewrite_original) {
 			}
 			thisAtomNumber = parsedAtoms[thisAtomNumber].NextAtomNumber;
 		}
+		APar_ShellProgressBar(0);
+		fprintf(stdout, "\nFinished writing to temp file.\n");
 		fclose(temp_file);
 		
 	} else {

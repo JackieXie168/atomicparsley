@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <signal.h>
 #include <getopt.h>
 //#include <Carbon/Carbon.h>
 
@@ -291,7 +292,8 @@ int main( int argc, char *argv[])
 	int c = -1;
 	int option_index = 0; 
 	
-	c = getopt_long_only(argc, argv, "hTtEe:m:a:d:g:c:i:l:n:p:u:w:y:G:k:A:B:C:H:I:N:S:U:V:ZP", long_options, &option_index);
+	//c = getopt_long_only(argc, argv, "hTtEe:m:a:d:g:c:i:l:n:p:u:w:y:G:k:A:B:C:H:I:N:S:U:V:ZP", long_options, &option_index);
+	c = getopt_long(argc, argv, "hTtEe:m:a:d:g:c:i:l:n:p:u:w:y:G:k:A:B:C:H:I:N:S:U:V:ZP", long_options, &option_index);
 	
 	if (c == -1) {
 		if (argc < 3 && argc > 2) {
