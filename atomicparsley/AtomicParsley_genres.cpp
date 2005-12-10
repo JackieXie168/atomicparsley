@@ -82,10 +82,13 @@ int GenreIntToString(char** genre_string, int genre) {
 short StringGenreToInt(const char* genre_string) {
 	short return_genre = 0;
 
-	for(short i = 0; i < (short)(sizeof(ID3v1GenreList)/sizeof(*ID3v1GenreList)); i++) {
+	for(short i = 0; i < (short)(sizeof(ID3v1GenreList)/sizeof(*ID3v1GenreList))+1; i++) {
 		if (strncmp(genre_string, ID3v1GenreList[i], (int)strlen(ID3v1GenreList[i])) == 0) {
 			return_genre = i+1;
 			//fprintf(stdout, "Genre %s is %i\n", ID3v1GenreList[return_genre-1], return_genre);
+			break;
+		}
+		if (i == 83 ) {
 			break;
 		}
 	}
