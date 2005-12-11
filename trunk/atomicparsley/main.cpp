@@ -2,11 +2,11 @@
 /*
     AtomicParsley - main.cpp
 
-    AtomicParlsey is GPL software; you can freely distribute, 
+    AtomicParsley is GPL software; you can freely distribute, 
     redistribute, modify & use under the terms of the GNU General
     Public License; either version 2 or its successor.
 
-    AtomicParlsey is distributed under the GPL "AS IS", without
+    AtomicParsley is distributed under the GPL "AS IS", without
     any warranty; without the implied warranty of merchantability
     or fitness for either a expressly or implied particular purpose.
 
@@ -24,7 +24,6 @@
 #include <string.h>
 #include <signal.h>
 #include <getopt.h>
-//#include <Carbon/Carbon.h>
 
 #include "AtomicParsley.h"
 
@@ -182,6 +181,8 @@ static const char* longHelp_text =
 "  --artist \"\" --lyrics \"\"\n"
 "  --artwork REMOVE_ALL \n"
 "------------------------------------------------------------------------------------------------\n"
+
+#if defined (__ppc__) || defined (__ppc64__)
 "                   Environmental Variables (affecting picture placement)\n"
 "\n"
 " export these variables in your shell to set these flags; preferences are separated by colons (:)\n"
@@ -198,24 +199,9 @@ static const char* longHelp_text =
 " export PIC_OPTIONS=\"MaxDimensions=400:DPI=72:MaxKBytes=100:AddBothPix=true:AllPixJPEG=true\"\n"
 " export PIC_OPTIONS=\"SquareUp:removeTempPix\"\n"
 "------------------------------------------------------------------------------------------------\n"
-"\n";
+#endif
 
-/* void CarbonParentFolder( const char *filepath, char* &basepath) {
-	FSRef file_system_ref, parent_fs_ref;
-	FSSpec file_spec;
-	UInt8 *posixpath;
-	posixpath=(UInt8*)malloc(sizeof(UInt8)*MAXPATHLEN);
-  OSStatus status = noErr;
-	status = FSPathMakeRef( (const UInt8 *)filepath, &file_system_ref, false);
-	if (status == noErr) {
-		FSGetCatalogInfo (&file_system_ref, kFSCatInfoNone, NULL, NULL, &file_spec, NULL);
-		FSGetCatalogInfo (&file_system_ref, kFSCatInfoNone, NULL, NULL, &file_spec, &parent_fs_ref);
-		status = FSRefMakePath ( &parent_fs_ref, posixpath, MAXPATHLEN);
-		basepath = (char *)posixpath;
-	} else {
-		basepath = "";
-	}
-} */
+"\n";
 
 void GetBasePath(const char *filepath, char* &basepath) {
 	//with a myriad of m4a, m4p, mp4, whatever else comes up... it might just be easiest to strip off the end.
@@ -232,7 +218,6 @@ void GetBasePath(const char *filepath, char* &basepath) {
 	}
 	return;
 }
-
 
 //***********************************************
 

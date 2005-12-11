@@ -2,11 +2,11 @@
 /*
     AtomicParsley - AP_iconv.cpp
 
-    AtomicParlsey is GPL software; you can freely distribute, 
+    AtomicParsley is GPL software; you can freely distribute, 
     redistribute, modify & use under the terms of the GNU General
     Public License; either version 2 or its successor.
 
-    AtomicParlsey is distributed under the GPL "AS IS", without
+    AtomicParsley is distributed under the GPL "AS IS", without
     any warranty; without the implied warranty of merchantability
     or fitness for either a expressly or implied particular purpose.
 
@@ -52,7 +52,11 @@ void StringReEncode(char *a_string, char *tocode, char *fromcode) {
 	   fprintf(stderr,"Error iconv_open()!\n");
 		return;
 	}
+#if defined (__ppc__) || defined (__ppc64__)
 	result = iconv(frt, (const char**) &asbptr, (size_t*) &len, &asaptr, (size_t*) &len1);
+#else
+	result = iconv(frt, &asbptr, (size_t*) &len, &asaptr, (size_t*) &len1);
+#endif
 	//fprintf (stdout, "Output string %s\n", a_string_after);
 	if (result == (size_t) - 1)
 	{

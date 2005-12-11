@@ -2,11 +2,11 @@
 /*
     AtomicParsley - AtomicParsley.cpp
 
-    AtomicParlsey is GPL software; you can freely distribute, 
+    AtomicParsley is GPL software; you can freely distribute, 
     redistribute, modify & use under the terms of the GNU General
     Public License; either version 2 or its successor.
 
-    AtomicParlsey is distributed under the GPL "AS IS", without
+    AtomicParsley is distributed under the GPL "AS IS", without
     any warranty; without the implied warranty of merchantability
     or fitness for either a expressly or implied particular purpose.
 
@@ -54,7 +54,12 @@ long max_buffer = 4096*25;
 
 long mdat_start=0;
 long new_file_size = 0; //used for the progressbar
+
+#if defined (__ppc__) || defined (__ppc64__)
 short max_display_width = 75;
+#else
+short max_display_width = 25; //the VPC window is pretty small; and no discernable way to change it;
+#endif
 char* file_progress_buffer=(char*)malloc( sizeof(char)* (max_display_width+10) ); //+5 for any overflow in "%100", or "|"
 
 
@@ -141,17 +146,26 @@ off_t findFileSize(const char *path) {
 	return fileStats.st_size;
 }
 
-//#if defined(__ppc__)
 long longFromBigEndian(const char *string) {
+#if defined (__ppc__) || defined (__ppc64__)
 	long test;
 	memcpy(&test,string,4);
 	return test;
+#else
+	//oddly, this line worked for 16496, but failed at 5849 (which became -39 or something); moving right past bitshifting - 2 dozen cracks at it was enough
+	//TODO: figure out bitshifting
+	//return ((string[0] << 24) | (string[1] << 16) | (string[2] << 8) | string[3] << 0);
+	long test;
+	char shift_data[4];
+	shift_data[0] = string[3];
+	shift_data[1] = string[2];
+	shift_data[2] = string[1];
+	shift_data[3] = string[0];
+	memcpy(&test,shift_data,4);
+	return test;
+#endif
 }
-//#else
 
-//#endif
-
-//#if defined(__ppc__)
 void char4long(long lnum, char* data) {
 	data[0] = (lnum >> 24) & 0xff;
 	data[1] = (lnum >> 16) & 0xff;
@@ -159,20 +173,12 @@ void char4long(long lnum, char* data) {
 	data[3] = (lnum >>  0) & 0xff;
 	return;
 }
-//#else
 
-//#endif
-
-//#if defined(__ppc__)
 void char4short(short snum, char* data) {
 	data[0] = (snum >>  8) & 0xff;
 	data[1] = (snum >>  0) & 0xff;
 	return;
 }
-//#else
-
-//#endif
-
 
 char* extractAtomName(char *fileData) {
 	char *atom=(char *)malloc(sizeof(char)*5);
@@ -230,7 +236,7 @@ int APar_TestArtworkBinaryData(const char* artworkPath) {
 		} else if ( strncmp(pic_data, "\xFF\xD8\xFF\xE0", 4) == 0 ) {
 			artwork_dataType = AtomicDataClass_JPEGBinary;
 		} else {
-			fprintf(stdout, "AtomicParlsey error: %s\n\t image file is not jpg/png and cannot be embedded.\n", artworkPath);
+			fprintf(stdout, "AtomicParsley error: %s\n\t image file is not jpg/png and cannot be embedded.\n", artworkPath);
 			exit(1);
 		}
 		fclose(artfile);
@@ -894,12 +900,14 @@ bool APar_TestforChildAtom(char *fileData, long sizeofParentAtom, char* atom) {
 	if ( strncmp(atom, "data", 4) == 0  || strncmp(atom, "mdat", 4) == 0 ){
 		return false;
 	}
-	long sizeofChild;
+	
 	char *childAtomLength = (char *)malloc(sizeof(char)*4);
 	for (int i=0; i < 4; i++) {
 		childAtomLength[i] = fileData[i+8]; //we want the 4 byte 'atom' in data [4,5,6,7]
 	}
-	memcpy(&sizeofChild,childAtomLength,4);
+	
+	long sizeofChild = longFromBigEndian(childAtomLength);
+	
 	if ( sizeofChild > 8 && sizeofChild < sizeofParentAtom ) {
 		free(childAtomLength);
 		return true;
@@ -1423,7 +1431,7 @@ void APar_AddMetadataInfo(const char* m4aFile, const char* atom_path, const int 
 				//APar_AtomicWriteTest(desiredAtom.AtomicNumber, true); //only the first byte will be valid
 				
 			} else if ( strncmp(parsedAtoms[APar_FindPrecedingAtom(desiredAtom)].AtomicName, "stik", 4) == 0 ) {
-				//compilations is 5 bytes of data after the data class.... no great way to handle that....  TV Show
+				//compilations is 5 bytes of data after the data class.... no great way to handle that....  TV Show				
 				if (strncmp(atomPayload, "TV Show", 6) == 0) {
 				  parsedAtoms[desiredAtom.AtomicNumber].AtomicData = strdup("\x0A");
 				} else if (strncmp(atomPayload, "Whacked Bookmark", 16) == 0) {
@@ -1473,7 +1481,7 @@ void APar_AddMetadataInfo(const char* m4aFile, const char* atom_path, const int 
 }
 
 void APar_AddGenreInfo(const char* m4aFile, const char* atomPayload) {
-	//the 1 slight difference between AtomicParlsey's custom genre strings on "gnre.data" is that here they are NULL (\00) terminated.
+	//the 1 slight difference between AtomicParsley's custom genre strings on "gnre.data" is that here they are NULL (\00) terminated.
 	//in iTunes, there is no null termination; AtomicParsley's atom TextDataClass is all NULL terminated, so that explains it.
 	//iTunes doesn't have a problem with it however, so I'll just keep it like so until it breaks.
 	const char* standard_genre_atom = "moov.udta.meta.ilst.gnre";
