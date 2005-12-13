@@ -88,6 +88,7 @@ void APar_AddGenreInfo(const char* m4aFile, const char* atomPayload);
 void APar_AddMetadataArtwork(const char* m4aFile, const char* artworkPath, char* env_PicOptions);
 void APar_StandardTime(char* &formed_time);
 void APar_RemoveAtom(const char* atom_path, bool shellAtom);
+short APar_FindEndingAtom();
 
 void APar_WriteFile(const char* m4aFile, bool rewrite_original);
 
@@ -102,14 +103,14 @@ v0.65   11/25/2005  bugfixes to newly introduced bugs in APar_FindAtom; metaEnem
 v0.7    11/26/2005 added a writeBack flag to for a less beta-like future; integrated NSImage resizing of artwork; environmental preferences for artwork modifications; build system mods for Mac-specific compiling; 
 v0.7.1  11/27/2005 modified parsing & writing to support Apple Lossless (alac) mp4 files. The lovely "alac.alac" non-standard atoms (parents & carry data) caused unplayable files to be written. Only QT ISMA files get screwed now (no idea about Nero)
 v0.7.2  11/29/2005 creates iTunes-required meta.hdlr; all the tags now get spit back when reading them (--textdata); slight fix to how atoms are parsed; all known m4a files now tag properly: iTunes (m4a, m4b, chapterized, alac), Quicktime (ISMA & mpeg4 - change filename ext to .m4a to see art; all QT products require the meta.hdlr addition), faac, Helix Producer & Nero; slight change to how PrintDataAtoms called FindParentAtom; added tag time on "©ed1" (edit date-might only really belong directly under udta); added "©url" to hold url; fixes to APar_RemoveAtom; added cli ability to remove all artwork
-v0.7.3  12/02/2005 handles stsd (and child) atoms better; modifies all stco offsets when needed (not just the first); new oddball iTMS video "drmi" atom handling; new "skid" atom support (sets iTunes GetInfo->options:Movie,TV Show, Music Video); writes iTMS video drm TV shows well now; diffs in a hex editor are moov atom length, and then into stco, so all is well
+v0.7.3  12/02/2005 handles stsd (and child) atoms better; modifies all stco offsets when needed (not just the first); new oddball iTMS video "drmi" atom handling; new "stik" atom support (sets iTunes GetInfo->options:Movie,TV Show, Music Video); writes iTMS video drm TV shows well now; diffs in a hex editor are moov atom length, and then into stco, so all is well
 v0.7.4  12/03/2005 "desc", "tvnn", "tvsh", "tven" & "tves" setting
 v0.7.5b 12/09/2005 forced 'mdat' into being childless (chapterized mpeg4 files have atoms scattered througout mdat, but they aren't children); fixed issues with ffmpeg created mpeg4 files (that have mdat as 2nd atom; moov & chilren as last atoms); moved ffmpeg mdat atoms around to end; better atom adding at the end; subbed getopt_long_only to getopt_long for pre-10.4 users; added progressbar
 v0.7.5c 12/10/2005 funnguy0's linux patches (thanks so much for that)
 v0.7.5d 12/11/2005 endian issues for x86 mostly resolved; setting genre's segfaults; stik doesn't get set in a multi-option command, but does as a single atom setting; Debian port added to binaries (compiled under debian-31r0a-i386 with g++4.02-2, libc6_2.3.5-8 & libstdc++6_4.0.2-2) - under VirtualPC - with the nano editor!
+v0.7.5e 12/12/2005 ammends how atoms are added at the end of the hierarchy (notably this affects ffmpeg video files)
 
 */
-// goals for 0.8 Switch over to uint8, 16, & 32 to carry data; char got unweildy for non-textual data; short sucked for odd bytes.
-// goals for v0.99 supporting big endian systems
-// goals for 1.x UTF-8 support; perhaps even full blown UTF-16 (unlikely).
-// TODO: revisit how atoms are parsed to get around the tricks for atoms like 'alac', 'drms', 'stsd', 'mp4a' & their writing
+// goals for 0.9 Switch over to uint8, 16, & 32 to carry data; char got unweildy for non-textual data; short sucked for odd bytes.
+// goals for 1.x full unicode support; support windows (even though Debian x86 works, it spirals horribly under mingw)
+// TODO: revisit how atoms are parsed to get around the tricks for atoms under stsd
