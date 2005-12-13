@@ -27,11 +27,9 @@ elif [ $OS = Linux ] ; then
   g++ -Wl,-headerpad -g -O2 -Wall -o AtomicParsley obj_files/AtomicParsley_genres.o obj_files/AP_iconv.o obj_files/AtomicParsley.o obj_files/main.o
 
 else
-  g++ -g -O2 -Wall -liconv -framework Cocoa -o AtomicParsley obj_files/AtomicParsley_genres.o obj_files/AP_iconv.o obj_files/AtomicParsley.o obj_files/main.o
+  g++ -g -O2 -Wall -liconv -o AtomicParsley.exe obj_files/AtomicParsley_genres.o obj_files/AP_iconv.o obj_files/AtomicParsley.o obj_files/main.o
 fi
 
-if [ $OS="Darwin" ] ; then
-  strip -x AtomicParsley
-elif [ $OS = Linux ] ; then
+if [ $OS=Darwin ] ; then
   strip -x AtomicParsley
 fi

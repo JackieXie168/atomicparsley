@@ -58,7 +58,7 @@ long new_file_size = 0; //used for the progressbar
 #if defined (__ppc__) || defined (__ppc64__)
 short max_display_width = 75;
 #else
-short max_display_width = 25; //the VPC window is pretty small; and no discernable way to change it;
+short max_display_width = 45; //the VPC window is pretty small; and no discernable way to change it;
 #endif
 char* file_progress_buffer=(char*)malloc( sizeof(char)* (max_display_width+10) ); //+5 for any overflow in "%100", or "|"
 
@@ -408,6 +408,62 @@ AtomicInfo APar_FindAtom(const char* atom_name, bool createMissing, bool stringF
   return thisAtom;
 }
 
+short APar_LocateParentHierarchy(const char* the_hierarchy) { //This only gets used when we are adding atoms at the end of the hierarchy
+	short last_atom = 0;
+	char* atom_hierarchy = strdup(the_hierarchy);
+	char* search_atom_name = strsep(&atom_hierarchy,".");
+	char* found_hierarchy = (char *)malloc(sizeof(char)*1000); //that should hold it
+	AtomicInfo parent_atom;
+	
+	strcat(found_hierarchy, search_atom_name);
+	
+	while (atom_hierarchy != NULL) { //test that the atom doesn't end with data; we want the parent to data; and then locate the parent of THAT atom and return the last atom in parent to the metadata (typically ilst's last child or meta's last child for hdlr)
+		search_atom_name = strsep(&atom_hierarchy,".");
+		if (atom_hierarchy != NULL) {
+			if (strncmp(atom_hierarchy, "data", 4) == 0) {
+				break; // found_hierarchy will now contain the path to the parent to this "data" atom; search_atom_name will = "ilst" then
+			}
+		}
+		strcat(found_hierarchy, ".");
+		strcat(found_hierarchy, search_atom_name);
+	}
+	
+	parent_atom = APar_FindAtom(found_hierarchy, false, false, true);
+	if (parent_atom.AtomicNumber < 0 || parent_atom.AtomicNumber > atom_number) {
+		return (atom_number-1); 
+	}
+	
+	short this_atom_num = parent_atom.NextAtomNumber;
+
+	if ( (this_atom_num > atom_number) || (this_atom_num < 1) ) {
+		last_atom = APar_FindEndingAtom();
+		return (atom_number-1); 
+	}		
+
+	last_atom = this_atom_num;
+	
+	while (true) {
+		if (parsedAtoms[this_atom_num].AtomicLevel > parent_atom.AtomicLevel) {
+			last_atom = this_atom_num;
+			this_atom_num = parsedAtoms[this_atom_num].NextAtomNumber;
+			
+			if (strncmp(parsedAtoms[last_atom].AtomicName, search_atom_name, 4) == 0) {
+				if (parsedAtoms[last_atom].AtomicLevel > parsedAtoms[this_atom_num].AtomicLevel) {
+					break;
+				}
+			}
+			
+			if (this_atom_num == 0) { //and the end of the line it is....
+				break;
+			}
+		} else {
+				break;
+		}
+	}
+	
+	return last_atom;
+}
+
 AtomicInfo APar_LocateAtomInsertionPoint(const char* the_hierarchy, bool findLastChild) {
 	//fprintf(stdout, "Searching for this path %s\n", the_hierarchy);
 	AtomicInfo InsertionPointAtom;
@@ -501,6 +557,11 @@ AtomicInfo APar_LocateAtomInsertionPoint(const char* the_hierarchy, bool findLas
 	}		
 	free(atom_hierarchy);	// A "Deallocation of a pointer not malloced" occured for a screwed up m4a file (for gnre & ©grp ONLY oddly)
 	atom_hierarchy = NULL;
+	
+	if (InsertionPointAtom.NextAtomNumber == 0) {
+		InsertionPointAtom = parsedAtoms[APar_LocateParentHierarchy(the_hierarchy)];
+	}
+	
 	return InsertionPointAtom;
 }
 
@@ -1115,7 +1176,7 @@ void APar_RemoveAtom(const char* atom_path, bool shellAtom) {
 		search_atom_name = strsep(&atom_hierarchy,".");
 	}
 	
-  if (desiredAtom.AtomicName != NULL) {
+  if ( (desiredAtom.AtomicName != NULL) && (search_atom_name != NULL) ) {
     if (strncmp(search_atom_name, desiredAtom.AtomicName, 4) == 0) { //only remove an atom we have a matching name for	
       short preceding_atom_pos = APar_FindPrecedingAtom(desiredAtom);
       AtomicInfo endingAtom = APar_LocateAtomInsertionPoint(atom_path, true);
@@ -1305,7 +1366,7 @@ AtomicInfo APar_CreateSparseAtom(const char* present_hierarchy, char* new_atom_n
 	bool atom_shunted = false; //only shunt the NextAtomNumber once (for the first atom that is missing.
 	int continuation_atom_number = 0;
 	AtomicInfo new_atom;
-	//fprintf(stdout, "Our KEY insertion atom is \"%s\"", KeyInsertionAtom.AtomicName);
+	//fprintf(stdout, "Our KEY insertion atom is \"%s\" for: %s(%s)\n", KeyInsertionAtom.AtomicName, present_hierarchy, remaining_hierarchy);
 	continuation_atom_number = KeyInsertionAtom.NextAtomNumber;
 	
 	while (new_atom_name != NULL) {
@@ -1373,8 +1434,12 @@ void APar_Verify__udta_meta_hdlr__atom() {
 	AtomicInfo hdlrAtom = APar_FindAtom(udta_meta_hdlr__atom, false, false, false);
 	//argh, for whatever freason, that FindAtom finds "meta" when it exits, not "hdlr"; TODO: fix that
 	hdlrAtom = parsedAtoms[hdlrAtom.NextAtomNumber];
-
-	if ( strncmp(hdlrAtom.AtomicName, "hdlr", 4) != 0 ) {
+	
+	if (hdlrAtom.AtomicName != NULL) {
+		if ( strncmp(hdlrAtom.AtomicName, "hdlr", 4) != 0 ) {
+			Create__udta_meta_hdlr__atom = true;
+		}
+	} else {
 		Create__udta_meta_hdlr__atom = true;
 	}
 	return;
@@ -1388,6 +1453,8 @@ void APar_AddMetadataInfo(const char* m4aFile, const char* atom_path, const int 
 		//APar_PrintAtomicTree();
 	} else {
 		AtomicInfo desiredAtom = APar_FindAtom(atom_path, true, shellAtom, true); //finds the atom; if not present, creates the atom
+		
+		AtomicInfo parent_atom = APar_FindParentAtom(desiredAtom.AtomicNumber, desiredAtom.AtomicLevel);
 		
 		if (dataType == AtomicDataClass_Text) {
 			APar_EncapulateData(desiredAtom, atomPayload, 0, dataType);
@@ -1430,7 +1497,8 @@ void APar_AddMetadataInfo(const char* m4aFile, const char* atom_path, const int 
 				parsedAtoms[desiredAtom.AtomicNumber].AtomicLength = 12 + 4 +1;  //offset + name + class + 4bytes null + \01
 				//APar_AtomicWriteTest(desiredAtom.AtomicNumber, true); //only the first byte will be valid
 				
-			} else if ( strncmp(parsedAtoms[APar_FindPrecedingAtom(desiredAtom)].AtomicName, "stik", 4) == 0 ) {
+			} else if ( ( strncmp(parsedAtoms[APar_FindPrecedingAtom(desiredAtom)].AtomicName, "stik", 4) == 0 ) || 
+									( strncmp(parent_atom.AtomicName, "stik", 4) == 0) ) {
 				//compilations is 5 bytes of data after the data class.... no great way to handle that....  TV Show				
 				if (strncmp(atomPayload, "TV Show", 6) == 0) {
 				  parsedAtoms[desiredAtom.AtomicNumber].AtomicData = strdup("\x0A");
@@ -1492,6 +1560,7 @@ void APar_AddGenreInfo(const char* m4aFile, const char* atomPayload) {
 	
 	short genre_number = StringGenreToInt(atomPayload);
 	AtomicInfo genreAtom;
+	
 	if (genre_number != 0) {
 		//first find if a custom genre atom ("©gen") exists; erase the custom-string genre atom in favor of the standard genre atom
 		//
@@ -1499,12 +1568,26 @@ void APar_AddGenreInfo(const char* m4aFile, const char* atomPayload) {
 		short genre_data[4] = {0, 0, 0, genre_number}; // number of elements + 3 shorts used in atom
 		genre_data[0] = (short)sizeof(genre_data)/sizeof(short);
 		
-		APar_RemoveAtom(custom_genre_atom, false);
+		AtomicInfo verboten_genre_atom = APar_FindAtom(custom_genre_atom, false, false, true);
+		
+		if (strlen(verboten_genre_atom.AtomicName) > 0) {
+			if (strncmp(verboten_genre_atom.AtomicName, "©gen", 4) == 0) {
+				APar_RemoveAtom(custom_genre_atom, false);
+			}		
+		}
+		
 		genreAtom = APar_FindAtom(std_genre_data_atom, true, false, true);
 		APar_EncapulateData(genreAtom, atomPayload, genre_data, AtomicDataClass_Integer);
 
 	} else {
-		APar_RemoveAtom(standard_genre_atom, false);
+		
+		AtomicInfo verboten_genre_atom = APar_FindAtom(standard_genre_atom, false, false, true);
+
+		if (verboten_genre_atom.AtomicNumber > 5 && verboten_genre_atom.AtomicNumber < atom_number) {
+			if (strncmp(verboten_genre_atom.AtomicName, "gnre", 4) == 0) {
+				APar_RemoveAtom(standard_genre_atom, false);
+			}		
+		}
 		genreAtom = APar_FindAtom(cstm_genre_data_atom, true, false, true);
 		APar_EncapulateData(genreAtom, atomPayload, 0, AtomicDataClass_Text);
 	}
@@ -1782,7 +1865,7 @@ void APar_DeriveNewPath(const char *filePath, char* &temp_path) {
 }
 
 void APar_FileWrite_Buffered(FILE* dest_file, FILE *src_file, long dest_start, long src_start, long length, char* &buffer) {
-	fprintf(stdout, "I'm at %li\n", src_start);
+	//fprintf(stdout, "I'm at %li\n", src_start);
 	fseek(src_file, src_start, SEEK_SET);
 	fread(buffer, 1, (size_t)length, src_file);
 
