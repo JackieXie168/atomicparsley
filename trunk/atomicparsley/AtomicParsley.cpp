@@ -16,6 +16,11 @@
     Suite 330, Boston, MA 02111-1307, USA.  Or www.fsf.org
 
     Copyright ©2005 puck_lock
+
+    ----------------------
+    Code Contributions by:
+		
+    * Mike Brancato - Debian patches & build support
                                                                    */
 //==================================================================//
 
@@ -55,10 +60,10 @@ long max_buffer = 4096*25;
 long mdat_start=0;
 long new_file_size = 0; //used for the progressbar
 
-#if defined (__ppc__) || defined (__ppc64__)
-short max_display_width = 75;
+#if defined (WIN32)
+short max_display_width = 45;
 #else
-short max_display_width = 45; //the VPC window is pretty small; and no discernable way to change it;
+short max_display_width = 75; //ah, figured out grub - vga=773 makes a whole new world open up
 #endif
 char* file_progress_buffer=(char*)malloc( sizeof(char)* (max_display_width+10) ); //+5 for any overflow in "%100", or "|"
 
@@ -704,7 +709,7 @@ void APar_ExtractDataAtom(int this_atom_number) {
 					primary_number = longFromBigEndian(primary_number_data);
 					fprintf(stdout, "%li\n", primary_number);
 
-				} else if (strncmp(parent_atom_name, "cpil", 4) == 0) {
+				} else if ( (strncmp(parent_atom_name, "cpil", 4) == 0) || (strncmp(parent_atom_name, "pcst", 4) == 0) ) {
 					primary_number_data[3] = data_payload[0];
 					primary_number = longFromBigEndian(primary_number_data);
 					if (primary_number == 1) {
@@ -737,6 +742,10 @@ void APar_ExtractDataAtom(int this_atom_number) {
 						fprintf(stdout, "Inoffensive\n");
 					}
 					
+				} else if ( (strncmp(parent_atom_name, "purl", 4) == 0) || (strncmp(parent_atom_name, "egid", 4) == 0) ) {
+					data_payload[thisAtom.AtomicLength-16] = '\00'; //purl & egid aren't null terminated
+					fprintf(stdout,"%s\n", data_payload);
+				
 				} else {
 					if (thisAtom.AtomicLength >= 20 ) {
 					  for (int i=0; i < 4; i++) {
@@ -1150,9 +1159,9 @@ void APar_ScanAtoms(const char *path) {
 				}
 				
 			} else {
-				fprintf(stderr, "Bad aac file (ftyp atom alignment error).\n");
+				fprintf(stderr, "\nAtomicParsley error: bad mpeg4 file (ftyp atom missing or alignment error).\n\n");
 				data = NULL;
-				return;
+				exit(1); //return;
 			}
 			free(data);
 			fclose(file);
@@ -1490,7 +1499,8 @@ void APar_AddMetadataInfo(const char* m4aFile, const char* atom_path, const int 
 			}
 			
 		} else if (dataType == AtomicDataClass_CPIL_TMPO) {
-			if ( strncmp(parsedAtoms[APar_FindPrecedingAtom(desiredAtom)].AtomicName, "cpil", 4) == 0 ) {
+			if ( (strncmp(parsedAtoms[APar_FindPrecedingAtom(desiredAtom)].AtomicName, "cpil", 4) == 0) ||
+					 (strncmp(parsedAtoms[APar_FindPrecedingAtom(desiredAtom)].AtomicName, "pcst", 4) == 0) ) {
 				//compilations is 5 bytes of data after the data class.... no great way to handle that....
 				parsedAtoms[desiredAtom.AtomicNumber].AtomicData = strdup("\x01");
 				parsedAtoms[desiredAtom.AtomicNumber].AtomicDataClass = dataType;
@@ -1539,7 +1549,7 @@ void APar_AddMetadataInfo(const char* m4aFile, const char* atom_path, const int 
 				short given_data[5] = {0, 0, 0, 0, data_value}; // number of elements (doesn't go into atom value) + 4 shorts used in atom (does go into atom)
 				given_data[0] = (short)sizeof(given_data)/sizeof(short);
 				APar_EncapulateData(desiredAtom, NULL, given_data, dataType);
-			
+				
 			}
 			
 		}
@@ -2062,7 +2072,8 @@ long APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file, ch
 					
 			} else if ( (strncmp(parent_atom.AtomicName, "cpil", 4) == 0) || 
 									(strncmp(parent_atom.AtomicName, "rtng", 4) == 0) ||
-									(strncmp(parent_atom.AtomicName, "stik", 4) == 0) ) {
+									(strncmp(parent_atom.AtomicName, "stik", 4) == 0) || 
+									(strncmp(parent_atom.AtomicName, "pcst", 4) == 0) ) {
 				//cpil/rtng is difficult to handle: its 5 bytes; AtomicParsley works in 1byte chunks for text/art; 2 bytes for others
 				char4long( 0, conv_buffer);
 				fwrite(conv_buffer, 4, 1, temp_file);

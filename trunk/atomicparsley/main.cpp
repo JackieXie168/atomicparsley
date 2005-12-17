@@ -16,6 +16,11 @@
     Suite 330, Boston, MA 02111-1307, USA.  Or www.fsf.org
 
     Copyright ©2005 puck_lock
+		
+		----------------------
+    Code Contributions by:
+		
+    * Mike Brancato - Debian patches & build support
                                                                    */
 //==================================================================//
 
@@ -46,6 +51,7 @@
 #define Meta_composer            'w'
 #define Meta_copyright           'x'
 #define Meta_grouping            'G'
+#define Meta_album_artist        'A'
 #define Meta_compilation         'C'
 #define Meta_BPM                 'B'
 #define Meta_artwork             'r'
@@ -61,6 +67,11 @@
 #define Meta_TV_EpisodeNumber    'N'
 #define Meta_TV_SeasonNumber     'U'
 #define Meta_TV_Episode          'I'
+
+#define Meta_podcastFlag         'f'
+#define Meta_category            'q'
+#define Meta_keyword             'K'
+
 #define OPT_WriteBack            'O'
 
 
@@ -145,19 +156,20 @@ static const char* longHelp_text =
 " Setting Tags:\n"
 "\n"
 "  --artist           ,  -a   (str)    Set the artist tag: \"moov.udta.meta.ilst.©ART.data\"\n"
-"  --title            ,  -s   (str)    Set the artist tag: \"moov.udta.meta.ilst.©nam.data\"\n"
-"  --album            ,  -b   (str)    Set the artist tag: \"moov.udta.meta.ilst.©alb.data\"\n"
+"  --title            ,  -s   (str)    Set the title tag: \"moov.udta.meta.ilst.©nam.data\"\n"
+"  --album            ,  -b   (str)    Set the album tag: \"moov.udta.meta.ilst.©alb.data\"\n"
 "  --genre            ,  -g   (str)    Set the genre tag: \"©gen\" (custom) or \"gnre\" (standard).\n"
 "  --tracknum         ,  -k   (num)|(num/tot)  Set the track number (or track number & total tracks).\n"
 "  --disk             ,  -d   (num)|(num/tot)  Set the disk number (or disk number & total disks).\n"
-"  --comment          ,  -c   (str)    Set the artist tag: \"moov.udta.meta.ilst.©cmt.data\"\n"
+"  --comment          ,  -c   (str)    Set the comment tag: \"moov.udta.meta.ilst.©cmt.data\"\n"
 "  --year             ,  -y   (num)    Set the year tag: \"moov.udta.meta.ilst.©day.data\"\n"
-"  --lyrics           ,  -l   (str)    Set the artist tag: \"moov.udta.meta.ilst.©lyr.data\"\n"
-"  --composer         ,  -w   (str)    Set the artist tag: \"moov.udta.meta.ilst.©wrt.data\"\n"
+"  --lyrics           ,  -l   (str)    Set the lyrics tag: \"moov.udta.meta.ilst.©lyr.data\"\n"
+"  --composer         ,  -w   (str)    Set the composer tag: \"moov.udta.meta.ilst.©wrt.data\"\n"
 "  --copyright        ,  -x   (str)    Set the copyright tag: \"moov.udta.meta.ilst.cprt.data\"\n"
 "  --grouping         ,  -G   (str)    Set the grouping tag: \"moov.udta.meta.ilst.©grp.data\"\n"
 "  --artwork          ,  -A   (/path)  Set (multiple) artwork (jpeg or png) tag: \"covr.data\"\n"
 "  --bpm              ,  -B   (num)    Set the tempo/bpm tag: \"moov.udta.meta.ilst.tmpo.data\"\n"
+"  --albumArtist      ,  -A   (str)    Set the album artist tag: \"moov.udta.meta.ilst.aART.data\"\n"
 "  --compilation      ,  -C   (bool)   Sets the \"cpil\" atom (true or false to delete the atom)\n"
 "  --advisory         ,  -y   (1of3)   Sets the iTunes lyrics advisory ('remove', 'clean', 'explicit') \n"
 "  --tagtime          ,  -Z            Set the Coordinated Univeral Time of tagging on \"©ed1\"*\n"
@@ -166,11 +178,15 @@ static const char* longHelp_text =
 "  --stik             ,  -S   (1of4)   Sets the iTunes \"stik\" atom (options available below) \n"
 "                                           (\"Movie\", \"Whacked Bookmark\", \"Music Video\", \"TV Show\") \n"
 "  --description      ,  -p   (str)    Sets the description - used in TV shows\n"
-"  --TVNetwork        ,  -n   (str)    Sets the TV Network\n"
-"  --TVShowName       ,  -H   (str)    Sets the TV Show name\n"
-"  --TVEpisode        ,  -I   (str)    Sets the TV Episode:\"209\", but its a string: \"209 Part 1\"\n"
-"  --TVEpisodeNum     ,  -N   (num)    Sets the TV Episode number\n"
-"  --TVSeasonNum      ,  -U   (num)    Sets the TV Season number\n"
+"  --TVNetwork        ,  -n   (str)    Sets the TV Network name on the \"tvnn\" atom\n"
+"  --TVShowName       ,  -H   (str)    Sets the TV Show name on the \"tvsh\" atom\n"
+"  --TVEpisode        ,  -I   (str)    Sets the TV Episode on \"tven\":\"209\", but its a string: \"209 Part 1\"\n"
+"  --TVSeasonNum      ,  -U   (num)    Sets the TV Season number on the \"tvsn\" atom\n"
+"  --TVEpisodeNum     ,  -N   (num)    Sets the TV Episode number on the \"tves\" atom\n"
+
+"  --podcastFlag      ,  -f   (bool)   Sets the podcast flag (values are \"true\" or \"false\")\n"
+"  --category         ,  -q   (str)    Sets the podcast category; typically a duplicate of its genre\n"
+"  --keyword          ,  -q   (str)    Sets the podcast keyword; invisible to MacOSX Spotlight\n"
 "                                     *Denotes utterly non-standard behavior; invisible to iTunes\n"
 "\n"
 "  --writeBack        ,  -O            If given, writes the file back into original file; deletes temp\n"
@@ -224,12 +240,12 @@ void GetBasePath(const char *filepath, char* &basepath) {
 int main( int argc, char *argv[])
 {
 	if (argc == 1) {
-		fprintf (stderr,"%s", longHelp_text); exit(0);
+		fprintf (stdout,"%s", longHelp_text); exit(0);
 	} else if (argc == 2 && ((strncmp(argv[1],"-v",2) == 0) || (strncmp(argv[1],"-version",2) == 0)) ) {
 		fprintf(stdout, "%s version: %s\n", argv[0], AtomicParsley_version);
 		exit(0);
 	} else if (argc == 2 && ( (strncmp(argv[1],"-help",5) == 0) || (strncmp(argv[1],"--help",6) == 0) || (strncmp(argv[1],"-h",5) == 0)) ) {
-		fprintf (stderr,"%s", longHelp_text); exit(0);
+		fprintf (stdout,"%s", longHelp_text); exit(0);
 	}
 	
 	char *m4afile = argv[1];
@@ -255,6 +271,7 @@ int main( int argc, char *argv[])
 		{ "composer",         required_argument,  NULL,						Meta_composer },
 		{ "copyright",        required_argument,  NULL,						Meta_copyright },
 		{ "grouping",         required_argument,  NULL,						Meta_grouping },
+		{ "albumArtist",      required_argument,  NULL,           Meta_album_artist },
     { "compilation",      required_argument,  NULL,						Meta_compilation },
 		{ "advisory",         required_argument,  NULL,						Meta_advisory },
     { "bpm",              required_argument,  NULL,						Meta_BPM },
@@ -271,6 +288,11 @@ int main( int argc, char *argv[])
     { "TVEpisode",        required_argument,  NULL,           Meta_TV_Episode },
     { "TVEpisodeNum",     required_argument,  NULL,           Meta_TV_EpisodeNumber },
     { "TVSeasonNum",      required_argument,  NULL,           Meta_TV_SeasonNumber },
+		
+		{ "podcastFlag",      required_argument,  NULL,           Meta_podcastFlag },
+		{ "keyword",          required_argument,  NULL,           Meta_keyword },
+		{ "category",         required_argument,  NULL,           Meta_category },
+		
 		{ 0, 0, 0, 0 }
 	};
 		
@@ -278,7 +300,7 @@ int main( int argc, char *argv[])
 	int option_index = 0; 
 	
 	//c = getopt_long_only(argc, argv, "hTtEe:m:a:d:g:c:i:l:n:p:u:w:y:G:k:A:B:C:H:I:N:S:U:V:ZP", long_options, &option_index);
-	c = getopt_long(argc, argv, "hTtEe:m:a:d:g:c:i:l:n:p:u:w:y:G:k:A:B:C:H:I:N:S:U:V:ZP", long_options, &option_index);
+	c = getopt_long(argc, argv, "hTtEe:m:a:d:f:g:c:i:l:n:pq::u:w:y:G:k:A:B:C:H:I:K:N:S:U:V:ZP", long_options, &option_index);
 	
 	if (c == -1) {
 		if (argc < 3 && argc > 2) {
@@ -300,7 +322,7 @@ int main( int argc, char *argv[])
 		case '?': return 1;
 			
 		case OPT_HELP: {
-			fprintf (stderr,"%s", longHelp_text); return 0;
+			fprintf (stdout,"%s", longHelp_text); return 0;
 		}
 					
 		case OPT_TEST: {
@@ -541,6 +563,34 @@ int main( int argc, char *argv[])
 		case Meta_TV_EpisodeNumber : { //if the show "ABC Lost 209", its 2; integer 9 not char "9"
 			APar_ScanAtoms(m4afile);
 			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.tves.data", AtomicDataClass_CPIL_TMPO, optarg, false);
+			
+			break;
+		}
+		
+		case Meta_album_artist : {
+			APar_ScanAtoms(m4afile);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.aART.data", AtomicDataClass_Text, optarg, false);
+			
+			break;
+		}
+		
+		case Meta_podcastFlag : {
+			APar_ScanAtoms(m4afile);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.pcst.data", AtomicDataClass_CPIL_TMPO, optarg, false);
+			
+			break;
+		}
+		
+		case Meta_keyword : {
+			APar_ScanAtoms(m4afile);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.keyw.data", AtomicDataClass_Text, optarg, false);
+			
+			break;
+		}
+		
+		case Meta_category : {
+			APar_ScanAtoms(m4afile);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.catg.data", AtomicDataClass_Text, optarg, false);
 			
 			break;
 		}
