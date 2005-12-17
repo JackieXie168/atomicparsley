@@ -1,4 +1,11 @@
 #!/bin/sh
+##################################################################
+#                                                                #
+#    Build System Contributions by:                              #
+#                                                                #		
+#    * Mike Brancato - Debian patches & build support            #
+#                                                                #
+##################################################################
 
 if [ ! -e obj_files ] ; then
 	mkdir obj_files
@@ -12,7 +19,7 @@ g++ -g -O2 -Wall -MT obj_files/AtomicParsley_genres.o -MD -MP -MF "./obj_files/A
 
 g++ -g -O2 -Wall -MT AP_iconv.o -MD -MP -MF "./obj_files/AP_iconv.Tpo" -c -o obj_files/AP_iconv.o AP_iconv.cpp
 
-if [ $OS="Darwin" ] ; then
+if [ $OS = Darwin ] ; then
   g++ -g -O2 -Wall -MT obj_files/AP_NSImage.o -MD -MP -MF "./obj_files/AP_NSImage.Tpo" -c -o obj_files/AP_NSImage.o AP_NSImage.mm
 fi
 
