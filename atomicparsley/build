@@ -7,36 +7,67 @@
 #                                                                #
 ##################################################################
 
+#---------------------------------------------#
+#             pseudo-configure                #
+#---------------------------------------------#
+
 if [ ! -e obj_files ] ; then
-	mkdir obj_files
+  mkdir obj_files
 else
-	rm -rf obj_files/*
+  rm -rf obj_files/*
 fi
 
-OS=`uname -s`
+OS=`uname -s | cut -d '_' -f1`
+EXTRA_INCLUDES=""
+EXTRA_DIRECTIVES=""
 
-g++ -g -O2 -Wall -MT obj_files/AtomicParsley_genres.o -MD -MP -MF "./obj_files/AtomicParsley_genres.Tpo" -c -o obj_files/AtomicParsley_genres.o AtomicParsley_genres.cpp
+if (test $OS = Darwin) || (test $OS = Linux) ; then
+  ## I only have unicode typefaces under Mac OS X ##
+  ## so its the only platform I can test under properly ##
 
-g++ -g -O2 -Wall -MT AP_iconv.o -MD -MP -MF "./obj_files/AP_iconv.Tpo" -c -o obj_files/AP_iconv.o AP_iconv.cpp
+  ## comment out the 'if ...' and 'fi' lines encasing ##
+  ## the EXTRA_CPP_FLAGS line to test on other platforms ##
+  
+  EXTRA_CPP_FLAGS="-DUSE_ICONV_CONVERSION"
+fi
 
-if [ $OS = Darwin ] ; then
+#---------------------------------------------#
+#                 Compiling                   #
+#---------------------------------------------#
+
+g++ -g -O2 -Wall $EXTRA_INCLUDES -MT obj_files/AtomicParsley_genres.o -MD -MP -MF "./obj_files/AtomicParsley_genres.Tpo" -c -o obj_files/AtomicParsley_genres.o AtomicParsley_genres.cpp
+
+g++ -g -O2 -Wall $EXTRA_INCLUDES -MT AP_iconv.o -MD -MP -MF "./obj_files/AP_iconv.Tpo" -c -o obj_files/AP_iconv.o AP_iconv.cpp
+
+if test $OS = Darwin ; then
   g++ -g -O2 -Wall -MT obj_files/AP_NSImage.o -MD -MP -MF "./obj_files/AP_NSImage.Tpo" -c -o obj_files/AP_NSImage.o AP_NSImage.mm
 fi
 
-g++ -g -O2 -Wall -Wno-unused -MT obj_files/AtomicParsley.o -MD -MP -MF "./obj_files/AtomicParsley.Tpo" -c -o obj_files/AtomicParsley.o AtomicParsley.cpp
+g++ -g -O2 -Wall -Wno-unused $EXTRA_CPP_FLAGS $EXTRA_INCLUDES -MT obj_files/AtomicParsley.o -MD -MP -MF "./obj_files/AtomicParsley.Tpo" -c -o obj_files/AtomicParsley.o AtomicParsley.cpp
 
-g++ -I../AtomicParsley -g -O2 -Wall -MT obj_files/main.o -MD -MP -MF "./obj_files/main.Tpo" -c -o obj_files/main.o main.cpp
+g++ -g -O2 -Wall $EXTRA_INCLUDES -I../AtomicParsley -MT obj_files/main.o -MD -MP -MF "./obj_files/main.Tpo" -c -o obj_files/main.o main.cpp
 
-if [ $OS = Darwin ] ; then
+#---------------------------------------------#
+#                  Linking                    #
+#---------------------------------------------#
+
+if test $OS = Darwin ; then
   g++ -g -O2 -Wall -liconv -framework Cocoa -o AtomicParsley obj_files/AtomicParsley_genres.o obj_files/AP_iconv.o obj_files/AP_NSImage.o obj_files/AtomicParsley.o obj_files/main.o
 
-elif [ $OS = Linux ] ; then
+elif test $OS = Linux ; then
   g++ -Wl,-headerpad -g -O2 -Wall -o AtomicParsley obj_files/AtomicParsley_genres.o obj_files/AP_iconv.o obj_files/AtomicParsley.o obj_files/main.o
+
+elif test $OS = CYGWIN ; then
+  g++ -g -O2 -Wall -o AtomicParsley.exe  obj_files/AtomicParsley_genres.o obj_files/AP_iconv.o obj_files/AtomicParsley.o obj_files/main.o -liconv -lgcc 
 
 else
   g++ -g -O2 -Wall -liconv -o AtomicParsley.exe obj_files/AtomicParsley_genres.o obj_files/AP_iconv.o obj_files/AtomicParsley.o obj_files/main.o
 fi
 
-if [ $OS=Darwin ] ; then
+#---------------------------------------------#
+#    Stripping (enabled on Mac OS X only)     #
+#---------------------------------------------#
+
+if test $OS = Darwin ; then
   strip -x AtomicParsley
 fi

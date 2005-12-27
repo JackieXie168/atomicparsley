@@ -38,7 +38,7 @@
 		//StringReEncode(encoded_string, string_len, "LATIN1", "UTF-8");
 
 void StringReEncode(char *a_string, char *tocode, char *fromcode) {
-	int length = strlen(a_string);
+	int length = strlen(a_string)+1;
 	//fprintf (stdout, "length %i\n", (int) length);
 	size_t result;
 	iconv_t frt;
@@ -47,6 +47,7 @@ void StringReEncode(char *a_string, char *tocode, char *fromcode) {
 
 	char a_string_before[length];
 	char a_string_after[len1];
+	
 	char *asbptr = a_string_before;
 	char *asaptr = a_string_after;
 	
@@ -57,7 +58,7 @@ void StringReEncode(char *a_string, char *tocode, char *fromcode) {
 	   fprintf(stderr,"Error iconv_open()!\n");
 		return;
 	}
-#if defined (__ppc__) || defined (__ppc64__)
+#if defined (__ppc__) || defined (__ppc64__) || defined (__CYGWIN__)
 	result = iconv(frt, (const char**) &asbptr, (size_t*) &len, &asaptr, (size_t*) &len1);
 #else
 	result = iconv(frt, &asbptr, (size_t*) &len, &asaptr, (size_t*) &len1);
@@ -93,7 +94,7 @@ void StringReEncode(char *a_string, char *tocode, char *fromcode) {
 	}
 	else {
 		strncpy(a_string, a_string_after, length);
-		//a_string[length]='\0';
+		a_string[length]='\0';
 	}
 	//fprintf(stdout, "%s\n", a_string);
 	if (iconv_close(frt) != 0)
