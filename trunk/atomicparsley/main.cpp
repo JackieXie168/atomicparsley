@@ -588,7 +588,7 @@ int main( int argc, char *argv[])
 			break;
 		}
 		
-		case Meta_category : {
+		case Meta_category : { // see http://www.apple.com/itunes/podcasts/techspecs.html for available categories
 			APar_ScanAtoms(m4afile);
 			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.catg.data", AtomicDataClass_Text, optarg, false);
 			

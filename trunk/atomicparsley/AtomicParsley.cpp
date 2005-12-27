@@ -21,6 +21,7 @@
     Code Contributions by:
 		
     * Mike Brancato - Debian patches & build support
+    * Lowell Stewart - null-termination bugfix for Apple compliance
                                                                    */
 //==================================================================//
 
@@ -45,7 +46,7 @@
 
 off_t file_size;
 
-struct AtomicInfo parsedAtoms[150];
+struct AtomicInfo parsedAtoms[250]; //max out at 250 atoms (most I've seen is 144 for an untagged mp4)
 short atom_number = 0;
 short generalAtomicLevel = 1;
 bool file_opened = false;
@@ -143,6 +144,55 @@ PicPrefs ExtractPicPrefs(char* env_PicOptions) {
 ///////////////////////////////////////////////////////////////////////////////////////
 //                               Generic Functions                                   //
 ///////////////////////////////////////////////////////////////////////////////////////
+
+#if defined (WIN32) && defined (__MINGW_H)
+//Commented out because under mingw, AtomicParsley is broken
+//Also, strsep is defined in glibc, and this marks the point where a ./configure & makefile combo would make this easier
+
+/* Copyright (C) 1992, 93, 96, 97, 98, 99, 2004 Free Software Foundation, Inc.
+   This strsep function is part of the GNU C Library - v2.3.5; LGPL.
+*/
+
+/* char *strsep (char **stringp, const char *delim)
+{
+  char *begin, *end;
+
+  begin = *stringp;
+  if (begin == NULL)
+    return NULL;
+
+  //A frequent case is when the delimiter string contains only one character.  Here we don't need to call the expensive `strpbrk' function and instead work using `strchr'.
+  if (delim[0] == '\0' || delim[1] == '\0')
+    {
+      char ch = delim[0];
+
+      if (ch == '\0')
+	end = NULL;
+      else
+	{
+	  if (*begin == ch)
+	    end = begin;
+	  else if (*begin == '\0')
+	    end = NULL;
+	  else
+	    end = strchr (begin + 1, ch);
+	}
+    }
+  else
+
+    end = strpbrk (begin, delim); //Find the end of the token.
+
+  if (end)
+    {
+      *end++ = '\0'; //Terminate the token and set *STRINGP past NUL character.
+      *stringp = end;
+    }
+  else
+    *stringp = NULL; //No more delimiters; this is the last token.
+
+  return begin;
+} */
+#endif
 
 off_t findFileSize(const char *path) {
 	struct stat fileStats;
@@ -331,6 +381,10 @@ AtomicInfo APar_FindAtom(const char* atom_name, bool createMissing, bool stringF
 	short present_atom_level = 1; //from where out generalAtomicLevel starts
 	char* atom_hierarchy = strdup(atom_name);
 	char* found_hierarchy = (char *)malloc(sizeof(char)*1000); //that should hold it
+	for (int i=0; i<= 1000; i++) {
+		found_hierarchy[i] = '\00';
+	}
+	
 	AtomicInfo thisAtom;
 	char* parent_name = (char *)malloc(sizeof(char)*4);
 	char *search_atom_name = strsep(&atom_hierarchy,".");
@@ -379,7 +433,7 @@ AtomicInfo APar_FindAtom(const char* atom_name, bool createMissing, bool stringF
 					}
 				}	
 			} else if (iter+1 == atom_number) {
-				//fprintf(stdout, "Atoms that need creation: \"%s\"\n", search_atom_name);
+				//fprintf(stdout, "Atoms that need creation: \"%s\" - %s\n", search_atom_name, found_hierarchy);
 				if (atom_hierarchy == NULL) {
 					if (createMissing) {
 						thisAtom = APar_CreateSparseAtom(found_hierarchy, search_atom_name, atom_hierarchy, present_atom_level, true);
@@ -655,6 +709,9 @@ void APar_ExtractDataAtom(int this_atom_number) {
 
 		if (thisAtom.AtomicLength > 12 ) {
 			char* data_payload = (char*)malloc( sizeof(char) * (thisAtom.AtomicLength-16) );
+			for (int i=0; i<= thisAtom.AtomicLength-16; i++) {
+				data_payload[i] = '\00';
+			}
 			
 			fseek(source_file, thisAtom.AtomicStart+16, SEEK_SET);
 			fread(data_payload, 1, thisAtom.AtomicLength-16, source_file);
@@ -678,7 +735,9 @@ void APar_ExtractDataAtom(int this_atom_number) {
 				
 				if ( (strncmp(parent_atom_name, "trkn", 4) == 0) || (strncmp(parent_atom_name, "disk", 4) == 0) ) {
 					char* secondary_OF_number_data = (char*)malloc( sizeof(char) * 4 );
-					secondary_OF_number_data[2] = data_payload[4];
+					secondary_OF_number_data[0] = '\00';
+					secondary_OF_number_data[1] = '\00';
+					secondary_OF_number_data[2] = '\00';
 					secondary_OF_number_data[3] = data_payload[5];
 					secondary_OF_number = longFromBigEndian(secondary_OF_number_data);
 					free(secondary_OF_number_data);
@@ -770,6 +829,11 @@ void APar_ExtractDataAtom(int this_atom_number) {
 }
 
 void APar_PrintDataAtoms(const char *path, bool extract_pix, char* pic_output_path) {
+
+#if defined (USE_ICONV_CONVERSION)
+	fprintf(stdout, "\xEF\xBB\xBF"); //Default to a UTF-8 BOM; maybe UTF-16 one day... but not yet
+#endif
+
 	short artwork_count=0;
 	for (int i=0; i < atom_number; i++) { 
 		AtomicInfo thisAtom = parsedAtoms[i];
@@ -779,8 +843,16 @@ void APar_PrintDataAtoms(const char *path, bool extract_pix, char* pic_output_pa
 		
 			//we want to print out the parent atom's name, not "data", that would be retarded (also, I tried that way first).
 			char* parent_atom = (char*)malloc(sizeof(char)*4);
+			for (int j=0; j<= 4; j++) {
+				parent_atom[j] = '\00';
+			}
+			
 			AtomicInfo parent = APar_FindParentAtom(i, thisAtom.AtomicLevel);
 			strncpy(parent_atom, parent.AtomicName, 4);
+			
+#if defined (USE_ICONV_CONVERSION)
+			StringReEncode(parent_atom, "UTF-8", "ISO-8859-1");
+#endif
 			
 			if ( (thisAtom.AtomicDataClass == AtomicDataClass_Integer ||
             thisAtom.AtomicDataClass == AtomicDataClass_Text || 
@@ -848,6 +920,9 @@ void APar_AtomizeFileInfo(AtomicInfo &thisAtom, long Astart, long Alength, char*
 
 //this function reflects the atom tree as it stands in memory accurately (so I hope).
 void APar_PrintAtomicTree() {
+#if defined (USE_ICONV_CONVERSION)
+	fprintf(stdout, "\xEF\xBB\xBF"); //UTF-8 BOM
+#endif
 	char* tree_padding = (char*)malloc(sizeof(char)*126); //for a 25-deep atom tree (4 spaces per atom)+single space+term.
 	long freeSpace = 0;
 	long aacData = 0;
@@ -864,6 +939,11 @@ void APar_PrintAtomicTree() {
 			}
 			strcat(tree_padding, " "); // add a single space
 		}
+
+#if defined (USE_ICONV_CONVERSION)
+		StringReEncode(thisAtom.AtomicName, "UTF-8", "ISO-8859-1");
+#endif
+		
 		fprintf(stdout, "%sAtom %s @ %li of size: %li, ends @ %li\n", tree_padding, thisAtom.AtomicName, thisAtom.AtomicStart, thisAtom.AtomicLength, (thisAtom.AtomicStart + thisAtom.AtomicLength) );
 		
 		//simple tally & percentage of free space info
@@ -914,6 +994,7 @@ void APar_PrintAtomicTree() {
 
 void APar_SimpleAtomPrintout() {
 	//loop through each atom in the struct array (which holds the offset info/data)
+	fprintf(stdout, "\xEF\xBB\xBF"); //UTF-8 BOM
  	for (int i=0; i < atom_number; i++) { 
 		AtomicInfo thisAtom = parsedAtoms[i]; 
 		
@@ -1299,17 +1380,16 @@ void APar_EncapulateData(AtomicInfo anAtom, const char* atomData, short binaryDa
 		case AtomicDataClass_Text :
 			data_length = strlen(atomData);
 			
+			parsedAtoms[thisnum].AtomicData = (char*)malloc(sizeof(char)* data_length);
 			if ( data_length >= 8 ) {
-				parsedAtoms[thisnum].AtomicData = (char*)malloc(sizeof(char)* data_length + 1);
 				memcpy(parsedAtoms[thisnum].AtomicData, atomData, data_length );
 			} else {
-				parsedAtoms[thisnum].AtomicData = (char*)malloc(sizeof(char)* data_length + 1);
 				for (int i = 0; i <= (int)data_length; i++) {
 					parsedAtoms[thisnum].AtomicData[i] = atomData[i];
 				}
 			}
 			//fprintf(stdout, "(AP_E1) atom %s, size: %li\n", parsedAtoms[38].AtomicName, parsedAtoms[38].AtomicLength);
-			parsedAtoms[thisnum].AtomicLength = (long)data_length + 12 + 4  +1;
+			parsedAtoms[thisnum].AtomicLength = (long)data_length + 12 + 4;
 			parsedAtoms[thisnum].AtomicDataClass = AtomicDataClass_Text;
 			
 			//APar_AtomicWriteTest(thisnum, false);

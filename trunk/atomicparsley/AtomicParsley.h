@@ -56,6 +56,8 @@ struct AtomicInfo  {
 	char* AtomicData;
 	int NextAtomNumber; //out first atom is numbered 0; the last points back to it - so watch it!
 	bool tempFile; //used to delete temp pic files (if set as an environmental preference)
+	//bool extended_atom;
+	//bool uuid_atom;
 };
 
 extern bool parsedfile;
@@ -68,6 +70,11 @@ extern bool alter_original;
 
 //--------------------------------------------------------------------------------------------------------------------------------//
 //--------------------------------------------------------------------------------------------------------------------------------//
+
+#if defined (WIN32) && defined (__MINGW_H)
+//Commented out because it would be a multiply defined symbol on a system that had strsep defined.
+//char *strsep (char **stringp, const char *delim);
+#endif
 
 void openSomeFile(const char* file, bool open);
 bool TestFileExistence(const char *filePath, bool errorOut);
@@ -108,7 +115,8 @@ v0.7.4  12/03/2005 "desc", "tvnn", "tvsh", "tven" & "tves" setting
 v0.7.5b 12/09/2005 forced 'mdat' into being childless (chapterized mpeg4 files have atoms scattered througout mdat, but they aren't children); fixed issues with ffmpeg created mpeg4 files (that have mdat as 2nd atom; moov & chilren as last atoms); moved ffmpeg mdat atoms around to end; better atom adding at the end; subbed getopt_long_only to getopt_long for pre-10.4 users; added progressbar
 v0.7.5c 12/10/2005 funnguy0's linux patches (thanks so much for that)
 v0.7.5d 12/11/2005 endian issues for x86 mostly resolved; setting genre's segfaults; stik doesn't get set in a multi-option command, but does as a single atom setting; Debian port added to binaries (compiled under debian-31r0a-i386 with g++4.02-2, libc6_2.3.5-8 & libstdc++6_4.0.2-2) - under VirtualPC - with the nano editor!
-v0.7.5e 12/12/2005 ammends how atoms are added at the end of the hierarchy (notably this affects ffmpeg video files); writes "keyw", "catg", "pcst", "aART" atoms; read-only "purl" & "egid" added
+v0.7.5e 12/16/2005 ammends how atoms are added at the end of the hierarchy (notably this affects ffmpeg video files); writes "keyw", "catg", "pcst", "aART" atoms; read-only "purl" & "egid" added
+v0.7.6  12/26/2005 ceased (?flawed?) null-termination of text 'data' atoms; forced UTF-8 output on Mac OS X & Linux - comment in DUSE_ICONV_CONVERSION in the build file to test it other platforms (maybe my win98Se isn't unicode aware?); cygwin build accommodations; fix to the secondary "of" number for track/disk on non-PPC.
 
 */
 // goals for 0.9 Switch over to uint8, 16, 24 (atom flags) & 32 to carry data; char got unweildy for non-textual data; short sucked for odd bytes.
