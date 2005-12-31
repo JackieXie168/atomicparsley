@@ -8,7 +8,7 @@
 
     AtomicParsley is distributed under the GPL "AS IS", without
     any warranty; without the implied warranty of merchantability
-    or fitness for either a expressly or implied particular purpose.
+    or fitness for either an expressed or implied particular purpose.
 
     Please see the included GNU General Public License (GPL) for 
     your rights and further details; see the file COPYING. If you
