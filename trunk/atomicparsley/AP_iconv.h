@@ -15,7 +15,7 @@
     cannot, write to the Free Software Foundation, 59 Temple Place
     Suite 330, Boston, MA 02111-1307, USA.  Or www.fsf.org
 
-    Copyright ©2005 puck_lock
+    Copyright ©2005-2006 puck_lock
                                                                    */
 //==================================================================//
 

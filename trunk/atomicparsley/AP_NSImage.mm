@@ -15,7 +15,7 @@
     cannot, write to the Free Software Foundation, 59 Temple Place
     Suite 330, Boston, MA 02111-1307, USA.  Or www.fsf.org
 
-    Copyright ©2005 puck_lock
+    Copyright ©2005-2006 puck_lock
                                                                    */
 //==================================================================//
 
@@ -233,7 +233,7 @@ char* ResizeGivenImage(const char* filePath, PicPrefs myPicPrefs) {
 		
 		[bitmap release];
 		//new_path = DeriveNewPath(filePath, myPicPrefs);
-		//const char* new_path = "/Users/is_a/Desktop/out.jpg";
+		//const char* new_path = "/Users/walking/talking/rectum.jpg";
 		//NSString *outFile= [NSString stringWithUTF8String: new_path];
 		NSString *outFile= [NSString stringWithUTF8String: DeriveNewPath(filePath, myPicPrefs)];
 		//NSLog(outFile);

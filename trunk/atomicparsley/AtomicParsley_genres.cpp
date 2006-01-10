@@ -15,7 +15,7 @@
     cannot, write to the Free Software Foundation, 59 Temple Place
     Suite 330, Boston, MA 02111-1307, USA.  Or www.fsf.org
 
-    Copyright ©2005 puck_lock
+    Copyright ©2005-2006 puck_lock
                                                                    */
 //==================================================================//
 
@@ -25,7 +25,8 @@
 #include <string.h>
 #include <stdlib.h>
 
-//#include "AtomicParsley.h"
+//just so win32/msvc can get uint8_t defined
+#include "AtomicParsley.h"
 
 //////////////
 
@@ -79,10 +80,10 @@ int GenreIntToString(char** genre_string, int genre) {
     }
 }
 
-short StringGenreToInt(const char* genre_string) {
-	short return_genre = 0;
+uint8_t StringGenreToInt(const char* genre_string) {
+	uint8_t return_genre = 0;
 
-	for(short i = 0; i < (short)(sizeof(ID3v1GenreList)/sizeof(*ID3v1GenreList))+1; i++) {
+	for(uint8_t i = 0; i < (uint8_t)(sizeof(ID3v1GenreList)/sizeof(*ID3v1GenreList))+1; i++) {
 		if (strncmp(genre_string, ID3v1GenreList[i], (int)strlen(ID3v1GenreList[i])) == 0) {
 			return_genre = i+1;
 			//fprintf(stdout, "Genre %s is %i\n", ID3v1GenreList[return_genre-1], return_genre);
@@ -92,7 +93,7 @@ short StringGenreToInt(const char* genre_string) {
 			break;
 		}
 	}
-	if ( return_genre > (short)(sizeof(ID3v1GenreList)/sizeof(*ID3v1GenreList)) ) {
+	if ( return_genre > (uint8_t)(sizeof(ID3v1GenreList)/sizeof(*ID3v1GenreList)) ) {
 		return_genre = 0;
 	}
 	return return_genre;
