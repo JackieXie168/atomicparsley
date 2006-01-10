@@ -15,7 +15,7 @@
     cannot, write to the Free Software Foundation, 59 Temple Place
     Suite 330, Boston, MA 02111-1307, USA.  Or www.fsf.org
 
-    Copyright ©2005 puck_lock
+    Copyright ©2005-2006 puck_lock
 		
 		----------------------
     Code Contributions by:
@@ -38,7 +38,6 @@
 #define OPT_ShowTextData		     't'
 #define OPT_ExtractPix           'E'
 #define OPT_ExtractPixToPath		 'e'
-#define META_add                 'm'
 #define Meta_artist              'a'
 #define Meta_songtitle           's'
 #define Meta_album               'b'
@@ -66,6 +65,8 @@
 #define Meta_podcastFlag         'f'
 #define Meta_category            'q'
 #define Meta_keyword             'K'
+#define Meta_podcast_URL         'L'
+#define Meta_podcast_episode_guide  'J'
 
 #define Meta_StandardDate        'Z'
 #define Meta_URL                 'u'
@@ -167,8 +168,9 @@ static const char* longHelp_text =
 "  --albumArtist      ,  -A   (str)    Set the album artist tag: \"moov.udta.meta.ilst.aART.data\"\n"
 "  --compilation      ,  -C   (bool)   Sets the \"cpil\" atom (true or false to delete the atom)\n"
 "  --advisory         ,  -y   (1of3)   Sets the iTunes lyrics advisory ('remove', 'clean', 'explicit') \n"
-"  --stik             ,  -S   (1of4)   Sets the iTunes \"stik\" atom (options available below) \n"
-"                                           (\"Movie\", \"Whacked Bookmark\", \"Music Video\", \"TV Show\") \n"
+"  --stik             ,  -S   (1of6)   Sets the iTunes \"stik\" atom (options available below) \n"
+"                                                \"Movie\", \"Normal\", \"Whacked Bookmark\", \n"
+"                                                \"Music Video\", \"Short Film\", \"TV Show\" \n"
 "  --description      ,  -p   (str)    Sets the description - used in TV shows\n"
 "  --TVNetwork        ,  -n   (str)    Sets the TV Network name on the \"tvnn\" atom\n"
 "  --TVShowName       ,  -H   (str)    Sets the TV Show name on the \"tvsh\" atom\n"
@@ -179,6 +181,8 @@ static const char* longHelp_text =
 "  --podcastFlag      ,  -f   (bool)   Sets the podcast flag (values are \"true\" or \"false\")\n"
 "  --category         ,  -q   (str)    Sets the podcast category; typically a duplicate of its genre\n"
 "  --keyword          ,  -q   (str)    Sets the podcast keyword; invisible to MacOSX Spotlight\n"
+"  --podcastURL       ,  -L   (URL)    Set the podcast feed URL on the \"purl\" atom\n"
+"  --podcastEpGuide   ,  -J   (URL)    Set the episode's URL tag on the \"egid\" atom\n"
 "\n"
 "  --writeBack        ,  -O            If given, writes the file back into original file; deletes temp\n"
 "\n"
@@ -191,7 +195,7 @@ static const char* longHelp_text =
 " Setting user-defined 'uuid' tags (all will appear in \"moov.udta.meta\"):\n"
 "\n"
 "  --information      ,  -i   (str)    Set an information tag on \"moov.udta.meta.uuid=©inf\"\n"
-"  --url              ,  -u   (str)    Set a URL tag on \"moov.udta.meta.uuid=©url\"\n"
+"  --url              ,  -u   (URL)    Set a URL tag on \"moov.udta.meta.uuid=©url\"\n"
 "  --tagtime          ,  -Z            Set the Coordinated Univeral Time of tagging on \"uuid=tdtg\"\n"
 "\n"
 "  --meta-uuid        ,  -z   (args)   Define & set your own uuid=atom with text data:\n"
@@ -260,7 +264,6 @@ int main( int argc, char *argv[])
 		{ "textdata",         0,                  NULL,           OPT_ShowTextData },
 		{ "extractPix",				0,									NULL,           OPT_ExtractPix },
 		{ "extractPixToPath", required_argument,	NULL,				    OPT_ExtractPixToPath },
-		{ "addMetaInfo",      required_argument,  NULL,						META_add },
 		{ "artist",           required_argument,  NULL,						Meta_artist },
 		{ "title",            required_argument,  NULL,						Meta_songtitle },
 		{ "album",            required_argument,  NULL,						Meta_album },
@@ -293,6 +296,9 @@ int main( int argc, char *argv[])
 		{ "podcastFlag",      required_argument,  NULL,           Meta_podcastFlag },
 		{ "keyword",          required_argument,  NULL,           Meta_keyword },
 		{ "category",         required_argument,  NULL,           Meta_category },
+		{ "podcastURL",       required_argument,  NULL,           Meta_podcast_URL },
+		{ "podcastEpGuide",   required_argument,  NULL,           Meta_podcast_episode_guide },
+		
 		{ "freefree",         0,                  NULL,           Opt_FreeFree },
 		
 		{ "meta-uuid",        required_argument,  NULL,           Meta_uuid },
@@ -303,7 +309,7 @@ int main( int argc, char *argv[])
 	int c = -1;
 	int option_index = 0; 
 	
-	c = getopt_long(argc, argv, "hTtEe:m:a:d:f:g:c:i:l:n:pq::u:w:y:z:G:k:A:B:C:FH:I:K:N:S:U:V:ZP", long_options, &option_index);
+	c = getopt_long(argc, argv, "hTtEe:a:c:d:f:g:i:l:n:pq::u:w:y:z:G:k:A:B:C:FH:I:J:K:L:N:S:U:V:ZP", long_options, &option_index);
 	
 	if (c == -1) {
 		if (argc < 3 && argc > 2) {
@@ -361,14 +367,7 @@ int main( int argc, char *argv[])
 			openSomeFile(m4afile, false);
 			break;;
 		}
-		
-		case META_add: {  //creating atoms directly from the shell is unimplemented, currently unusable
-			APar_ScanAtoms(m4afile);
-			
-			//APar_AddMetadataInfo(m4afile, optarg, AtomicDataClass_Text, argv[optind], true);
-			break;
-		}
-		
+				
 		case Meta_artist : {
 			APar_ScanAtoms(m4afile);
 			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.©ART.data", AtomicDataClass_Text, optarg);
@@ -399,14 +398,14 @@ int main( int argc, char *argv[])
 				
 		case Meta_tracknum : {
 			APar_ScanAtoms(m4afile);
-			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.trkn.data", AtomicDataClass_Integer, optarg);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.trkn.data", AtomicDataClass_UInteger, optarg);
 			
 			break;
 		}
 		
 		case Meta_disknum : {
 			APar_ScanAtoms(m4afile);
-			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.disk.data", AtomicDataClass_Integer, optarg);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.disk.data", AtomicDataClass_UInteger, optarg);
 			
 			break;
 		}
@@ -459,7 +458,7 @@ int main( int argc, char *argv[])
 			if (strncmp(optarg, "false", 5) == 0) {
 				APar_RemoveAtom("moov.udta.meta.ilst.cpil", false);
 			} else {
-				APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.cpil.data", AtomicDataClass_CPIL_TMPO, optarg);
+				APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.cpil.data", AtomicDataClass_UInt8_Binary, optarg);
 			}
 			break;
 		}
@@ -469,7 +468,7 @@ int main( int argc, char *argv[])
 			if (strncmp(optarg, "0", 1) == 0) {
 				APar_RemoveAtom("moov.udta.meta.ilst.tmpo", false);
 			} else {
-				APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.tmpo.data", AtomicDataClass_CPIL_TMPO, optarg);
+				APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.tmpo.data", AtomicDataClass_UInt8_Binary, optarg);
 			}
 			
 			break;
@@ -480,7 +479,7 @@ int main( int argc, char *argv[])
 			if (strncmp(optarg, "remove", 6) == 0) {
 				APar_RemoveAtom("moov.udta.meta.ilst.rtng", false);
 			} else {
-				APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.rtng.data", AtomicDataClass_CPIL_TMPO, optarg);
+				APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.rtng.data", AtomicDataClass_UInt8_Binary, optarg);
 			}
 			break;
 		}
@@ -494,7 +493,7 @@ int main( int argc, char *argv[])
 				
 		case Meta_stik : {
 			APar_ScanAtoms(m4afile);
-			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.stik.data", AtomicDataClass_CPIL_TMPO, optarg);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.stik.data", AtomicDataClass_UInt8_Binary, optarg);
 			
 			break;
 		}
@@ -529,14 +528,14 @@ int main( int argc, char *argv[])
 		
 		case Meta_TV_SeasonNumber : { //if the show "ABC Lost 209", its 2; integer 2 not char "2"
 			APar_ScanAtoms(m4afile);
-			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.tvsn.data", AtomicDataClass_CPIL_TMPO, optarg);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.tvsn.data", AtomicDataClass_UInt8_Binary, optarg);
 			
 			break;
 		}
 		
 		case Meta_TV_EpisodeNumber : { //if the show "ABC Lost 209", its 2; integer 9 not char "9"
 			APar_ScanAtoms(m4afile);
-			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.tves.data", AtomicDataClass_CPIL_TMPO, optarg);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.tves.data", AtomicDataClass_UInt8_Binary, optarg);
 			
 			break;
 		}
@@ -550,7 +549,7 @@ int main( int argc, char *argv[])
 		
 		case Meta_podcastFlag : {
 			APar_ScanAtoms(m4afile);
-			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.pcst.data", AtomicDataClass_CPIL_TMPO, optarg);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.pcst.data", AtomicDataClass_UInt8_Binary, optarg);
 			
 			break;
 		}
@@ -565,6 +564,20 @@ int main( int argc, char *argv[])
 		case Meta_category : { // see http://www.apple.com/itunes/podcasts/techspecs.html for available categories
 			APar_ScanAtoms(m4afile);
 			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.catg.data", AtomicDataClass_Text, optarg);
+			
+			break;
+		}
+		
+		case Meta_podcast_URL : { // usually a read-only value, but usefult for getting videos into the 'podcast' menu
+			APar_ScanAtoms(m4afile);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.purl.data", AtomicDataClass_UInt8_Binary, optarg);
+			
+			break;
+		}
+		
+		case Meta_podcast_episode_guide : { // it is *highly* doubtful that this would be useful...
+			APar_ScanAtoms(m4afile);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.egid.data", AtomicDataClass_UInt8_Binary, optarg);
 			
 			break;
 		}

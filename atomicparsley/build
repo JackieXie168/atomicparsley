@@ -42,7 +42,7 @@ echo "Compiling AP_iconv.cpp ..."
 g++ -g -O2 -Wall -MT AP_iconv.o -MD -MP -MF "./obj_files/AP_iconv.Tpo" -c -o obj_files/AP_iconv.o AP_iconv.cpp
 
 if test $OS = Darwin ; then
-  echo "Compiling AP_NSImage.cpp ..."
+  echo "Compiling AP_NSImage.mm ..."
 
   g++ -g -O2 -Wall -MT obj_files/AP_NSImage.o -MD -MP -MF "./obj_files/AP_NSImage.Tpo" -c -o obj_files/AP_NSImage.o AP_NSImage.mm
 fi
@@ -78,5 +78,5 @@ fi
 #---------------------------------------------#
 
 if test $OS = Darwin ; then
-  strip -x AtomicParsley 
+ strip -x AtomicParsley
 fi
