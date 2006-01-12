@@ -66,7 +66,8 @@
 #define Meta_category            'q'
 #define Meta_keyword             'K'
 #define Meta_podcast_URL         'L'
-#define Meta_podcast_episode_guide  'J'
+#define Meta_podcast_GUID        'J'
+#define Meta_PurchaseDate        'D'
 
 #define Meta_StandardDate        'Z'
 #define Meta_URL                 'u'
@@ -182,7 +183,8 @@ static const char* longHelp_text =
 "  --category         ,  -q   (str)    Sets the podcast category; typically a duplicate of its genre\n"
 "  --keyword          ,  -q   (str)    Sets the podcast keyword; invisible to MacOSX Spotlight\n"
 "  --podcastURL       ,  -L   (URL)    Set the podcast feed URL on the \"purl\" atom\n"
-"  --podcastEpGuide   ,  -J   (URL)    Set the episode's URL tag on the \"egid\" atom\n"
+"  --podcastGUID      ,  -J   (URL)    Set the episode's URL tag on the \"egid\" atom\n"
+"  --purchaseDate     ,  -D   (UTC)    Set Universal Coordinated Time of purchase on a \"purd\" atom\n"
 "\n"
 "  --writeBack        ,  -O            If given, writes the file back into original file; deletes temp\n"
 "\n"
@@ -297,7 +299,8 @@ int main( int argc, char *argv[])
 		{ "keyword",          required_argument,  NULL,           Meta_keyword },
 		{ "category",         required_argument,  NULL,           Meta_category },
 		{ "podcastURL",       required_argument,  NULL,           Meta_podcast_URL },
-		{ "podcastEpGuide",   required_argument,  NULL,           Meta_podcast_episode_guide },
+		{ "podcastGUID",      required_argument,  NULL,           Meta_podcast_GUID },
+		{ "purchaseDate",     required_argument,  NULL,           Meta_PurchaseDate },
 		
 		{ "freefree",         0,                  NULL,           Opt_FreeFree },
 		
@@ -309,7 +312,7 @@ int main( int argc, char *argv[])
 	int c = -1;
 	int option_index = 0; 
 	
-	c = getopt_long(argc, argv, "hTtEe:a:c:d:f:g:i:l:n:pq::u:w:y:z:G:k:A:B:C:FH:I:J:K:L:N:S:U:V:ZP", long_options, &option_index);
+	c = getopt_long(argc, argv, "hTtEe:a:c:d:f:g:i:l:n:pq::u:w:y:z:G:k:A:B:C:D:FH:I:J:K:L:N:S:U:V:ZP", long_options, &option_index);
 	
 	if (c == -1) {
 		if (argc < 3 && argc > 2) {
@@ -575,9 +578,16 @@ int main( int argc, char *argv[])
 			break;
 		}
 		
-		case Meta_podcast_episode_guide : { // it is *highly* doubtful that this would be useful...
+		case Meta_podcast_GUID : { // Global Unique IDentifier; it is *highly* doubtful that this would be useful...
 			APar_ScanAtoms(m4afile);
 			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.egid.data", AtomicDataClass_UInt8_Binary, optarg);
+			
+			break;
+		}
+		
+		case Meta_PurchaseDate : { // might be useful to *remove* this, but adding it... although it could function like id3v2 tdtg...
+			APar_ScanAtoms(m4afile);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.purd.data", AtomicDataClass_Text, optarg);
 			
 			break;
 		}

@@ -1014,6 +1014,15 @@ void APar_AtomizeFileInfo(AtomicInfo &thisAtom, long Astart, long Alength, char*
 		}
 	}
 	
+	//takes care of mdat.length=1
+	if ( (strncmp(Astring, "mdat", 4) == 0) && (Alevel == 1) && (Alength == 1) ) {
+		long mdat_to_eof = (long)file_size - Astart;
+		if ( mdat_to_eof >= largest_mdat) {
+			mdat_start = Astart;
+			largest_mdat = mdat_to_eof;
+		}
+	}
+	
 	atom_number++; //increment to the next AtomicInfo array
 	
 	return;
@@ -1055,7 +1064,10 @@ void APar_PrintAtomicTree() {
 		StringReEncode(atom_name, "UTF-8", "ISO-8859-1");
 #endif
 		
-		if (thisAtom.uuidAtomType) {
+		if (thisAtom.AtomicLength == 1) {
+			fprintf(stdout, "%sAtom %s @ %li of size: %li (%li*), ends @ %li\n", tree_padding, atom_name, thisAtom.AtomicStart, ( (long)file_size - thisAtom.AtomicStart), thisAtom.AtomicLength, (long)file_size );
+			fprintf(stdout, "\t\t\t (*)denotes length of atom goes to End-of-File\n");
+		} else if (thisAtom.uuidAtomType) {
 			fprintf(stdout, "%sAtom uuid=%s @ %li of size: %li, ends @ %li\n", tree_padding, atom_name, thisAtom.AtomicStart, thisAtom.AtomicLength, (thisAtom.AtomicStart + thisAtom.AtomicLength) );
 		} else {
 			fprintf(stdout, "%sAtom %s @ %li of size: %li, ends @ %li\n", tree_padding, atom_name, thisAtom.AtomicStart, thisAtom.AtomicLength, (thisAtom.AtomicStart + thisAtom.AtomicLength) );
@@ -1319,6 +1331,10 @@ void APar_ScanAtoms(const char *path) {
 					}
 					
 					APar_AtomizeFileInfo(parsedAtoms[atom_number], jump, dataSize, atom, generalAtomicLevel, atom_class, 0, uuid_atom);
+					
+					if (dataSize == 1) { // length = 1 means it reaches to EOF
+						break;
+					}
 					
 					if (strncmp(atom, "stsd", 4) == 0) {
 						//For now, this will be treated as a special scenario, and it is... odd... and mostly working
@@ -1980,8 +1996,8 @@ long APar_DetermineMediaData_AtomPosition() {
  	while (parsedAtoms[thisAtomNumber].NextAtomNumber != 0) {
 		AtomicInfo thisAtom = parsedAtoms[thisAtomNumber];
 		//fprintf(stdout, "our atom is %s\n", thisAtom.AtomicName);
-		//if ( (strncmp(thisAtom.AtomicName, "mdat", 4) == 0) && (thisAtom.AtomicLevel == 1) && (thisAtom.AtomicLength > 16) ) {
-		if ( (strncmp(thisAtom.AtomicName, "mdat", 4) == 0) && (thisAtom.AtomicLevel == 1) && (thisAtom.AtomicLength > 75) ) { //<-OpenShiiva accommodation
+		
+		if ( (strncmp(thisAtom.AtomicName, "mdat", 4) == 0) && (thisAtom.AtomicLevel == 1) && (thisAtom.AtomicLength = 1 || thisAtom.AtomicLength > 75) ) {
 			break;
 		}
 		if (thisAtom.AtomicLevel == 1) {
@@ -2037,6 +2053,9 @@ void APar_DetermineNewFileLength() {
 	while (true) {		
 		if (parsedAtoms[thisAtomNumber].AtomicLevel == 1) {				
 	    new_file_size += parsedAtoms[thisAtomNumber].AtomicLength; //used in progressbar
+		}
+		if (parsedAtoms[thisAtomNumber].AtomicLength == 1) {				
+	    new_file_size += (long)file_size - parsedAtoms[thisAtomNumber].AtomicStart; //used in progressbar; mdat.length = 1
 		}
 		if (parsedAtoms[thisAtomNumber].NextAtomNumber == 0) {
 			break;
@@ -2421,7 +2440,7 @@ void APar_WriteFile(const char* m4aFile, bool rewrite_original) {
 	short thisAtomNumber = 0;
 	
 	long mdat_offset = APar_DetermineMediaData_AtomPosition();
-
+	
 	APar_DeriveNewPath(m4aFile, temp_file_name);
 	temp_file = fopen(temp_file_name, "wr");
 	if (temp_file != NULL) {
