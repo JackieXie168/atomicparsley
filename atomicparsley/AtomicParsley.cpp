@@ -1015,7 +1015,7 @@ void APar_AtomizeFileInfo(AtomicInfo &thisAtom, long Astart, long Alength, char*
 	}
 	
 	//takes care of mdat.length=1
-	if ( (strncmp(Astring, "mdat", 4) == 0) && (Alevel == 1) && (Alength == 1) ) {
+	if ( (strncmp(Astring, "mdat", 4) == 0) && (Alevel == 1) && (Alength == 0) ) {
 		long mdat_to_eof = (long)file_size - Astart;
 		if ( mdat_to_eof >= largest_mdat) {
 			mdat_start = Astart;
@@ -1064,7 +1064,7 @@ void APar_PrintAtomicTree() {
 		StringReEncode(atom_name, "UTF-8", "ISO-8859-1");
 #endif
 		
-		if (thisAtom.AtomicLength == 1) {
+		if (thisAtom.AtomicLength == 0) {
 			fprintf(stdout, "%sAtom %s @ %li of size: %li (%li*), ends @ %li\n", tree_padding, atom_name, thisAtom.AtomicStart, ( (long)file_size - thisAtom.AtomicStart), thisAtom.AtomicLength, (long)file_size );
 			fprintf(stdout, "\t\t\t (*)denotes length of atom goes to End-of-File\n");
 		} else if (thisAtom.uuidAtomType) {
@@ -1326,13 +1326,9 @@ void APar_ScanAtoms(const char *path) {
 					
 					dataSize = longFromBigEndian(data);
 					
-					if (dataSize == 0) { //terminate at quicktime's 4byte null termination
-						break;
-					}
-					
 					APar_AtomizeFileInfo(parsedAtoms[atom_number], jump, dataSize, atom, generalAtomicLevel, atom_class, 0, uuid_atom);
 					
-					if (dataSize == 1) { // length = 1 means it reaches to EOF
+					if (dataSize == 0) { // length = 0 means it reaches to EOF
 						break;
 					}
 					
@@ -1997,7 +1993,7 @@ long APar_DetermineMediaData_AtomPosition() {
 		AtomicInfo thisAtom = parsedAtoms[thisAtomNumber];
 		//fprintf(stdout, "our atom is %s\n", thisAtom.AtomicName);
 		
-		if ( (strncmp(thisAtom.AtomicName, "mdat", 4) == 0) && (thisAtom.AtomicLevel == 1) && (thisAtom.AtomicLength = 1 || thisAtom.AtomicLength > 75) ) {
+		if ( (strncmp(thisAtom.AtomicName, "mdat", 4) == 0) && (thisAtom.AtomicLevel == 1) && (thisAtom.AtomicLength == 0 || thisAtom.AtomicLength > 75) ) {
 			break;
 		}
 		if (thisAtom.AtomicLevel == 1) {
@@ -2054,7 +2050,7 @@ void APar_DetermineNewFileLength() {
 		if (parsedAtoms[thisAtomNumber].AtomicLevel == 1) {				
 	    new_file_size += parsedAtoms[thisAtomNumber].AtomicLength; //used in progressbar
 		}
-		if (parsedAtoms[thisAtomNumber].AtomicLength == 1) {				
+		if (parsedAtoms[thisAtomNumber].AtomicLength == 0) {				
 	    new_file_size += (long)file_size - parsedAtoms[thisAtomNumber].AtomicStart; //used in progressbar; mdat.length = 1
 		}
 		if (parsedAtoms[thisAtomNumber].NextAtomNumber == 0) {
@@ -2272,7 +2268,7 @@ long APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file, ch
 	fwrite(conv_buffer, 4, 1, temp_file);
 	bytes_written += 4;
 	
-	if (parsedAtoms[this_atom].AtomicLength == 1) { //the spec says if an atom has a length of 1, it extends to EOF
+	if (parsedAtoms[this_atom].AtomicLength == 0) { //the spec says if an atom has a length of 0, it extends to EOF
 		parsedAtoms[this_atom].AtomicLength = (long)file_size - parsedAtoms[this_atom].AtomicLength;
 	}
 	
