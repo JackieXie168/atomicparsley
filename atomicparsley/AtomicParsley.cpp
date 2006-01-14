@@ -56,11 +56,11 @@ bool alter_original = false;
 bool flag_drms_atom = false;
 bool Create__udta_meta_hdlr__atom = false;
 
-long max_buffer = 4096*125; // increased to 512KB
+uint32_t max_buffer = 4096*125; // increased to 512KB
 
-long mdat_start=0;
-long largest_mdat=0;
-long new_file_size = 0; //used for the progressbar
+uint32_t mdat_start=0;
+uint32_t largest_mdat=0;
+uint32_t new_file_size = 0; //used for the progressbar
 
 #if defined (WIN32)
 short max_display_width = 45;
@@ -202,37 +202,21 @@ off_t findFileSize(const char *path) {
 	return fileStats.st_size;
 }
 
-long longFromBigEndian(const char *string) {
+uint32_t UInt32FromBigEndian(const char *string) {
 #if defined (__ppc__) || defined (__ppc64__)
-	long test;
+	uint32_t test;
 	memcpy(&test,string,4);
 	return test;
 #else
-	//oddly, this line worked for 16496, but failed at 5849 (which became -39 or something); moving right past bitshifting - 2 dozen cracks at it was enough
-	//TODO: figure out bitshifting
-	//return ((string[0] << 24) | (string[1] << 16) | (string[2] << 8) | string[3] << 0);
-	long test;
-	char shift_data[4];
-	shift_data[0] = string[3];
-	shift_data[1] = string[2];
-	shift_data[2] = string[1];
-	shift_data[3] = string[0];
-	memcpy(&test,shift_data,4);
-	return test;
+	return ((string[0] & 0xff) << 24 | (string[1] & 0xff) << 16 | (string[2] & 0xff) << 8 | string[3] & 0xff) << 0;
 #endif
 }
 
-void char4long(long lnum, char* data) {
+void char4TOuint32(uint32_t lnum, char* data) {
 	data[0] = (lnum >> 24) & 0xff;
 	data[1] = (lnum >> 16) & 0xff;
 	data[2] = (lnum >>  8) & 0xff;
 	data[3] = (lnum >>  0) & 0xff;
-	return;
-}
-
-void char4short(short snum, char* data) {
-	data[0] = (snum >>  8) & 0xff;
-	data[1] = (snum >>  0) & 0xff;
 	return;
 }
 
@@ -319,12 +303,12 @@ void APar_AtomicWriteTest(short AtomicNumber, bool binary) {
 			fwrite(anAtom.AtomicData, (size_t)(anAtom.AtomicLength -12), 1, single_atom_file);
 		} else {
 			char* data = (char*)malloc(sizeof(char)*4);
-			char4long(anAtom.AtomicLength, data);
+			char4TOuint32(anAtom.AtomicLength, data);
 		
 			fwrite(data, 4, 1, single_atom_file);
 			fwrite(anAtom.AtomicName, 4, 1, single_atom_file);
 		
-			char4long((long)anAtom.AtomicDataClass, data);
+			char4TOuint32((uint32_t)anAtom.AtomicDataClass, data);
 			fwrite(data, 4, 1, single_atom_file);
 
 			fwrite(anAtom.AtomicData, strlen(anAtom.AtomicData)+1, 1, single_atom_file);
@@ -716,7 +700,7 @@ bool APar_AtomHasChildren(short thisAtom) {
 ///////////////////////////////////////////////////////////////////////////////////////
 
 void APar_AtomicRead(short this_atom_number) {
-	//fprintf(stdout, "Reading %li bytes\n", parsedAtoms[this_atom_number].AtomicLength-12 );
+	//fprintf(stdout, "Reading %u bytes\n", parsedAtoms[this_atom_number].AtomicLength-12 );
 	parsedAtoms[this_atom_number].AtomicData = (char*)malloc(sizeof(char)* (size_t)(parsedAtoms[this_atom_number].AtomicLength-12) );
 	
 	fseek(source_file, parsedAtoms[this_atom_number].AtomicStart+12, SEEK_SET);
@@ -765,8 +749,8 @@ void APar_ExtractDataAtom(int this_atom_number) {
 		parent_atom_name = parent_atom_stats.AtomicName;
 		//fprintf(stdout, "\t\t\t parent atom %s\n", parent_atom_name);
 
-		int min_atom_datasize = 12;
-		int atom_header_size = 16;
+		uint32_t min_atom_datasize = 12;
+		uint32_t atom_header_size = 16;
 		
 		if (thisAtom.uuidAtomType) {
 			min_atom_datasize += 4;
@@ -775,8 +759,8 @@ void APar_ExtractDataAtom(int this_atom_number) {
  
 		if (thisAtom.AtomicLength > min_atom_datasize ) {
 			char* data_payload = (char*)malloc( sizeof(char) * (thisAtom.AtomicLength - atom_header_size) );
-			for (int i=0; i<= thisAtom.AtomicLength - atom_header_size; i++) {
-				data_payload[i] = '\00';
+			for (uint32_t ui=0; ui<= thisAtom.AtomicLength - atom_header_size; ui++) {
+				data_payload[ui] = '\00';
 			}
 			
 			fseek(source_file, thisAtom.AtomicStart + atom_header_size, SEEK_SET);
@@ -792,8 +776,8 @@ void APar_ExtractDataAtom(int this_atom_number) {
 			} else {
 			
 				char* primary_number_data = (char*)malloc( sizeof(char) * 4 );
-				long primary_number = 0;
-				long secondary_OF_number = 0;
+				uint32_t primary_number = 0;
+				uint32_t secondary_OF_number = 0;
 				
 				for (int i=0; i < 4; i++) {
 							primary_number_data[i] = '\0';
@@ -805,25 +789,25 @@ void APar_ExtractDataAtom(int this_atom_number) {
 					secondary_OF_number_data[1] = '\00';
 					secondary_OF_number_data[2] = '\00';
 					secondary_OF_number_data[3] = data_payload[5];
-					secondary_OF_number = longFromBigEndian(secondary_OF_number_data);
+					secondary_OF_number = UInt32FromBigEndian(secondary_OF_number_data);
 					free(secondary_OF_number_data);
 					
 					for (int i=0; i < 4; i++) {
 						primary_number_data[i] = data_payload[i]; //we want the 4 byte 'atom' in data [4,5,6,7]
 					}
-					primary_number = longFromBigEndian(primary_number_data);
+					primary_number = UInt32FromBigEndian(primary_number_data);
 					
 					if (secondary_OF_number != 0) {
-						fprintf(stdout, "%li of %li\n", primary_number, secondary_OF_number);
+						fprintf(stdout, "%u of %u\n", primary_number, secondary_OF_number);
 					} else {
-						fprintf(stdout, "%li\n", primary_number);
+						fprintf(stdout, "%u\n", primary_number);
 					}
 					
 				} else if (strncmp(parent_atom_name, "gnre", 4) == 0) {
 					if ( thisAtom.AtomicLength - atom_header_size < 3 ) { //oh, a 1byte int for genre number
 						for (int i=0; i < 2; i++) {
 							primary_number_data[i+2] = data_payload[i];
-							GenreIntToString(&genre_string, longFromBigEndian(primary_number_data) );
+							GenreIntToString(&genre_string, UInt32FromBigEndian(primary_number_data) );
 						}
 						fprintf(stdout,"%s\n", genre_string);
 					}
@@ -831,12 +815,12 @@ void APar_ExtractDataAtom(int this_atom_number) {
 				}	else if (strncmp(parent_atom_name, "tmpo", 4) == 0) {
 					primary_number_data[2] = data_payload[0];
 					primary_number_data[3] = data_payload[1];
-					primary_number = longFromBigEndian(primary_number_data);
-					fprintf(stdout, "%li\n", primary_number);
+					primary_number = UInt32FromBigEndian(primary_number_data);
+					fprintf(stdout, "%u\n", primary_number);
 
 				} else if ( (strncmp(parent_atom_name, "cpil", 4) == 0) || (strncmp(parent_atom_name, "pcst", 4) == 0) ) {
 					primary_number_data[3] = data_payload[0];
-					primary_number = longFromBigEndian(primary_number_data);
+					primary_number = UInt32FromBigEndian(primary_number_data);
 					if (primary_number == 1) {
 						fprintf(stdout, "true\n");
 					} else {
@@ -845,7 +829,7 @@ void APar_ExtractDataAtom(int this_atom_number) {
 					
 				} else if (strncmp(parent_atom_name, "stik", 4) == 0) { //no idea what this atom is; resembles cpil
 					primary_number_data[3] = data_payload[0];
-					primary_number = longFromBigEndian(primary_number_data);
+					primary_number = UInt32FromBigEndian(primary_number_data);
 					if (primary_number == 0) {
 						fprintf(stdout, "Movie\n");
 					} else if (primary_number == 1) {
@@ -859,12 +843,12 @@ void APar_ExtractDataAtom(int this_atom_number) {
 					} else if (primary_number == 10) {
 						fprintf(stdout, "TV Show\n");
 					} else {
-						fprintf(stdout, "Unknown value: %li\n", primary_number);
+						fprintf(stdout, "Unknown value: %u\n", primary_number);
 					}
 
 				} else if (strncmp(parent_atom_name, "rtng", 4) == 0) {
 					primary_number_data[3] = data_payload[0];
-					primary_number = longFromBigEndian(primary_number_data);
+					primary_number = UInt32FromBigEndian(primary_number_data);
 					if (primary_number == 2) {
 						fprintf(stdout, "Clean Lyrics\n");
 					} else if (primary_number != 0 ) {
@@ -881,8 +865,8 @@ void APar_ExtractDataAtom(int this_atom_number) {
 					  for (int i=0; i < 4; i++) {
 						  primary_number_data[i] = data_payload[i]; 
 					  }
-					  primary_number = longFromBigEndian(primary_number_data);
-						fprintf(stdout, "%li\n", primary_number);
+					  primary_number = UInt32FromBigEndian(primary_number_data);
+						fprintf(stdout, "%u\n", primary_number);
 					} else {
 					  fprintf(stdout, "%s\n", data_payload);
 					}
@@ -983,7 +967,7 @@ bool APar_DetermineMain_mdat() {
 	return last_mdat_is_larger;
 }
 
-void APar_AtomizeFileInfo(AtomicInfo &thisAtom, long Astart, long Alength, char* Astring, short Alevel, int Aclass, int NextAtomNum, bool uuid_type) {
+void APar_AtomizeFileInfo(AtomicInfo &thisAtom, uint32_t Astart, uint32_t Alength, char* Astring, short Alevel, int Aclass, int NextAtomNum, bool uuid_type) {
 	thisAtom.AtomicStart = Astart;
 	thisAtom.AtomicLength = Alength;
 	
@@ -1016,7 +1000,7 @@ void APar_AtomizeFileInfo(AtomicInfo &thisAtom, long Astart, long Alength, char*
 	
 	//takes care of mdat.length=1
 	if ( (strncmp(Astring, "mdat", 4) == 0) && (Alevel == 1) && (Alength == 0) ) {
-		long mdat_to_eof = (long)file_size - Astart;
+		uint32_t mdat_to_eof = (uint32_t)file_size - Astart;
 		if ( mdat_to_eof >= largest_mdat) {
 			mdat_start = Astart;
 			largest_mdat = mdat_to_eof;
@@ -1038,8 +1022,8 @@ void APar_PrintAtomicTree() {
 	fprintf(stdout, "\xEF\xBB\xBF"); //UTF-8 BOM
 #endif
 	char* tree_padding = (char*)malloc(sizeof(char)*126); //for a 25-deep atom tree (4 spaces per atom)+single space+term.
-	long freeSpace = 0;
-	long mdatData = 0;
+	uint32_t freeSpace = 0;
+	uint32_t mdatData = 0;
 	short thisAtomNumber = 0;
 	char* atom_name = (char*)malloc(sizeof(char)*4);
 	
@@ -1065,12 +1049,12 @@ void APar_PrintAtomicTree() {
 #endif
 		
 		if (thisAtom.AtomicLength == 0) {
-			fprintf(stdout, "%sAtom %s @ %li of size: %li (%li*), ends @ %li\n", tree_padding, atom_name, thisAtom.AtomicStart, ( (long)file_size - thisAtom.AtomicStart), thisAtom.AtomicLength, (long)file_size );
+			fprintf(stdout, "%sAtom %s @ %u of size: %u (%u*), ends @ %u\n", tree_padding, atom_name, thisAtom.AtomicStart, ( (uint32_t)file_size - thisAtom.AtomicStart), thisAtom.AtomicLength, (uint32_t)file_size );
 			fprintf(stdout, "\t\t\t (*)denotes length of atom goes to End-of-File\n");
 		} else if (thisAtom.uuidAtomType) {
-			fprintf(stdout, "%sAtom uuid=%s @ %li of size: %li, ends @ %li\n", tree_padding, atom_name, thisAtom.AtomicStart, thisAtom.AtomicLength, (thisAtom.AtomicStart + thisAtom.AtomicLength) );
+			fprintf(stdout, "%sAtom uuid=%s @ %u of size: %u, ends @ %u\n", tree_padding, atom_name, thisAtom.AtomicStart, thisAtom.AtomicLength, (thisAtom.AtomicStart + thisAtom.AtomicLength) );
 		} else {
-			fprintf(stdout, "%sAtom %s @ %li of size: %li, ends @ %li\n", tree_padding, atom_name, thisAtom.AtomicStart, thisAtom.AtomicLength, (thisAtom.AtomicStart + thisAtom.AtomicLength) );
+			fprintf(stdout, "%sAtom %s @ %u of size: %u, ends @ %u\n", tree_padding, atom_name, thisAtom.AtomicStart, thisAtom.AtomicLength, (thisAtom.AtomicStart + thisAtom.AtomicLength) );
 		}
 		
 		//simple tally & percentage of free space info
@@ -1090,9 +1074,9 @@ void APar_PrintAtomicTree() {
 		
 	fprintf(stdout, "------------------------------------------------------\n");
 	fprintf(stdout, "Total size: %i bytes; %i atoms total. AtomicParsley v%s\n", (int)file_size, atom_number-1, AtomicParsley_version);
-	fprintf(stdout, "Media data: %li bytes; %li bytes all other atoms (%2.3f%% atom overhead).\n", 
-												mdatData, (long)(file_size - mdatData), (float)(file_size - mdatData)/(float)file_size * 100 );
-	fprintf(stdout, "Total free atoms: %li bytes; %2.3f%% waste.\n", freeSpace, (float)freeSpace/(float)file_size * 100 );
+	fprintf(stdout, "Media data: %u bytes; %u bytes all other atoms (%2.3f%% atom overhead).\n", 
+												mdatData, (uint32_t)(file_size - mdatData), (float)(file_size - mdatData)/(float)file_size * 100 );
+	fprintf(stdout, "Total free atoms: %u bytes; %2.3f%% waste.\n", freeSpace, (float)freeSpace/(float)file_size * 100 );
 	fprintf(stdout, "------------------------------------------------------\n");
 	
 	free(tree_padding);
@@ -1117,7 +1101,7 @@ void APar_SimpleAtomPrintout() {
 //                      File scanning & atom parsing                                 //
 ///////////////////////////////////////////////////////////////////////////////////////
 
-short APar_GetCurrentAtomDepth(long atom_start, long atom_length) {
+short APar_GetCurrentAtomDepth(uint32_t atom_start, uint32_t atom_length) {
 	short level = 1;
 	for (int i = 0; i < atom_number; i++) {
 		AtomicInfo thisAtom = parsedAtoms[i];
@@ -1132,7 +1116,7 @@ short APar_GetCurrentAtomDepth(long atom_start, long atom_length) {
 	return level;
 }
 
-bool APar_TestforChildAtom(char *fileData, long sizeofParentAtom, char* atom) {
+bool APar_TestforChildAtom(char *fileData, uint32_t sizeofParentAtom, char* atom) {
 	if ( strncmp(atom, "data", 4) == 0  || strncmp(atom, "mdat", 4) == 0 ){
 		return false;
 	}
@@ -1142,7 +1126,7 @@ bool APar_TestforChildAtom(char *fileData, long sizeofParentAtom, char* atom) {
 		childAtomLength[i] = fileData[i+8]; //we want the 4 byte 'atom' in data [4,5,6,7]
 	}
 	
-	long sizeofChild = longFromBigEndian(childAtomLength);
+	uint32_t sizeofChild = UInt32FromBigEndian(childAtomLength);
 	
 	if ( sizeofChild > 8 && sizeofChild < sizeofParentAtom ) {
 		free(childAtomLength);
@@ -1163,20 +1147,20 @@ short APar_DetermineDataType(char* atom, bool uuid_type) {
 	for (int i=0; i < 4; i++) {
 		data_type[i] = atom[i+data_offset]; //we want the 1 byte code (01, 15) following the data atom to determine type (text, binary)
 	}
-	long type_of_data = longFromBigEndian(data_type);
+	uint32_t type_of_data = UInt32FromBigEndian(data_type);
 	
 	free(data_type);
 	return (int)type_of_data;
 }
 
-void APar_Parse_stsd_Atoms(FILE* file, long midJump, long drmLength) {
-	//fprintf(stdout,"---> drms atom %s begins #: %li \t to %li\n", parsedAtoms[atom_number-1].AtomicName, midJump, drmLength);
+void APar_Parse_stsd_Atoms(FILE* file, uint32_t midJump, uint32_t drmLength) {
+	//fprintf(stdout,"---> drms atom %s begins #: %u \t to %u\n", parsedAtoms[atom_number-1].AtomicName, midJump, drmLength);
 	//stsd atom carrys data (8bytes )
 	short stsd_entry_atom_number = atom_number-1;
-	long stsd_entry_pos = midJump;
+	uint32_t stsd_entry_pos = midJump;
 	char *data = (char *) malloc(12);
-	long interDataSize = 0;
-	long stsd_progress = 16;
+	uint32_t interDataSize = 0;
+	uint32_t stsd_progress = 16;
 	short atomLevel = generalAtomicLevel+1;
 	bool uuid_atom = false;
 	fseek(file, midJump, SEEK_SET);
@@ -1191,7 +1175,7 @@ void APar_Parse_stsd_Atoms(FILE* file, long midJump, long drmLength) {
 			uuid_atom = true;
 		}
 
-		interDataSize = longFromBigEndian(data);
+		interDataSize = UInt32FromBigEndian(data);
 		
 		if ( interDataSize > drmLength || interDataSize < 8) {
 			break; //we only get here if there is some oddball atom here under stsd that has a dataclass
@@ -1276,22 +1260,22 @@ void APar_ScanAtoms(const char *path) {
 		{
 			char *data = (char *) malloc(12);
 			if (data == NULL) return;
-			long dataSize = 0;
-			long jump = 0;
+			uint32_t dataSize = 0;
+			uint32_t jump = 0;
 			
 			fread(data, 1, 12, file);
 			char *atom = extractAtomName(data, 1);
-			//fprintf(stdout, "atom: %s @ offset: %li ", atom, jump);
+			//fprintf(stdout, "atom: %s @ offset: %u ", atom, jump);
 			if ( (strncmp(atom, "ftyp", 4) == 0 ) || (strncmp(atom, "jP  ", 4) == 0) ) //jpeg2000 files will be "jP  " (2 spaces)
 			{
-				dataSize = longFromBigEndian(data);
+				dataSize = UInt32FromBigEndian(data);
 				jump = dataSize;
 				
 				APar_AtomizeFileInfo(parsedAtoms[atom_number], 0, jump, atom, generalAtomicLevel, -1, 0, false);
 				
 				fseek(file, jump, SEEK_SET);
 				
-				while (jump < (long)file_size) {
+				while (jump < (uint32_t)file_size) {
 					//a jpg2000 file will have a "jp2c" atom of 0000 jump length (don't know the rest).
 					fread(data, 1, 12, file);
 					char *atom = extractAtomName(data , 1);
@@ -1303,7 +1287,7 @@ void APar_ScanAtoms(const char *path) {
 						uuid_atom = true;
 					}
 
-					//fprintf(stdout, "atom: %s @ offset: %li \n", atom, jump);
+					//fprintf(stdout, "atom: %s @ offset: %u \n", atom, jump);
 					
 					if (strncmp(atom, "data", 4) == 0) {
 						atom_class=APar_DetermineDataType(data, false);
@@ -1324,7 +1308,7 @@ void APar_ScanAtoms(const char *path) {
 						atom_class = -1;
 					}
 					
-					dataSize = longFromBigEndian(data);
+					dataSize = UInt32FromBigEndian(data);
 					
 					APar_AtomizeFileInfo(parsedAtoms[atom_number], jump, dataSize, atom, generalAtomicLevel, atom_class, 0, uuid_atom);
 					
@@ -1340,7 +1324,7 @@ void APar_ScanAtoms(const char *path) {
 					if (strncmp(atom, "meta", 4) == 0) {
 						jump += 12;
 					} else if ( strncmp(atom, "tkhd", 4) == 0 ) {
-            jump += dataSize; //tkhd atoms are always 92 bytes long; don't even bother to test for any children
+            jump += dataSize; //tkhd atoms are always 92 bytes uint32_t; don't even bother to test for any children
 					} else if ( APar_TestforChildAtom(data, dataSize, atom) ) { // if bytes 9-12 are less than bytes 1-4 (and not 0) we have a child; if its a data atom, all bets are off
 						jump += 8; //skip a head a grand total of... 8 *WHOLE* bytes - what progress!
 					} else if ( generalAtomicLevel > 1 ) { // apparently, we didn't have a child
@@ -1538,8 +1522,8 @@ void APar_EncapsulateData(short thisnum, const char* atomData, uint8_t unsignedD
 			picture_exists = TestFileExistence(atomData, false);
 			picture_size = findFileSize(atomData);
 			if (picture_exists && picture_size > 0) {
-				//"data" atoms under "covr" are: 4bytes(LONG atom length) + 4bytes(CHAR atom name = 'data') + 4bytes (INT data type) + 4 bytes (NULL space 00 00 00 00)
-				parsedAtoms[thisnum].AtomicLength = (long)picture_size + 16;
+				//"data" atoms under "covr" are: 4bytes(uint32_t atom length) + 4bytes(CHAR atom name = 'data') + 4bytes (INT data type) + 4 bytes (NULL space 00 00 00 00)
+				parsedAtoms[thisnum].AtomicLength = (uint32_t)picture_size + 16;
 				parsedAtoms[thisnum].AtomicData = strdup(atomData);
 			}
 			parsedAtoms[thisnum].AtomicDataClass = AtomicDataClass_JPEGBinary;
@@ -1550,7 +1534,7 @@ void APar_EncapsulateData(short thisnum, const char* atomData, uint8_t unsignedD
 			picture_size = findFileSize(atomData);
 			//the file won't be read until we have to write out the m4a file since it will be included unaltered
 			if (picture_exists && picture_size > 0) {
-				parsedAtoms[thisnum].AtomicLength = (long)picture_size + 16;
+				parsedAtoms[thisnum].AtomicLength = (uint32_t)picture_size + 16;
 				parsedAtoms[thisnum].AtomicData = strdup(atomData);
 			}
 			parsedAtoms[thisnum].AtomicDataClass = AtomicDataClass_PNGBinary;
@@ -1571,15 +1555,11 @@ void APar_EncapsulateData(short thisnum, const char* atomData, uint8_t unsignedD
 					parsedAtoms[thisnum].AtomicData[i] = atomData[i];
 				}
 			}
-			//fprintf(stdout, "(AP_E1) atom %s, size: %li\n", parsedAtoms[38].AtomicName, parsedAtoms[38].AtomicLength);
-			parsedAtoms[thisnum].AtomicLength = (long)data_length + 12 + 4;
+			parsedAtoms[thisnum].AtomicLength = (uint32_t)data_length + 12 + 4;
 			parsedAtoms[thisnum].AtomicDataClass = AtomicDataClass_Text;
-			
-			//APar_AtomicWriteTest(thisnum, false);
-			//fprintf(stdout, "(AP_E2) atom %s, size: %li\n", parsedAtoms[38].AtomicName, parsedAtoms[38].AtomicLength);
 			break;
 			
-		case AtomicDataClass_UInteger : //Other than the dataType numbers, I don't think there is a difference in ADC_Int & ADC_Bin - both seem based on unsigned char
+		case AtomicDataClass_UInteger : //Other than the dataType numbers, I don't think there is a difference in ADC_UInt & ADC_UBin - both seem based on unsigned char
 			if ( strncmp(parsedAtoms[thisnum].AtomicName, "hdlr",4) == 0 ) {
 				
 				parsedAtoms[thisnum].AtomicData = (char*)malloc(sizeof(char)* 21);
@@ -1916,7 +1896,7 @@ void APar_AddMetadataArtwork(const char* m4aFile, const char* artworkPath, char*
 		//determine if any picture preferences will impact the picture file in any way
 		myPicturePrefs = ExtractPicPrefs(env_PicOptions);
 
-#if defined(__ppc__)
+#if defined (DARWIN_PLATFORM)
 		char* resized_filepath = ResizeGivenImage(artworkPath , myPicturePrefs);
 		if ( strncmp(resized_filepath, "/", 1) == 0 ) {
 			APar_EncapsulateData(desiredAtom.AtomicNumber, resized_filepath, NULL, APar_TestArtworkBinaryData(resized_filepath) );
@@ -1984,8 +1964,8 @@ void APar_StandardTime(char* &formed_time) {
 ///////////////////////////////////////////////////////////////////////////////////////
 
 //determine if our mdat atom has moved at all...
-long APar_DetermineMediaData_AtomPosition() {
-	long mdat_position = 0;
+uint32_t APar_DetermineMediaData_AtomPosition() {
+	uint32_t mdat_position = 0;
 	short thisAtomNumber = 0;
 	
 	//loop through each atom in the struct array (which holds the offset info/data)
@@ -2004,7 +1984,7 @@ long APar_DetermineMediaData_AtomPosition() {
 	return mdat_position - mdat_start;
 }
 
-void APar_Readjust_STCO_atom(long supplemental_offset, short stco_number) {
+void APar_Readjust_STCO_atom(uint32_t supplemental_offset, short stco_number) {
 	AtomicInfo thisAtom = parsedAtoms[stco_number];
 	//fprintf(stdout, "Just checking stco = %s\n", thisAtom.AtomicName);
 	APar_AtomicRead(stco_number);
@@ -2013,19 +1993,19 @@ void APar_Readjust_STCO_atom(long supplemental_offset, short stco_number) {
 	
 	char* stco_entries = (char *)malloc(sizeof(char)*4);
 	memcpy(stco_entries, parsedAtoms[stco_number].AtomicData, 4);
-	long entries = longFromBigEndian(stco_entries);
+	uint32_t entries = UInt32FromBigEndian(stco_entries);
 	
 	char* an_entry = (char *)malloc(sizeof(char)*4);
 	
-	for(long i=1; i<=entries; i++) {
-		//read 4 bytes of the atom into a 4 char long an_entry to eval it
+	for(uint32_t i=1; i<=entries; i++) {
+		//read 4 bytes of the atom into a 4 char uint32_t an_entry to eval it
 		for (int c = 0; c <=3; c++ ) {
 			//first stco entry is the number of entries; every other one is an actual offset value
 			an_entry[c] = parsedAtoms[stco_number].AtomicData[i*4 + c];
 		}
-		long this_entry = longFromBigEndian(an_entry);
+		uint32_t this_entry = UInt32FromBigEndian(an_entry);
 		this_entry += supplemental_offset; //this is where we add our new mdat offset difference
-		char4long(this_entry, an_entry);
+		char4TOuint32(this_entry, an_entry);
 		//and put the data back into AtomicData...
 		for (int c = 0; c <=3; c++ ) {
 			//first stco entry is the number of entries; every other one is an actual offset value
@@ -2051,7 +2031,7 @@ void APar_DetermineNewFileLength() {
 	    new_file_size += parsedAtoms[thisAtomNumber].AtomicLength; //used in progressbar
 		}
 		if (parsedAtoms[thisAtomNumber].AtomicLength == 0) {				
-	    new_file_size += (long)file_size - parsedAtoms[thisAtomNumber].AtomicStart; //used in progressbar; mdat.length = 1
+	    new_file_size += (uint32_t)file_size - parsedAtoms[thisAtomNumber].AtomicStart; //used in progressbar; mdat.length = 1
 		}
 		if (parsedAtoms[thisAtomNumber].NextAtomNumber == 0) {
 			break;
@@ -2085,7 +2065,7 @@ void APar_DetermineAtomLengths() {
 	
 	while (rev_atom_loop !=0) {
 		short next_atom = 0;
-		long atom_size = 0;
+		uint32_t atom_size = 0;
 		//fprintf(stdout, "preceding atom is named %s, num:%i\n", parsedAtoms[rev_atom_loop].AtomicName, parsedAtoms[rev_atom_loop].AtomicNumber);
 		
 		//if we were to eval our last atom, we would do it here, but it's either "free", "mdat", or a metadata "data" child atom
@@ -2126,11 +2106,11 @@ void APar_DetermineAtomLengths() {
 		}
 		
 		while (parsedAtoms[next_atom].AtomicLevel > parsedAtoms[rev_atom_loop].AtomicLevel) { // eval all child atoms....
-			//fprintf(stdout, "\ttest child atom %s, level:%i (sum %li)\n", parsedAtoms[next_atom].AtomicName, parsedAtoms[next_atom].AtomicLevel, atom_size);
+			//fprintf(stdout, "\ttest child atom %s, level:%i (sum %u)\n", parsedAtoms[next_atom].AtomicName, parsedAtoms[next_atom].AtomicLevel, atom_size);
 			if (parsedAtoms[rev_atom_loop].AtomicLevel == ( parsedAtoms[next_atom].AtomicLevel - 1) ) { // only child atoms 1 level down
 				atom_size += parsedAtoms[next_atom].AtomicLength;
-				//fprintf(stdout, "\t\teval child atom %s, level:%i (sum %li)\n", parsedAtoms[next_atom].AtomicName, parsedAtoms[next_atom].AtomicLevel, atom_size); 
-				//fprintf(stdout, "\t\teval %s's child atom %s, level:%i (sum %li, added %li)\n", parsedAtoms[rev_atom_loop].AtomicName, parsedAtoms[next_atom].AtomicName, parsedAtoms[next_atom].AtomicLevel, atom_size, parsedAtoms[next_atom].AtomicLength);
+				//fprintf(stdout, "\t\teval child atom %s, level:%i (sum %u)\n", parsedAtoms[next_atom].AtomicName, parsedAtoms[next_atom].AtomicLevel, atom_size); 
+				//fprintf(stdout, "\t\teval %s's child atom %s, level:%i (sum %u, added %u)\n", parsedAtoms[rev_atom_loop].AtomicName, parsedAtoms[next_atom].AtomicName, parsedAtoms[next_atom].AtomicLevel, atom_size, parsedAtoms[next_atom].AtomicLength);
 			}
 			next_atom = parsedAtoms[next_atom].NextAtomNumber; //increment to eval next atom
 			parsedAtoms[rev_atom_loop].AtomicLength = atom_size;
@@ -2147,7 +2127,7 @@ void APar_DetermineAtomLengths() {
 //                          Atom Writing Functions                                   //
 ///////////////////////////////////////////////////////////////////////////////////////
 
-void APar_ShellProgressBar(long bytes_written) {
+void APar_ShellProgressBar(uint32_t bytes_written) {
 	strcpy(file_progress_buffer, " Progress: ");
 	
 	int display_progress = (int)lroundf( (float)bytes_written/(float)new_file_size * 100 *( (float)max_display_width/100) );
@@ -2194,8 +2174,8 @@ void APar_DeriveNewPath(const char *filePath, char* &temp_path) {
 	return;
 }
 
-void APar_FileWrite_Buffered(FILE* dest_file, FILE *src_file, long dest_start, long src_start, long length, char* &buffer) {
-	//fprintf(stdout, "I'm at %li\n", src_start);
+void APar_FileWrite_Buffered(FILE* dest_file, FILE *src_file, uint32_t dest_start, uint32_t src_start, uint32_t length, char* &buffer) {
+	//fprintf(stdout, "I'm at %u\n", src_start);
 	fseek(src_file, src_start, SEEK_SET);
 	fread(buffer, 1, (size_t)length, src_file);
 
@@ -2204,11 +2184,11 @@ void APar_FileWrite_Buffered(FILE* dest_file, FILE *src_file, long dest_start, l
 	return;
 }
 
-void APar_CompleteCopyFile(FILE* dest_file, FILE *src_file, long new_file_size, char* &buffer) {
+void APar_CompleteCopyFile(FILE* dest_file, FILE *src_file, uint32_t new_file_size, char* &buffer) {
 	//this function is used to duplicate the temp file back into the original file.
 	//hopefully, this reduces any memory strain due to modding an Apple Lossless m4a file (toting in at a pork choppy 50Megs)
 	//allocating 50MB would be.... quite the allocation, so we'll show restraint: 102400 bytes (goes through the while loop 512 times)
-	long file_pos = 0;
+	uint32_t file_pos = 0;
 	while (file_pos <= new_file_size) {
 		if (file_pos + max_buffer <= new_file_size ) {
 			fseek(src_file, file_pos, SEEK_SET);
@@ -2231,10 +2211,10 @@ void APar_CompleteCopyFile(FILE* dest_file, FILE *src_file, long new_file_size, 
 	return;
 }
 
-long APar_DRMS_WriteAtomically(FILE* temp_file, char* &buffer, char* &conv_buffer, long bytes_written_tally, short this_number) {
-	long bytes_written = 0;
+uint32_t APar_DRMS_WriteAtomically(FILE* temp_file, char* &buffer, char* &conv_buffer, uint32_t bytes_written_tally, short this_number) {
+	uint32_t bytes_written = 0;
 
-	char4long(parsedAtoms[this_number].AtomicLength, conv_buffer); //write the atom length
+	char4TOuint32(parsedAtoms[this_number].AtomicLength, conv_buffer); //write the atom length
 	fseek(temp_file, bytes_written_tally, SEEK_SET);
 	fwrite(conv_buffer, 4, 1, temp_file);
 	bytes_written += 4;
@@ -2255,21 +2235,21 @@ long APar_DRMS_WriteAtomically(FILE* temp_file, char* &buffer, char* &conv_buffe
 	return bytes_written;
 }
 
-long APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file, char* &buffer, char* &conv_buffer, long bytes_written_tally, short this_atom) {
-	long bytes_written = 0;
+uint32_t APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file, char* &buffer, char* &conv_buffer, uint32_t bytes_written_tally, short this_atom) {
+	uint32_t bytes_written = 0;
 	
 	if (parsedAtoms[this_atom].AtomicLength > 1 && parsedAtoms[this_atom].AtomicLength < 8) { //mdat length of 1 means it extends to EOF - not yet supported
 		return bytes_written;
 	}
 	
 	//write the length of the atom first... taken from our tree in memory
-	char4long(parsedAtoms[this_atom].AtomicLength, conv_buffer);
+	char4TOuint32(parsedAtoms[this_atom].AtomicLength, conv_buffer);
 	fseek(temp_file, bytes_written_tally, SEEK_SET);
 	fwrite(conv_buffer, 4, 1, temp_file);
 	bytes_written += 4;
 	
 	if (parsedAtoms[this_atom].AtomicLength == 0) { //the spec says if an atom has a length of 0, it extends to EOF
-		parsedAtoms[this_atom].AtomicLength = (long)file_size - parsedAtoms[this_atom].AtomicLength;
+		parsedAtoms[this_atom].AtomicLength = (uint32_t)file_size - parsedAtoms[this_atom].AtomicLength;
 	}
 	
 	//handle jpeg/pngs differently when we are ADDING them: they will be coming from entirely separate files
@@ -2291,11 +2271,11 @@ long APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file, ch
 		fwrite(parsedAtoms[this_atom].AtomicName, 4, 1, temp_file); //write the atom name
 		bytes_written += 4;
 		
-		char4long( (long)parsedAtoms[this_atom].AtomicDataClass, conv_buffer); //write the atom data class
+		char4TOuint32( (uint32_t)parsedAtoms[this_atom].AtomicDataClass, conv_buffer); //write the atom data class
 		fwrite(conv_buffer, 4, 1, temp_file);
 		bytes_written += 4;
 		
-		char4long( 0, conv_buffer); //write a 4 bytes of null space out
+		char4TOuint32( 0, conv_buffer); //write a 4 bytes of null space out
 		fwrite(conv_buffer, 4, 1, temp_file);
 		bytes_written += 4;
 		
@@ -2305,7 +2285,7 @@ long APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file, ch
 		if (pic_file != NULL) {
 			//...and the actual transfer of the picture
 			while (bytes_written <= parsedAtoms[this_atom].AtomicLength) {
-				if (bytes_written + max_buffer <= (long)parsedAtoms[this_atom].AtomicLength ) {
+				if (bytes_written + max_buffer <= parsedAtoms[this_atom].AtomicLength ) {
 					//fprintf(stdout, "Writing atom %s from file looping into buffer\n", parsedAtoms[this_atom].AtomicName);
 					fseek(pic_file, bytes_written - 16, SEEK_SET);
 					fread(buffer, 1, (size_t)max_buffer, pic_file);
@@ -2346,7 +2326,7 @@ long APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file, ch
 		// we loop, reading in chunks of the atom's data into the buffer, and immediately write it out, reusing the buffer.
 		
 		while (bytes_written <= parsedAtoms[this_atom].AtomicLength) {
-			if (bytes_written + max_buffer <= (long)parsedAtoms[this_atom].AtomicLength ) {
+			if (bytes_written + max_buffer <= parsedAtoms[this_atom].AtomicLength ) {
 				//fprintf(stdout, "Writing atom %s from file looping into buffer\n", parsedAtoms[this_atom].AtomicName);
 				//read&write occurs from & including atom name through end of atom
 				fseek(source_file, (bytes_written + parsedAtoms[this_atom].AtomicStart), SEEK_SET);
@@ -2381,25 +2361,25 @@ long APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file, ch
 		if (parsedAtoms[this_atom].uuidAtomType) {
 			fwrite("uuid", 4, 1, temp_file);
 			bytes_written += 4;
-			//fprintf(stdout, "%li\n", parsedAtoms[this_atom].AtomicLength);
+			//fprintf(stdout, "%u\n", parsedAtoms[this_atom].AtomicLength);
 		}
 		
 		fwrite(parsedAtoms[this_atom].AtomicName, 4, 1, temp_file);
 		bytes_written += 4;
 		if (parsedAtoms[this_atom].AtomicDataClass >= 0) {
-			char4long( (long)parsedAtoms[this_atom].AtomicDataClass, conv_buffer);
+			char4TOuint32( (uint32_t)parsedAtoms[this_atom].AtomicDataClass, conv_buffer);
 			fwrite(conv_buffer, 4, 1, temp_file);
 			bytes_written += 4;
 			
 			if (parsedAtoms[this_atom].AtomicDataClass == AtomicDataClass_Text) {
-				char4long( 0, conv_buffer);
+				char4TOuint32( 0, conv_buffer);
 				fwrite(conv_buffer, 4, 1, temp_file);
 				bytes_written += 4;
 			}
 		}
 		
 		if (parsedAtoms[this_atom].AtomicData != NULL) {
-			long atom_data_size = 0;
+			uint32_t atom_data_size = 0;
 			//fwrite(conv_buffer, 4, 1, temp_file);
 			if (strncmp(parsedAtoms[this_atom].AtomicName, "stsd", 4) == 0) {
 					atom_data_size = 4;
@@ -2416,7 +2396,7 @@ long APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file, ch
 			}
 			//can't strlen on data that has nulls (and most non-udta atoms like the important stco have nulls)
 			//fwrite(parsedAtoms[this_atom].AtomicData, strlen(parsedAtoms[this_atom].AtomicData)+1, 1, temp_file);
-			//bytes_written += (long)(strlen(parsedAtoms[this_atom].AtomicData)+1);
+			//bytes_written += (uint32_t)(strlen(parsedAtoms[this_atom].AtomicData)+1);
 			fwrite(parsedAtoms[this_atom].AtomicData, atom_data_size, 1, temp_file);
 			bytes_written += atom_data_size;
 			
@@ -2432,10 +2412,10 @@ void APar_WriteFile(const char* m4aFile, bool rewrite_original) {
 	char* temp_file_name=(char*)malloc( sizeof(char)* (strlen(m4aFile) +12) );
 	char* data = (char*)malloc(sizeof(char)*4);
 	FILE* temp_file;
-	long temp_file_bytes_written = 0;
+	uint32_t temp_file_bytes_written = 0;
 	short thisAtomNumber = 0;
 	
-	long mdat_offset = APar_DetermineMediaData_AtomPosition();
+	uint32_t mdat_offset = APar_DetermineMediaData_AtomPosition();
 	
 	APar_DeriveNewPath(m4aFile, temp_file_name);
 	temp_file = fopen(temp_file_name, "wr");

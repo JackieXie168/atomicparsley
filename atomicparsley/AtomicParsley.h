@@ -28,13 +28,21 @@
 #include <sys/param.h>
 #endif
 
+
 #ifndef _UINT8_T
 #define _UINT8_T
 typedef unsigned char         uint8_t;
 #endif /*_UINT8_T */
 
+#ifndef _UINT32_T
+#ifndef __uint32_t_defined
+typedef unsigned int         uint32_t;
+#endif
+#endif /*_UINT32_T */
+
+
 // standard classes represented as a 4byte value following the atom name (used mostly for user data atoms).
-const int AtomicDataClass_UInteger = 0;     // also steps in to take the place of full blow atom versioning & flagging (1byte ver/3 bytes atom flags; 0x00 00 00 00)
+const int AtomicDataClass_UInteger = 0;     // also steps in to take the place of full blown atom versioning & flagging (1byte ver/3 bytes atom flags; 0x00 00 00 00)
 const int AtomicDataClass_Text = 1;
 const int AtomicDataClass_JPEGBinary = 13; // \x0D
 const int AtomicDataClass_PNGBinary = 14;  // \x0E
@@ -59,8 +67,8 @@ enum {
 
 struct AtomicInfo  {
 	short AtomicNumber;
-	long AtomicStart;
-	long AtomicLength;
+	uint32_t AtomicStart;
+	uint32_t AtomicLength;
 	char* AtomicName;
 	short AtomicLevel;
 	int AtomicDataClass;
@@ -128,7 +136,7 @@ v0.7.5c 12/10/2005 funnguy0's linux patches (thanks so much for that)
 v0.7.5d 12/11/2005 endian issues for x86 mostly resolved; setting genre's segfaults; stik doesn't get set in a multi-option command, but does as a single atom setting; Debian port added to binaries (compiled under debian-31r0a-i386 with g++4.02-2, libc6_2.3.5-8 & libstdc++6_4.0.2-2) - under VirtualPC - with the nano editor!
 v0.7.5e 12/16/2005 ammends how atoms are added at the end of the hierarchy (notably this affects ffmpeg video files); writes "keyw", "catg", "pcst", "aART" atoms; read-only "purl" & "egid" added
 v0.7.6  12/31/2005 ceased flawed null-termination (which was implemented more in my mind) of text 'data' atoms; UTF-8 output on Mac OS X & Linux - comment in DUSE_ICONV_CONVERSION in the build file to test it other platforms (maybe my win98Se isn't utf8 aware?); cygwin build accommodations; fix to the secondary "of" number for track/disk on non-PPC; implemented user-defined completely sanctioned 'uuid' atoms to hold.... anything (text only for now); "--tagtime", "--url" & "--information" now get set onto uuid atoms; allow creation of uuid atoms directly from the cli; cygwin-win98SE port added to binary releases; added '--freefree' to remove any&all 'free' atoms
-v0.8    01/11/2006 switched over to uint8_t for former ADC_CPIL_TMPO & former ADC_Integer; added podcast stik setting & purl/egid; bugfixes to APar_RemoveAtom; bugfixes & optimizations to APar_FindAtom; changes to text output & set values for stik atom; increase in buffer size; limit non-uuid strings to 255bytes; fixed retreats in progress bar; added purd atom; support mdat.length=0 atom (length=1/64-bit isn't supported; I'll somehow cope with a < 4GB file)
+v0.8    01/11/2006 switched over to uint8_t for former ADC_CPIL_TMPO & former ADC_Integer; added podcast stik setting & purl/egid; bugfixes to APar_RemoveAtom; bugfixes & optimizations to APar_FindAtom; changes to text output & set values for stik atom; increase in buffer size; limit non-uuid strings to 255bytes; fixed retreats in progress bar; added purd atom; support mdat.length=0 atom (length=1/64-bit isn't supported; I'll somehow cope with a < 4GB file); switch from long to uint32_t; better x86 bitshifting
 
 */
 // TODO: revisit how atoms are parsed to get around the tricks for atoms under stsd;

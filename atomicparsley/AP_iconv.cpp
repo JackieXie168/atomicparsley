@@ -58,7 +58,7 @@ void StringReEncode(char *a_string, char *tocode, char *fromcode) {
 	   fprintf(stderr,"Error iconv_open()!\n");
 		return;
 	}
-#if defined (__ppc__) || defined (__ppc64__) || defined (__CYGWIN__)
+#if defined (DARWIN_PLATFORM) || defined (__CYGWIN__)   /* a configure/makefile duo would help determine this */
 	result = iconv(frt, (const char**) &asbptr, (size_t*) &len, &asaptr, (size_t*) &len1);
 #else
 	result = iconv(frt, &asbptr, (size_t*) &len, &asaptr, (size_t*) &len1);
