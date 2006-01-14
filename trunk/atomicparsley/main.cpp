@@ -129,10 +129,11 @@ static void kill_signal (int sig) {
 
 static const char* longHelp_text =
 "AtomicParsley longhelp.\n"
-"Usage: AtomicParsley [m4aFILE]... [OPTION(s)]...[ARGUMENT(s)]...\n"
+"Usage: AtomicParsley [m4aFILE]... [OPTION]... [ARGUMENT]... [ [OPTION2]...[ARGUMENT2]...] \n"
 "\n"
 "example: AtomicParsley /path/to.m4a --E \n"
 "example: Atomicparsley /path/to.m4a --artist \"Me\" --artwork /path/art.jpg\n"
+"example: Atomicparsley /path/to.m4a --albumArtist \"You\" --podcastFlag true --freefree\n"
 "\n"
 "------------------------------------------------------------------------------------------------\n"
 " Atom Tree\n"
@@ -150,7 +151,7 @@ static const char* longHelp_text =
 "  --extractPixToPath ,  -e  (/path/basename)   Extract to specific path (numbers affixed to name).\n"
 "\n"
 "------------------------------------------------------------------------------------------------\n"
-" Setting Tags:\n"
+" Tag setting options:\n"
 "\n"
 "  --artist           ,  -a   (str)    Set the artist tag: \"moov.udta.meta.ilst.©ART.data\"\n"
 "  --title            ,  -s   (str)    Set the title tag: \"moov.udta.meta.ilst.©nam.data\"\n"
@@ -185,6 +186,7 @@ static const char* longHelp_text =
 "  --podcastURL       ,  -L   (URL)    Set the podcast feed URL on the \"purl\" atom\n"
 "  --podcastGUID      ,  -J   (URL)    Set the episode's URL tag on the \"egid\" atom\n"
 "  --purchaseDate     ,  -D   (UTC)    Set Universal Coordinated Time of purchase on a \"purd\" atom\n"
+"                                       (use \"timestamp\" to set UTC to now; can be akin to id3v2 TDTG tag)\n"
 "\n"
 "  --writeBack        ,  -O            If given, writes the file back into original file; deletes temp\n"
 "\n"
@@ -206,10 +208,10 @@ static const char* longHelp_text =
 "  --meta-uuid \"tagr\" 1 'Johnny Appleseed' --meta-uuid \"\302\251sft\" 1 'OpenShiiva encoded.' \n"
 "------------------------------------------------------------------------------------------------\n"
 
-#if defined (__ppc__) || defined (__ppc64__)
+#if defined (DARWIN_PLATFORM)
 "                   Environmental Variables (affecting picture placement)\n"
 "\n"
-" export these variables in your shell to set these flags; preferences are separated by colons (:)\n"
+"  set PIC_OPTIONS in your shell to set these flags; preferences are separated by colons (:)\n"
 "\n"
 " MaxDimensions=400 (default: 0; unlimited); sets maximum pixel dimensions\n"
 " DPI=72            (default: 72); sets dpi\n"
@@ -586,8 +588,19 @@ int main( int argc, char *argv[])
 		}
 		
 		case Meta_PurchaseDate : { // might be useful to *remove* this, but adding it... although it could function like id3v2 tdtg...
+			char* purd_time = (char *)malloc(sizeof(char)*255);
 			APar_ScanAtoms(m4afile);
-			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.purd.data", AtomicDataClass_Text, optarg);
+			if (optarg != NULL) {
+				if (strncmp(optarg, "timestamp", 9) == 0) {
+					APar_StandardTime(purd_time);
+				} else {
+					purd_time = strdup(optarg);
+				}
+			} else {
+				purd_time = strdup(optarg);
+			}
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.purd.data", AtomicDataClass_Text, purd_time);
+			free(purd_time);
 			
 			break;
 		}
