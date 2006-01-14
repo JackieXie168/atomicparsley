@@ -55,6 +55,7 @@ bool parsedfile = false;
 bool alter_original = false;
 bool flag_drms_atom = false;
 bool Create__udta_meta_hdlr__atom = false;
+bool move_mdat_atoms = true;
 
 uint32_t max_buffer = 4096*125; // increased to 512KB
 
@@ -2045,7 +2046,9 @@ void APar_DetermineAtomLengths() {
 
 	APar_Verify__udta_meta_hdlr__atom();
 
-	APar_Move_mdat_Atoms();
+	if (move_mdat_atoms) { //from cli flag
+		APar_Move_mdat_Atoms();
+	}
 	
 	if (Create__udta_meta_hdlr__atom) { //this boolean gets set in APar_Verify__udta_meta_hdlr__atom; the hdlr atom (with data) is required by iTunes to enable tagging
 		
