@@ -76,6 +76,7 @@
 
 #define Metadata_Purge           'P'
 #define Opt_FreeFree             'F'
+#define Opt_Keep_mdat_pos        'M'
 
 #define OPT_WriteBack            'O'
 
@@ -188,8 +189,6 @@ static const char* longHelp_text =
 "  --purchaseDate     ,  -D   (UTC)    Set Universal Coordinated Time of purchase on a \"purd\" atom\n"
 "                                       (use \"timestamp\" to set UTC to now; can be akin to id3v2 TDTG tag)\n"
 "\n"
-"  --writeBack        ,  -O            If given, writes the file back into original file; deletes temp\n"
-"\n"
 "  --metaEnema        ,  -P            Douches away every atom under \"moov.udta.meta.ilst\" \n"
 "\n"
 " To delete a single atom, set the tag to null (except artwork):\n"
@@ -206,6 +205,13 @@ static const char* longHelp_text =
 "                                        format is 4char_atom_name, 1 or \"text\" & the string to set\n"
 "Example: \n"
 "  --meta-uuid \"tagr\" 1 'Johnny Appleseed' --meta-uuid \"\302\251sft\" 1 'OpenShiiva encoded.' \n"
+"------------------------------------------------------------------------------------------------\n"
+" File-level options:\n"
+"\n"
+"  --mdatLock         ,  -M            Prevents moving mdat atoms to the end (poss. useful for PSP files)\n"
+"  --freefree         ,  -F            Removes all \"free\" atoms which only act as padding in the file\n"
+"  --writeBack        ,  -O            If given, writes the file back into original file; deletes temp\n"
+
 "------------------------------------------------------------------------------------------------\n"
 
 #if defined (DARWIN_PLATFORM)
@@ -285,11 +291,6 @@ int main( int argc, char *argv[])
 		{ "advisory",         required_argument,  NULL,						Meta_advisory },
     { "bpm",              required_argument,  NULL,						Meta_BPM },
 		{ "artwork",          required_argument,  NULL,						Meta_artwork },
-		{ "tagtime",          0,                  NULL,						Meta_StandardDate },
-		{ "metaEnema",        0,                  NULL,						Metadata_Purge },
-		{ "writeBack",        0,                  NULL,						OPT_WriteBack },
-		{ "information",      required_argument,  NULL,           Meta_Information },
-		{ "url",              required_argument,  NULL,           Meta_URL },
 		{ "stik",             required_argument,  NULL,           Meta_stik },
     { "description",      required_argument,  NULL,           Meta_description },
     { "TVNetwork",        required_argument,  NULL,           Meta_TV_Network },
@@ -304,9 +305,15 @@ int main( int argc, char *argv[])
 		{ "podcastGUID",      required_argument,  NULL,           Meta_podcast_GUID },
 		{ "purchaseDate",     required_argument,  NULL,           Meta_PurchaseDate },
 		
-		{ "freefree",         0,                  NULL,           Opt_FreeFree },
-		
+		{ "tagtime",          0,                  NULL,						Meta_StandardDate },
+		{ "information",      required_argument,  NULL,           Meta_Information },
+		{ "url",              required_argument,  NULL,           Meta_URL },
 		{ "meta-uuid",        required_argument,  NULL,           Meta_uuid },
+		
+		{ "freefree",         0,                  NULL,           Opt_FreeFree },
+		{ "mdatLock",         0,                  NULL,           Opt_Keep_mdat_pos },
+		{ "metaEnema",        0,                  NULL,						Metadata_Purge },
+		{ "writeBack",        0,                  NULL,						OPT_WriteBack },
 		
 		{ 0, 0, 0, 0 }
 	};
@@ -314,7 +321,7 @@ int main( int argc, char *argv[])
 	int c = -1;
 	int option_index = 0; 
 	
-	c = getopt_long(argc, argv, "hTtEe:a:c:d:f:g:i:l:n:pq::u:w:y:z:G:k:A:B:C:D:FH:I:J:K:L:N:S:U:V:ZP", long_options, &option_index);
+	c = getopt_long(argc, argv, "hTtEe:a:c:d:f:g:i:l:n:pq::u:w:y:z:G:k:A:B:C:D:FH:I:J:K:L:MN:S:U:V:ZP", long_options, &option_index);
 	
 	if (c == -1) {
 		if (argc < 3 && argc > 2) {
@@ -657,6 +664,11 @@ int main( int argc, char *argv[])
 			APar_ScanAtoms(m4afile);
 			APar_freefree();
 			
+			break;
+		}
+		
+		case Opt_Keep_mdat_pos : {
+			move_mdat_atoms = false;
 			break;
 		}
 		
