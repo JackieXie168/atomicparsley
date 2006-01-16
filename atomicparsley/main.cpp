@@ -80,6 +80,9 @@
 
 #define OPT_WriteBack            'O'
 
+//to pass limited text to APar_AddMetadataInfo for a non-text atom:
+#define indeterminate false
+
 
 /*
 http://developer.apple.com/documentation/QuickTime/APIREF/UserDataIdentifiers.htm#//apple_ref/doc/constant_group/User_Data_Identifiers
@@ -382,21 +385,21 @@ int main( int argc, char *argv[])
 				
 		case Meta_artist : {
 			APar_ScanAtoms(m4afile);
-			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.©ART.data", AtomicDataClass_Text, optarg);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.©ART.data", AtomicDataClass_Text, optarg, true);
 			
 			break;
 		}
 		
 		case Meta_songtitle : {
 			APar_ScanAtoms(m4afile);
-			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.©nam.data", AtomicDataClass_Text, optarg);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.©nam.data", AtomicDataClass_Text, optarg, true);
 			
 			break;
 		}
 		
 		case Meta_album : {
 			APar_ScanAtoms(m4afile);
-			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.©alb.data", AtomicDataClass_Text, optarg);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.©alb.data", AtomicDataClass_Text, optarg, true);
 			
 			break;
 		}
@@ -410,42 +413,42 @@ int main( int argc, char *argv[])
 				
 		case Meta_tracknum : {
 			APar_ScanAtoms(m4afile);
-			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.trkn.data", AtomicDataClass_UInteger, optarg);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.trkn.data", AtomicDataClass_UInteger, optarg, indeterminate);
 			
 			break;
 		}
 		
 		case Meta_disknum : {
 			APar_ScanAtoms(m4afile);
-			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.disk.data", AtomicDataClass_UInteger, optarg);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.disk.data", AtomicDataClass_UInteger, optarg, indeterminate);
 			
 			break;
 		}
 		
 		case Meta_comment : {
 			APar_ScanAtoms(m4afile);
-			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.©cmt.data", AtomicDataClass_Text, optarg);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.©cmt.data", AtomicDataClass_Text, optarg, true); //yuppers - limit on comment; cope & deal
 			
 			break;
 		}
 		
 		case Meta_year : {
 			APar_ScanAtoms(m4afile);
-			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.©day.data", AtomicDataClass_Text, optarg);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.©day.data", AtomicDataClass_Text, optarg, true);
 			
 			break;
 		}
 		
 		case Meta_lyrics : {
 			APar_ScanAtoms(m4afile);
-			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.©lyr.data", AtomicDataClass_Text, optarg);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.©lyr.data", AtomicDataClass_Text, optarg, false); //no limit on lyrics
 			
 			break;
 		}
 		
 		case Meta_composer : {
 			APar_ScanAtoms(m4afile);
-			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.©wrt.data", AtomicDataClass_Text, optarg);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.©wrt.data", AtomicDataClass_Text, optarg, true);
 			
 			break;
 		}
@@ -453,14 +456,14 @@ int main( int argc, char *argv[])
 		//if copyright is switched to ©cpy tag, then QTplayer can see the copyright, but iTunes no longer will.
 		case Meta_copyright : {
 			APar_ScanAtoms(m4afile);
-			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.cprt.data", AtomicDataClass_Text, optarg);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.cprt.data", AtomicDataClass_Text, optarg, false); //I imagine the text limit would be there, but it streches off the panel, so I can't tell
 			
 			break;
 		}
 		
 		case Meta_grouping : {
 			APar_ScanAtoms(m4afile);
-			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.©grp.data", AtomicDataClass_Text, optarg);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.©grp.data", AtomicDataClass_Text, optarg, true);
 			
 			break;
 		}
@@ -470,7 +473,7 @@ int main( int argc, char *argv[])
 			if (strncmp(optarg, "false", 5) == 0) {
 				APar_RemoveAtom("moov.udta.meta.ilst.cpil", false);
 			} else {
-				APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.cpil.data", AtomicDataClass_UInt8_Binary, optarg);
+				APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.cpil.data", AtomicDataClass_UInt8_Binary, optarg, indeterminate);
 			}
 			break;
 		}
@@ -480,7 +483,7 @@ int main( int argc, char *argv[])
 			if (strncmp(optarg, "0", 1) == 0) {
 				APar_RemoveAtom("moov.udta.meta.ilst.tmpo", false);
 			} else {
-				APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.tmpo.data", AtomicDataClass_UInt8_Binary, optarg);
+				APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.tmpo.data", AtomicDataClass_UInt8_Binary, optarg, indeterminate);
 			}
 			
 			break;
@@ -491,7 +494,7 @@ int main( int argc, char *argv[])
 			if (strncmp(optarg, "remove", 6) == 0) {
 				APar_RemoveAtom("moov.udta.meta.ilst.rtng", false);
 			} else {
-				APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.rtng.data", AtomicDataClass_UInt8_Binary, optarg);
+				APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.rtng.data", AtomicDataClass_UInt8_Binary, optarg, indeterminate);
 			}
 			break;
 		}
@@ -505,91 +508,91 @@ int main( int argc, char *argv[])
 				
 		case Meta_stik : {
 			APar_ScanAtoms(m4afile);
-			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.stik.data", AtomicDataClass_UInt8_Binary, optarg);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.stik.data", AtomicDataClass_UInt8_Binary, optarg, indeterminate);
 			
 			break;
 		}
 		
 		case Meta_description : {
 			APar_ScanAtoms(m4afile);
-			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.desc.data", AtomicDataClass_Text, optarg);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.desc.data", AtomicDataClass_Text, optarg, true);
 			
 			break;
 		}
 		
 		case Meta_TV_Network : {
 			APar_ScanAtoms(m4afile);
-			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.tvnn.data", AtomicDataClass_Text, optarg); //iTunes: no null-term; AP: null-terminated
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.tvnn.data", AtomicDataClass_Text, optarg, true);
 			
 			break;
 		}
 		
 		case Meta_TV_ShowName : {
 			APar_ScanAtoms(m4afile);
-			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.tvsh.data", AtomicDataClass_Text, optarg); //iTunes: no null-term; AP: null-terminated
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.tvsh.data", AtomicDataClass_Text, optarg, true);
 			
 			break;
 		}
 		
 		case Meta_TV_Episode : { //if the show "ABC Lost 209", its "209"
 			APar_ScanAtoms(m4afile);
-			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.tven.data", AtomicDataClass_Text, optarg); //iTunes: no null-term; AP: null-terminated
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.tven.data", AtomicDataClass_Text, optarg, true);
 			
 			break;
 		}
 		
 		case Meta_TV_SeasonNumber : { //if the show "ABC Lost 209", its 2; integer 2 not char "2"
 			APar_ScanAtoms(m4afile);
-			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.tvsn.data", AtomicDataClass_UInt8_Binary, optarg);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.tvsn.data", AtomicDataClass_UInt8_Binary, optarg, indeterminate);
 			
 			break;
 		}
 		
 		case Meta_TV_EpisodeNumber : { //if the show "ABC Lost 209", its 2; integer 9 not char "9"
 			APar_ScanAtoms(m4afile);
-			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.tves.data", AtomicDataClass_UInt8_Binary, optarg);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.tves.data", AtomicDataClass_UInt8_Binary, optarg, indeterminate);
 			
 			break;
 		}
 		
 		case Meta_album_artist : {
 			APar_ScanAtoms(m4afile);
-			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.aART.data", AtomicDataClass_Text, optarg);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.aART.data", AtomicDataClass_Text, optarg, true);
 			
 			break;
 		}
 		
 		case Meta_podcastFlag : {
 			APar_ScanAtoms(m4afile);
-			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.pcst.data", AtomicDataClass_UInt8_Binary, optarg);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.pcst.data", AtomicDataClass_UInt8_Binary, optarg, indeterminate);
 			
 			break;
 		}
 		
 		case Meta_keyword : {
 			APar_ScanAtoms(m4afile);
-			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.keyw.data", AtomicDataClass_Text, optarg);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.keyw.data", AtomicDataClass_Text, optarg, true);
 			
 			break;
 		}
 		
 		case Meta_category : { // see http://www.apple.com/itunes/podcasts/techspecs.html for available categories
 			APar_ScanAtoms(m4afile);
-			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.catg.data", AtomicDataClass_Text, optarg);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.catg.data", AtomicDataClass_Text, optarg, true);
 			
 			break;
 		}
 		
 		case Meta_podcast_URL : { // usually a read-only value, but usefult for getting videos into the 'podcast' menu
 			APar_ScanAtoms(m4afile);
-			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.purl.data", AtomicDataClass_UInt8_Binary, optarg);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.purl.data", AtomicDataClass_UInt8_Binary, optarg, indeterminate);
 			
 			break;
 		}
 		
 		case Meta_podcast_GUID : { // Global Unique IDentifier; it is *highly* doubtful that this would be useful...
 			APar_ScanAtoms(m4afile);
-			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.egid.data", AtomicDataClass_UInt8_Binary, optarg);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.egid.data", AtomicDataClass_UInt8_Binary, optarg, indeterminate);
 			
 			break;
 		}
@@ -606,7 +609,7 @@ int main( int argc, char *argv[])
 			} else {
 				purd_time = strdup(optarg);
 			}
-			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.purd.data", AtomicDataClass_Text, purd_time);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.purd.data", AtomicDataClass_Text, purd_time, true);
 			free(purd_time);
 			
 			break;

@@ -759,8 +759,8 @@ void APar_ExtractDataAtom(int this_atom_number) {
 		}
  
 		if (thisAtom.AtomicLength > min_atom_datasize ) {
-			char* data_payload = (char*)malloc( sizeof(char) * (thisAtom.AtomicLength - atom_header_size) );
-			for (uint32_t ui=0; ui<= thisAtom.AtomicLength - atom_header_size; ui++) {
+			char* data_payload = (char*)malloc( sizeof(char) * (thisAtom.AtomicLength - atom_header_size +1) );
+			for (uint32_t ui=0; ui<= thisAtom.AtomicLength - atom_header_size+1; ui++) {
 				data_payload[ui] = '\00';
 			}
 			
@@ -1089,7 +1089,10 @@ void APar_PrintAtomicTree() {
 
 void APar_SimpleAtomPrintout() {
 	//loop through each atom in the struct array (which holds the offset info/data)
+#if defined (USE_ICONV_CONVERSION)
 	fprintf(stdout, "\xEF\xBB\xBF"); //UTF-8 BOM
+#endif
+
  	for (int i=0; i < atom_number; i++) { 
 		AtomicInfo thisAtom = parsedAtoms[i]; 
 		
@@ -1511,7 +1514,7 @@ void APar_Move_mdat_Atoms() {
 //                          Atom Creation Functions                                  //
 ///////////////////////////////////////////////////////////////////////////////////////
 
-void APar_EncapsulateData(short thisnum, const char* atomData, uint8_t unsignedData[], const int atomDataClass) {
+void APar_EncapsulateData(short thisnum, const char* atomData, uint8_t unsignedData[], const int atomDataClass, bool limited_text) {
 	//fprintf(stdout, "Working on atom %s, num %i\n", parsedAtoms[thisnum].AtomicName, parsedAtoms[thisnum].AtomicNumber);
 	bool picture_exists = false;
 	off_t picture_size = 0;
@@ -1544,7 +1547,7 @@ void APar_EncapsulateData(short thisnum, const char* atomData, uint8_t unsignedD
 		case AtomicDataClass_Text :
 			data_length = strlen(atomData);
 			
-			if (data_length > 255 && !parsedAtoms[thisnum].uuidAtomType) { //restrict string length on normal non-uuid atoms; direct on-uuid atom text is not restricted.
+			if (data_length > 255 && limited_text) { //restrict string length on normal most non-uuid atoms; direct on-uuid atom text is not restricted. ©lyr is unlimited
 				data_length = 255;
 			}
 			
@@ -1710,7 +1713,7 @@ void APar_Verify__udta_meta_hdlr__atom() { //only test if the atom is present fo
 	return;
 }
 
-void APar_AddMetadataInfo(const char* m4aFile, const char* atom_path, const int dataType, const char* atomPayload) {
+void APar_AddMetadataInfo(const char* m4aFile, const char* atom_path, const int dataType, const char* atomPayload, bool limited_text) {
 	modified_atoms = true;
 	bool retain_atom = true;
 	
@@ -1728,11 +1731,11 @@ void APar_AddMetadataInfo(const char* m4aFile, const char* atom_path, const int 
 	} else {
 		if (dataType == AtomicDataClass_Text) {
 			size_t total_bytes = strlen(atomPayload);
-			if (total_bytes > 255) {
+			if (total_bytes > 255 && limited_text) {
 				fprintf(stdout, "AtomicParsley warning: %s was trimmed to 255 bytes (%u bytes over)\n", atom_path, (unsigned int)total_bytes-255);
 			}
 			
-			APar_EncapsulateData(desiredAtom.AtomicNumber, atomPayload, NULL, dataType);
+			APar_EncapsulateData(desiredAtom.AtomicNumber, atomPayload, NULL, dataType, limited_text);
 			
 		} else if (dataType == AtomicDataClass_UInteger) {
 			//determine what kinds of numbers we have before we go onto working at the atom level
@@ -1754,13 +1757,13 @@ void APar_AddMetadataInfo(const char* m4aFile, const char* atom_path, const int 
 			if ( strncmp(parsedAtoms[APar_FindPrecedingAtom(desiredAtom.AtomicNumber)].AtomicName, "trkn", 4) == 0 ) {
 				uint8_t track_data[13] = {0,    0, 0, 0, 0, 0, 0, 0, pos_in_total, 0, the_total, 0, 0}; // number of elements (doesn't go into atom value) + 12 uint8_t in atom (does go into atom); 10 & 12 hold the real values
 				track_data[0] = (uint8_t)sizeof(track_data)/sizeof(uint8_t);
-				APar_EncapsulateData(desiredAtom.AtomicNumber, NULL, track_data, dataType);
+				APar_EncapsulateData(desiredAtom.AtomicNumber, NULL, track_data, dataType, false);
 				
 			//disknumber (disk.data)
 			} else if ( strncmp(parsedAtoms[APar_FindPrecedingAtom(desiredAtom.AtomicNumber)].AtomicName, "disk", 4) == 0 ) {
 				uint8_t disk_data[11] = {0,    0, 0, 0, 0, 0, 0, 0, pos_in_total, 0, the_total}; // number of elements (doesn't go into atom value) + 10 uint8_t in atom (does go into atom); 8 & 10 hold the real values
 				disk_data[0] = (uint8_t)sizeof(disk_data)/sizeof(uint8_t);
-				APar_EncapsulateData(desiredAtom.AtomicNumber, NULL, disk_data, dataType);
+				APar_EncapsulateData(desiredAtom.AtomicNumber, NULL, disk_data, dataType, false);
 
 			}
 			
@@ -1774,7 +1777,7 @@ void APar_AddMetadataInfo(const char* m4aFile, const char* atom_path, const int 
 				}
 				uint8_t boolAtom_data[6] = {0,    0, 0, 0, 0, boolean_value}; // number of elements (doesn't go into atom value) + 5 uint8_t in atom (does go into atom)
 				boolAtom_data[0] = (uint8_t)sizeof(boolAtom_data)/sizeof(uint8_t);
-				APar_EncapsulateData(desiredAtom.AtomicNumber, NULL, boolAtom_data, dataType);
+				APar_EncapsulateData(desiredAtom.AtomicNumber, NULL, boolAtom_data, dataType, false);
 				
 				
 			} else if ( ( strncmp(parsedAtoms[APar_FindPrecedingAtom(desiredAtom.AtomicNumber)].AtomicName, "stik", 4) == 0 ) || 
@@ -1795,7 +1798,7 @@ void APar_AddMetadataInfo(const char* m4aFile, const char* atom_path, const int 
 				}
 				uint8_t stik_data[6] = {0,    0, 0, 0, 0, stik_value}; // number of elements (doesn't go into atom value) + 5 uint8_t in atom (does go into atom)
 				stik_data[0] = (uint8_t)sizeof(stik_data)/sizeof(uint8_t);
-				APar_EncapsulateData(desiredAtom.AtomicNumber, NULL, stik_data, dataType);
+				APar_EncapsulateData(desiredAtom.AtomicNumber, NULL, stik_data, dataType, false);
 				
 			} else if ( strncmp(parsedAtoms[APar_FindPrecedingAtom(desiredAtom.AtomicNumber)].AtomicName, "rtng", 4) == 0 ) {
 				uint8_t rating_value = 0;
@@ -1806,14 +1809,14 @@ void APar_AddMetadataInfo(const char* m4aFile, const char* atom_path, const int 
 				}
 				uint8_t rtng_data[6] = {0,    0, 0, 0, 0, rating_value}; // number of elements (doesn't go into atom value) + 5 uint8_t in atom (does go into atom)
 				rtng_data[0] = (uint8_t)sizeof(rtng_data)/sizeof(uint8_t);
-				APar_EncapsulateData(desiredAtom.AtomicNumber, NULL, rtng_data, dataType);
+				APar_EncapsulateData(desiredAtom.AtomicNumber, NULL, rtng_data, dataType, false);
 			
 			} else if ( strncmp(parsedAtoms[APar_FindPrecedingAtom(desiredAtom.AtomicNumber)].AtomicName, "tmpo", 4) == 0 ) {
 				uint8_t bpm_value = 0;
 				sscanf(atomPayload, "%hhu", &bpm_value );
 				uint8_t bpm_data[7] = {0,    0, 0, 0, 0, 0, bpm_value}; // number of elements (doesn't go into atom value) + 6 uint8_t in atom (does go into atom)
 				bpm_data[0] = (uint8_t)sizeof(bpm_data)/sizeof(uint8_t);
-				APar_EncapsulateData(desiredAtom.AtomicNumber, NULL, bpm_data, dataType);
+				APar_EncapsulateData(desiredAtom.AtomicNumber, NULL, bpm_data, dataType, false);
 			
 			} else if ( (strncmp(parsedAtoms[APar_FindPrecedingAtom(desiredAtom.AtomicNumber)].AtomicName, "tvsn", 4) == 0) ||
 			            (strncmp(parsedAtoms[APar_FindPrecedingAtom(desiredAtom.AtomicNumber)].AtomicName, "tves", 4) == 0) ) {
@@ -1821,11 +1824,11 @@ void APar_AddMetadataInfo(const char* m4aFile, const char* atom_path, const int 
 				sscanf(atomPayload, "%hhu", &data_value );
 				uint8_t given_data[9] = {0,    0, 0, 0, 0, 0, 0, 0, data_value}; // number of elements (doesn't go into atom value) + 8 uint8_t in atom (does go into atom)
 				given_data[0] = (uint8_t)sizeof(given_data)/sizeof(uint8_t);
-				APar_EncapsulateData(desiredAtom.AtomicNumber, NULL, given_data, dataType);
+				APar_EncapsulateData(desiredAtom.AtomicNumber, NULL, given_data, dataType, false);
 				
 			} else if ( (strncmp(parsedAtoms[APar_FindPrecedingAtom(desiredAtom.AtomicNumber)].AtomicName, "purl", 4) == 0) ||
 			            (strncmp(parsedAtoms[APar_FindPrecedingAtom(desiredAtom.AtomicNumber)].AtomicName, "egid", 4) == 0) ) {
-				APar_EncapsulateData(desiredAtom.AtomicNumber, atomPayload, NULL, dataType); //the atomPayload string will get added in EncapsulateData
+				APar_EncapsulateData(desiredAtom.AtomicNumber, atomPayload, NULL, dataType, false); //the atomPayload string will get added in EncapsulateData
 			}			
 		}
 	}
@@ -1866,7 +1869,7 @@ void APar_AddGenreInfo(const char* m4aFile, const char* atomPayload) {
 			}
 			
 			genreAtom = APar_FindAtom(std_genre_data_atom, true, false, true, false);
-			APar_EncapsulateData(genreAtom.AtomicNumber, atomPayload, genre_data, AtomicDataClass_UInteger);
+			APar_EncapsulateData(genreAtom.AtomicNumber, atomPayload, genre_data, AtomicDataClass_UInteger, false);
 
 		} else {
 			
@@ -1878,7 +1881,7 @@ void APar_AddGenreInfo(const char* m4aFile, const char* atomPayload) {
 				}		
 			}
 			genreAtom = APar_FindAtom(cstm_genre_data_atom, true, false, true, false);
-			APar_EncapsulateData(genreAtom.AtomicNumber, atomPayload, NULL, AtomicDataClass_Text);
+			APar_EncapsulateData(genreAtom.AtomicNumber, atomPayload, NULL, AtomicDataClass_Text, true);
 		}
 	}
 	return;
@@ -1900,21 +1903,21 @@ void APar_AddMetadataArtwork(const char* m4aFile, const char* artworkPath, char*
 #if defined (DARWIN_PLATFORM)
 		char* resized_filepath = ResizeGivenImage(artworkPath , myPicturePrefs);
 		if ( strncmp(resized_filepath, "/", 1) == 0 ) {
-			APar_EncapsulateData(desiredAtom.AtomicNumber, resized_filepath, NULL, APar_TestArtworkBinaryData(resized_filepath) );
+			APar_EncapsulateData(desiredAtom.AtomicNumber, resized_filepath, NULL, APar_TestArtworkBinaryData(resized_filepath), false );
 			parsedAtoms[desiredAtom.AtomicNumber].tempFile = true; //THIS desiredAtom holds the temp pic file path
 		
 			if (myPicturePrefs.addBOTHpix) {
 				//create another sparse atom to hold the new file path (otherwise the 2nd will just overwrite the 1st in EncapsulateData
 				desiredAtom = APar_FindAtom(artwork_atom, true, false, true, false);
 				desiredAtom = APar_CreateSparseAtom(artwork_atom, "data", NULL, 6, true);
-				APar_EncapsulateData(desiredAtom.AtomicNumber, artworkPath, NULL, APar_TestArtworkBinaryData(artworkPath) );
+				APar_EncapsulateData(desiredAtom.AtomicNumber, artworkPath, NULL, APar_TestArtworkBinaryData(artworkPath), false );
 			}
 		} else {
-			APar_EncapsulateData(desiredAtom.AtomicNumber, artworkPath, NULL, APar_TestArtworkBinaryData(artworkPath) );
+			APar_EncapsulateData(desiredAtom.AtomicNumber, artworkPath, NULL, APar_TestArtworkBinaryData(artworkPath), false );
 		}
 #else
 		//perhaps some libjpeg based resizing/modification for non-Mac OS X based platforms
-		APar_EncapsulateData(desiredAtom.AtomicNumber, artworkPath, NULL, APar_TestArtworkBinaryData(artworkPath) );
+		APar_EncapsulateData(desiredAtom.AtomicNumber, artworkPath, NULL, APar_TestArtworkBinaryData(artworkPath), false );
 #endif
 	}
 	return;
@@ -1926,10 +1929,12 @@ void APar_Add_uuid_atom(const char* m4aFile, const char* atom_path, char* uuidNa
 	for (int i = 0; i <= 256; i++) {
 		uuid_path[i] = '\00';
 	}
-	
+
+#if defined (USE_ICONV_CONVERSION)	
 	if (shellAtom) {
 		StringReEncode(uuidName, "ISO-8859-1", "UTF-8"); //all atom names characters are iso8859-1
 	}
+#endif
 	
 	sprintf(uuid_path, atom_path, uuidName); //gives "moov.udta.meta.ilst.©url"
 	
@@ -1941,7 +1946,7 @@ void APar_Add_uuid_atom(const char* m4aFile, const char* atom_path, char* uuidNa
 		AtomicInfo desiredAtom = APar_FindAtom(uuid_path, true, true, false, false); 
 		
 		if (dataType == AtomicDataClass_Text) {
-			APar_EncapsulateData(desiredAtom.AtomicNumber, uuidValue, NULL, dataType);
+			APar_EncapsulateData(desiredAtom.AtomicNumber, uuidValue, NULL, dataType, false);
 		}
 	}
 
@@ -2059,7 +2064,7 @@ void APar_DetermineAtomLengths() {
 		
 		AtomicInfo hdlr_atom = APar_FindAtom("moov.udta.meta.hdlr", false, false, false, true);
 		hdlr_atom = APar_CreateSparseAtom("moov.udta.meta", "hdlr", NULL, 4, false);
-		APar_EncapsulateData(hdlr_atom.AtomicNumber, NULL, NULL, AtomicDataClass_UInteger);
+		APar_EncapsulateData(hdlr_atom.AtomicNumber, NULL, NULL, AtomicDataClass_UInteger, false);
 	}
 	
 	short last_atom = APar_FindLastAtom();
