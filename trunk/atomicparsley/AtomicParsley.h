@@ -87,7 +87,11 @@ extern bool alter_original;
 
 extern bool move_mdat_atoms;
 
+#if defined (USE_ICONV_CONVERSION)
+#define AtomicParsley_version	"0.8 (utf8)"
+#else
 #define AtomicParsley_version	"0.8"
+#endif
 
 //--------------------------------------------------------------------------------------------------------------------------------//
 //--------------------------------------------------------------------------------------------------------------------------------//
@@ -109,7 +113,7 @@ void APar_DetermineAtomLengths();
 AtomicInfo APar_CreateSparseAtom(const char* present_hierarchy, char* new_atom_name,
                                  char* remaining_hierarchy, short atom_level, bool asLastChild);
 
-void APar_AddMetadataInfo(const char* m4aFile, const char* atom_path, const int dataType, const char* atomPayload);
+void APar_AddMetadataInfo(const char* m4aFile, const char* atom_path, const int dataType, const char* atomPayload, bool limited_text);
 void APar_AddGenreInfo(const char* m4aFile, const char* atomPayload);
 void APar_AddMetadataArtwork(const char* m4aFile, const char* artworkPath, char* env_PicOptions);
 void APar_Add_uuid_atom(const char* m4aFile, const char* atom_path, char* uuidName, const int dataType, const char* uuidValue, bool shellAtom);
@@ -138,7 +142,7 @@ v0.7.5c 12/10/2005 funnguy0's linux patches (thanks so much for that)
 v0.7.5d 12/11/2005 endian issues for x86 mostly resolved; setting genre's segfaults; stik doesn't get set in a multi-option command, but does as a single atom setting; Debian port added to binaries (compiled under debian-31r0a-i386 with g++4.02-2, libc6_2.3.5-8 & libstdc++6_4.0.2-2) - under VirtualPC - with the nano editor!
 v0.7.5e 12/16/2005 ammends how atoms are added at the end of the hierarchy (notably this affects ffmpeg video files); writes "keyw", "catg", "pcst", "aART" atoms; read-only "purl" & "egid" added
 v0.7.6  12/31/2005 ceased flawed null-termination (which was implemented more in my mind) of text 'data' atoms; UTF-8 output on Mac OS X & Linux - comment in DUSE_ICONV_CONVERSION in the build file to test it other platforms (maybe my win98Se isn't utf8 aware?); cygwin build accommodations; fix to the secondary "of" number for track/disk on non-PPC; implemented user-defined completely sanctioned 'uuid' atoms to hold.... anything (text only for now); "--tagtime", "--url" & "--information" now get set onto uuid atoms; allow creation of uuid atoms directly from the cli; cygwin-win98SE port added to binary releases; added '--freefree' to remove any&all 'free' atoms
-v0.8    01/14/2006 switched over to uint8_t for former ADC_CPIL_TMPO & former ADC_Integer; added podcast stik setting & purl/egid; bugfixes to APar_RemoveAtom; bugfixes & optimizations to APar_FindAtom; changes to text output & set values for stik atom; increase in buffer size; limit non-uuid strings to 255bytes; fixed retreats in progress bar; added purd atom; support mdat.length=0 atom (length=1/64-bit isn't supported; I'll somehow cope with a < 4GB file); switch from long to uint32_t; better x86 bitshifting; added swtich to prevent moving mdat atoms (possible PSP requires mdat before moov); universal binary for Mac OS X release
+v0.8    01/14/2006 switched over to uint8_t for former ADC_CPIL_TMPO & former ADC_Integer; added podcast stik setting & purl/egid; bugfixes to APar_RemoveAtom; bugfixes & optimizations to APar_FindAtom; changes to text output & set values for stik atom; increase in buffer size; limit non-uuid strings to 255bytes; fixed retreats in progress bar; added purd atom; support mdat.length=0 atom (length=1/64-bit isn't supported; I'll somehow cope with a < 4GB file); switch from long to uint32_t; better x86 bitshifting; added swtich to prevent moving mdat atoms (possible PSP requires mdat before moov); universal binary for Mac OS X release; no text limit on lyrics tag
 
 */
 // TODO: revisit how atoms are parsed to get around the tricks for atoms under stsd;
