@@ -75,10 +75,12 @@
 #define Meta_uuid                'z'
 
 #define Metadata_Purge           'P'
+#define Meta_dump                'Q'
 #define Opt_FreeFree             'F'
 #define Opt_Keep_mdat_pos        'M'
+#define OPT_OutputFile           'o'
 
-#define OPT_WriteBack            'O'
+#define OPT_OverWrite            'W'
 
 //to pass limited text to APar_AddMetadataInfo for a non-text atom:
 #define indeterminate false
@@ -213,7 +215,10 @@ static const char* longHelp_text =
 "\n"
 "  --mdatLock         ,  -M            Prevents moving mdat atoms to the end (poss. useful for PSP files)\n"
 "  --freefree         ,  -F            Removes all \"free\" atoms which only act as padding in the file\n"
-"  --writeBack        ,  -O            If given, writes the file back into original file; deletes temp\n"
+"  --metaDump         ,  -Q            Dumps out all metadata out to a new file next to original\n"
+"                                          (for diagnostic purposes, please remove artwork before sending)\n"
+"  --output           ,  -o            Specify the filename to to to write out to (cannot be used with overWrite)\n"
+"  --overWrite        ,  -W            If given, writes to temp file; deletes original, renames temp to original\n"
 
 "------------------------------------------------------------------------------------------------\n"
 
@@ -261,13 +266,18 @@ int main( int argc, char *argv[])
 	if (argc == 1) {
 		fprintf (stdout,"%s", longHelp_text); exit(0);
 	} else if (argc == 2 && ((strncmp(argv[1],"-v",2) == 0) || (strncmp(argv[1],"-version",2) == 0)) ) {
-		fprintf(stdout, "%s version: %s\n", argv[0], AtomicParsley_version);
+	
+		//ShowVersionInfo(false); //release version
+		ShowVersionInfo(true); //cvs version
+		
 		exit(0);
+		
 	} else if (argc == 2 && ( (strncmp(argv[1],"-help",5) == 0) || (strncmp(argv[1],"--help",6) == 0) || (strncmp(argv[1],"-h",5) == 0)) ) {
 		fprintf (stdout,"%s", longHelp_text); exit(0);
 	}
 	
 	char *m4afile = argv[1];
+	char *output_file = (char *)malloc(sizeof(char)* MAXPATHLEN);
 	TestFileExistence(m4afile, true);
 	
 	while (1) {
@@ -316,7 +326,9 @@ int main( int argc, char *argv[])
 		{ "freefree",         0,                  NULL,           Opt_FreeFree },
 		{ "mdatLock",         0,                  NULL,           Opt_Keep_mdat_pos },
 		{ "metaEnema",        0,                  NULL,						Metadata_Purge },
-		{ "writeBack",        0,                  NULL,						OPT_WriteBack },
+		{ "metaDump",         0,                  NULL,						Meta_dump },
+		{ "output",           required_argument,  NULL,						OPT_OutputFile },
+		{ "overWrite",        0,                  NULL,						OPT_OverWrite },
 		
 		{ 0, 0, 0, 0 }
 	};
@@ -324,7 +336,7 @@ int main( int argc, char *argv[])
 	int c = -1;
 	int option_index = 0; 
 	
-	c = getopt_long(argc, argv, "hTtEe:a:c:d:f:g:i:l:n:pq::u:w:y:z:G:k:A:B:C:D:FH:I:J:K:L:MN:S:U:V:ZP", long_options, &option_index);
+	c = getopt_long(argc, argv, "hTtEe:a:c:d:f:g:i:l:n:o:pq::u:w:y:z:G:k:A:B:C:D:FH:I:J:K:L:MN:QS:U:WV:ZP", long_options, &option_index);
 	
 	if (c == -1) {
 		if (argc < 3 && argc > 2) {
@@ -471,7 +483,7 @@ int main( int argc, char *argv[])
 		case Meta_compilation : {
 			APar_ScanAtoms(m4afile);
 			if (strncmp(optarg, "false", 5) == 0) {
-				APar_RemoveAtom("moov.udta.meta.ilst.cpil", false);
+				APar_RemoveAtom("moov.udta.meta.ilst.cpil", false, false);
 			} else {
 				APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.cpil.data", AtomicDataClass_UInt8_Binary, optarg, indeterminate);
 			}
@@ -481,7 +493,7 @@ int main( int argc, char *argv[])
 		case Meta_BPM : {
 			APar_ScanAtoms(m4afile);
 			if (strncmp(optarg, "0", 1) == 0) {
-				APar_RemoveAtom("moov.udta.meta.ilst.tmpo", false);
+				APar_RemoveAtom("moov.udta.meta.ilst.tmpo", false, false);
 			} else {
 				APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.tmpo.data", AtomicDataClass_UInt8_Binary, optarg, indeterminate);
 			}
@@ -492,7 +504,7 @@ int main( int argc, char *argv[])
 		case Meta_advisory : {
 			APar_ScanAtoms(m4afile);
 			if (strncmp(optarg, "remove", 6) == 0) {
-				APar_RemoveAtom("moov.udta.meta.ilst.rtng", false);
+				APar_RemoveAtom("moov.udta.meta.ilst.rtng", false, false);
 			} else {
 				APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.rtng.data", AtomicDataClass_UInt8_Binary, optarg, indeterminate);
 			}
@@ -658,7 +670,7 @@ int main( int argc, char *argv[])
 		
 		case Metadata_Purge : {
 			APar_ScanAtoms(m4afile);
-			APar_RemoveAtom("moov.udta.meta.ilst", false);
+			APar_RemoveAtom("moov.udta.meta.ilst", true, false);
 			
 			break;
 		}
@@ -675,8 +687,22 @@ int main( int argc, char *argv[])
 			break;
 		}
 		
-		case OPT_WriteBack : {
+		case OPT_OverWrite : {
 			alter_original = true;
+			break;
+		}
+		
+		case Meta_dump : {
+			APar_ScanAtoms(m4afile);
+			openSomeFile(m4afile, true);
+			APar_MetadataFileDump(m4afile);
+			openSomeFile(m4afile, false);
+			
+			exit(0); //das right, this is a flag that doesn't get used with other flags.
+		}
+		
+		case OPT_OutputFile : {
+			output_file = strdup(optarg);
 			break;
 		}
 		
@@ -687,7 +713,7 @@ int main( int argc, char *argv[])
 	if (modified_atoms) {
 		APar_DetermineAtomLengths();
 		openSomeFile(m4afile, true);
-		APar_WriteFile(m4afile, alter_original);
+		APar_WriteFile(m4afile, output_file, alter_original);
 		if (!alter_original) {
 			//The file was opened orignally as read-only; when it came time to writeback into the original file, that FILE was closed, and a new one opened with write abilities, so to close a FILE that no longer exists would.... be retarded.
 			openSomeFile(m4afile, false);

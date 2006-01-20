@@ -75,6 +75,30 @@ struct PicPrefs myPicturePrefs;
 bool parsed_prefs = false;
 
 ///////////////////////////////////////////////////////////////////////////////////////
+//                                Versioning                                         //
+///////////////////////////////////////////////////////////////////////////////////////
+
+void ShowVersionInfo(bool cvs_build) {
+
+#if defined (USE_ICONV_CONVERSION)
+#define unicode_enabled	"(utf8)"
+#else
+#define unicode_enabled	""
+#endif
+
+	if (cvs_build) {  //below is the versioning from cvs if used; remember to switch to AtomicParsley_version for a release
+
+		fprintf(stdout, "AtomicParsley cvs version %s %s\n", __DATE__, unicode_enabled);
+	
+	} else {  //below is the release versioning
+
+		fprintf(stdout, "AtomicParsley version: %s %s\n", AtomicParsley_version, unicode_enabled); //release version
+	}
+
+	return;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////
 //                        Picture Preferences Functions                              //
 ///////////////////////////////////////////////////////////////////////////////////////
 
@@ -378,7 +402,7 @@ AtomicInfo APar_FindAtom(const char* atom_name, bool createMissing, bool uuid_at
  		}
 		
 		for(int iter=search_atom_start_num; iter < atom_number; iter++) {
-
+		
 			if (directFind && strncmp(parsedAtoms[iter].AtomicName, search_atom_name, 4) == 0) {
 				if (atom_hierarchy == NULL) {
 					thisAtom = parsedAtoms[iter];
@@ -1369,9 +1393,15 @@ void APar_EliminateAtom(short this_atom_number, int resume_atom_number) {
 	return;
 }
 
-void APar_RemoveAtom(const char* atom_path, bool uuid_atom_type) {
+void APar_RemoveAtom(const char* atom_path, bool direct_find, bool uuid_atom_type) {
 	modified_atoms = true;
-	AtomicInfo desiredAtom = APar_FindAtom(atom_path, false, uuid_atom_type, false, false);
+	AtomicInfo desiredAtom = APar_FindAtom(atom_path, false, uuid_atom_type, false, direct_find);
+	
+	if (direct_find) {
+		AtomicInfo tailAtom = APar_LocateAtomInsertionPoint(atom_path, true);
+		APar_EliminateAtom(desiredAtom.AtomicNumber, tailAtom.NextAtomNumber);
+		return;
+	}
 	
 	char* atom_hierarchy = strdup(atom_path);
 	char *search_atom_name = strsep(&atom_hierarchy,".");
@@ -1844,8 +1874,8 @@ void APar_AddGenreInfo(const char* m4aFile, const char* atomPayload) {
 	modified_atoms = true;
 	
 	if ( strlen(atomPayload) == 0) {
-		APar_RemoveAtom(std_genre_data_atom, false); //find the atom; don't create if it's "" to remove
-		APar_RemoveAtom(cstm_genre_data_atom, false); //find the atom; don't create if it's "" to remove
+		APar_RemoveAtom(std_genre_data_atom, false, false); //find the atom; don't create if it's "" to remove
+		APar_RemoveAtom(cstm_genre_data_atom, false, false); //find the atom; don't create if it's "" to remove
 	} else {
 	
 		short genre_number = StringGenreToInt(atomPayload);
@@ -1863,7 +1893,7 @@ void APar_AddGenreInfo(const char* m4aFile, const char* atomPayload) {
 			if (verboten_genre_atom.AtomicNumber != 0) {
 				if (strlen(verboten_genre_atom.AtomicName) > 0) {
 					if (strncmp(verboten_genre_atom.AtomicName, "©gen", 4) == 0) {
-						APar_RemoveAtom(cstm_genre_data_atom, false);
+						APar_RemoveAtom(cstm_genre_data_atom, false, false);
 					}
 				}
 			}
@@ -1877,7 +1907,7 @@ void APar_AddGenreInfo(const char* m4aFile, const char* atomPayload) {
 
 			if (verboten_genre_atom.AtomicNumber > 5 && verboten_genre_atom.AtomicNumber < atom_number) {
 				if (strncmp(verboten_genre_atom.AtomicName, "gnre", 4) == 0) {
-					APar_RemoveAtom(std_genre_data_atom, false);
+					APar_RemoveAtom(std_genre_data_atom, false, false);
 				}		
 			}
 			genreAtom = APar_FindAtom(cstm_genre_data_atom, true, false, true, false);
@@ -1891,7 +1921,7 @@ void APar_AddMetadataArtwork(const char* m4aFile, const char* artworkPath, char*
 	modified_atoms = true;
 	const char* artwork_atom = "moov.udta.meta.ilst.covr";
 	if (strncasecmp(artworkPath, "REMOVE_ALL", 10) == 0) {
-		APar_RemoveAtom(artwork_atom, false);
+		APar_RemoveAtom(artwork_atom, false, false);
 	
 	} else {
 		AtomicInfo desiredAtom = APar_FindAtom(artwork_atom, true, false, true, false);
@@ -1939,7 +1969,7 @@ void APar_Add_uuid_atom(const char* m4aFile, const char* atom_path, char* uuidNa
 	sprintf(uuid_path, atom_path, uuidName); //gives "moov.udta.meta.ilst.©url"
 	
 	if ( strlen(uuidValue) == 0) {
-		APar_RemoveAtom(uuid_path, true); //find the atom; don't create if it's "" to remove
+		APar_RemoveAtom(uuid_path, true, true); //find the atom; don't create if it's "" to remove
 		//APar_PrintAtomicTree();
 	} else {
 		//uuid atoms won't have 'data' child atoms - they will carry the data directly as opposed to traditional iTunes-style metadata that does store the information on 'data' atoms. But user-defined is user-defined, so that is how it will be defined here.
@@ -2135,6 +2165,66 @@ void APar_DetermineAtomLengths() {
 //                          Atom Writing Functions                                   //
 ///////////////////////////////////////////////////////////////////////////////////////
 
+void APar_DeriveNewPath(const char *filePath, char* &temp_path, int output_type, const char* file_kind) {
+	char* suffix = strrchr(filePath, '.');
+	
+	size_t filepath_len = strlen(filePath);
+	size_t base_len = filepath_len-strlen(suffix);
+	strncpy(temp_path, filePath, base_len);
+	
+	for (size_t i=0; i <= 6; i++) {
+		temp_path[base_len+i] = file_kind[i];
+	}
+	
+	char randstring[6];
+	srand((int) time(NULL)); //Seeds rand()
+	int randNum = rand()%100000;
+	sprintf(randstring, "%i", randNum);
+	strcat(temp_path, randstring);
+	
+	strcat(temp_path, suffix);
+	return;
+}
+
+void APar_MetadataFileDump(const char* m4aFile) {
+	bool ilst_present = false;
+	char* dump_file_name=(char*)malloc( sizeof(char)* (strlen(m4aFile) +12) );
+	FILE* dump_file;
+	AtomicInfo ilst_atom = APar_FindAtom("moov.udta.meta.ilst", false, false, false, true);
+	
+	if (ilst_atom.AtomicNumber != 0) {
+		if (strlen(ilst_atom.AtomicName) > 0) {
+			if (strncmp(ilst_atom.AtomicName, "ilst", 4) == 0) {
+				ilst_present = true;
+			}
+		}
+	}
+	
+	if (ilst_present) {
+		char* dump_buffer=(char*)malloc( sizeof(char)* ilst_atom.AtomicLength );
+	
+		APar_DeriveNewPath(m4aFile, dump_file_name, 1, "-dump-");
+		dump_file = fopen(dump_file_name, "wr");
+		if (dump_file != NULL) {
+			//body of atom writing here
+			
+			fseek(source_file, ilst_atom.AtomicStart, SEEK_SET);
+			fread(dump_buffer, 1, (size_t)ilst_atom.AtomicLength, source_file);
+			
+			fwrite(dump_buffer, (size_t)ilst_atom.AtomicLength, 1, dump_file);
+			fclose(dump_file);
+		
+			fprintf(stdout, " Metadata dumped to %s\n", dump_file_name);
+		}
+		free(dump_buffer);
+		
+	} else {
+		fprintf(stdout, "AtomicParsley error: no ilst atom was found to dump out to file.\n");
+	}
+	
+	return;
+}
+
 void APar_ShellProgressBar(uint32_t bytes_written) {
 	strcpy(file_progress_buffer, " Progress: ");
 	
@@ -2160,28 +2250,6 @@ void APar_ShellProgressBar(uint32_t bytes_written) {
 	return;
 }
 
-void APar_DeriveNewPath(const char *filePath, char* &temp_path) {
-	char* suffix = strrchr(filePath, '.');
-	
-	size_t filepath_len = strlen(filePath);
-	size_t base_len = filepath_len-strlen(suffix);
-	strncpy(temp_path, filePath, base_len);
-	
-	char* appendage = "-temp-";
-	for (size_t i=0; i <= strlen(appendage); i++) {
-		temp_path[base_len+i] = appendage[i];
-	}
-	
-	char randstring[6];
-	srand((int) time(NULL)); //Seeds rand()
-	int randNum = rand()%100000;
-	sprintf(randstring, "%i", randNum);
-	strcat(temp_path, randstring);
-	
-	strcat(temp_path, suffix);
-	return;
-}
-
 void APar_FileWrite_Buffered(FILE* dest_file, FILE *src_file, uint32_t dest_start, uint32_t src_start, uint32_t length, char* &buffer) {
 	//fprintf(stdout, "I'm at %u\n", src_start);
 	fseek(src_file, src_start, SEEK_SET);
@@ -2189,33 +2257,6 @@ void APar_FileWrite_Buffered(FILE* dest_file, FILE *src_file, uint32_t dest_star
 
 	fseek(dest_file, dest_start, SEEK_SET);
 	fwrite(buffer, (size_t)length, 1, dest_file);
-	return;
-}
-
-void APar_CompleteCopyFile(FILE* dest_file, FILE *src_file, uint32_t new_file_size, char* &buffer) {
-	//this function is used to duplicate the temp file back into the original file.
-	//hopefully, this reduces any memory strain due to modding an Apple Lossless m4a file (toting in at a pork choppy 50Megs)
-	//allocating 50MB would be.... quite the allocation, so we'll show restraint: 102400 bytes (goes through the while loop 512 times)
-	uint32_t file_pos = 0;
-	while (file_pos <= new_file_size) {
-		if (file_pos + max_buffer <= new_file_size ) {
-			fseek(src_file, file_pos, SEEK_SET);
-			fread(buffer, 1, (size_t)max_buffer, src_file);
-			
-			fseek(dest_file, file_pos, SEEK_SET);
-			fwrite(buffer, (size_t)max_buffer, 1, dest_file);
-			file_pos += max_buffer;
-			
-		} else {
-			fseek(src_file, file_pos, SEEK_SET);
-			fread(buffer, 1, (size_t)(new_file_size - file_pos), src_file);
-			
-			fseek(dest_file, file_pos, SEEK_SET);
-			fwrite(buffer, (size_t)(new_file_size - file_pos), 1, dest_file);
-			file_pos += new_file_size - file_pos;
-			break;
-		}		
-	}
 	return;
 }
 
@@ -2415,9 +2456,9 @@ uint32_t APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file
 	return bytes_written;
 }
 
-void APar_WriteFile(const char* m4aFile, bool rewrite_original) {
-	char* file_buffer=(char*)malloc( sizeof(char)* max_buffer );
+void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_original) {
 	char* temp_file_name=(char*)malloc( sizeof(char)* (strlen(m4aFile) +12) );
+	char* file_buffer=(char*)malloc( sizeof(char)* max_buffer );
 	char* data = (char*)malloc(sizeof(char)*4);
 	FILE* temp_file;
 	uint32_t temp_file_bytes_written = 0;
@@ -2425,8 +2466,14 @@ void APar_WriteFile(const char* m4aFile, bool rewrite_original) {
 	
 	uint32_t mdat_offset = APar_DetermineMediaData_AtomPosition();
 	
-	APar_DeriveNewPath(m4aFile, temp_file_name);
-	temp_file = fopen(temp_file_name, "wr");
+	if (strlen(outfile) == 0) {
+		APar_DeriveNewPath(m4aFile, temp_file_name, 0, "-temp-");
+		temp_file = fopen(temp_file_name, "wr");
+		
+	} else {
+		temp_file = fopen(outfile, "wr");
+	}
+	
 	if (temp_file != NULL) {
 		//body of atom writing here
 		
@@ -2478,19 +2525,30 @@ void APar_WriteFile(const char* m4aFile, bool rewrite_original) {
 		exit(1);
 	}
 	
-	if (rewrite_original) {
+	if (rewrite_original && strlen(outfile) == 0) { //disable writeback when writing out to a specifically named file; presumably the enumerated output file was meant to be the final destination
 		fclose(source_file);
-		FILE *originating_file = NULL;
-		originating_file = fopen(m4aFile, "wr");
-		temp_file = NULL;
-		temp_file = fopen(temp_file_name, "r"); //reopens as read-only
-		if (originating_file != NULL) {
-			APar_CompleteCopyFile(originating_file, temp_file, temp_file_bytes_written, file_buffer);
-			fclose(temp_file);
-			remove(temp_file_name); //this deletes the temp file so we don't have to suffer seeing it anymore. (I could pre-pend a '.' to it....)
-			fclose(originating_file);
-		} else {
-			fprintf(stdout, "AtomicParsley error: unable to open original file for writing; writeback failed - file is unaltered.\n");
+
+		int err = rename(temp_file_name, m4aFile);
+		if (err != 0) {
+			switch (errno) {
+				
+				case ENAMETOOLONG: {
+					fprintf (stdout, "Some or all of the orginal path was too long.");
+					exit (-1);
+				}
+				case ENOENT: {
+					fprintf (stdout, "Some part of the original path was missing.");
+					exit (-1);
+				}
+				case EACCES: {
+					fprintf (stdout, "Unable to write to a directory lacking write permission.");
+					exit (-1);
+				}
+				case ENOSPC: {
+					fprintf (stdout, "Out of space.");
+					exit (-1);
+				}
+			}
 		}
 	}
 	//APar_PrintAtomicTree();
