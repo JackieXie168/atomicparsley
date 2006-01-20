@@ -182,6 +182,7 @@ char* ResizeGivenImage(const char* filePath, PicPrefs myPicPrefs) {
 	DetermineType(filePath);
 	if ( (isJPEG && myPicPrefs.allPNG) || (isPNG && myPicPrefs.allJPEG) ) { //handle jpeg->png & png->jpg conversion
 		resize = true;
+		
 	}
 	
 	NSRect destinationRect = NSMakeRect( 0, 0, hmax, vmax );
@@ -205,10 +206,12 @@ char* ResizeGivenImage(const char* filePath, PicPrefs myPicPrefs) {
 																	initWithFocusedViewRect: destinationRect ];
 		_NSBitmapImageFileType filetype;
 		NSDictionary *props;
-		
-		if (isPNG || myPicPrefs.allPNG && !myPicPrefs.allJPEG) {
-			filetype = NSPNGFileType;
-			props = nil;
+		//fprintf(stdout, "jpeg -%i\n", myPicPrefs.allJPEG);
+		//if (isPNG || (myPicPrefs.allPNG && !myPicPrefs.allJPEG) ) {
+		if ( (isPNG && !myPicPrefs.allJPEG) || myPicPrefs.allPNG) {
+				filetype = NSPNGFileType;
+				props = nil;
+			//filetype = NSJPEGFileType;
 		} else {
 			filetype = NSJPEGFileType;
 			props = [  NSDictionary dictionaryWithObject:
