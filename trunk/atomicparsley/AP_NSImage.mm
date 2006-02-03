@@ -26,7 +26,7 @@
 #include <string.h>
 
 #include "AP_NSImage.h"
-//#include "AtomicParsley.h"
+#include "AtomicParsley.h"
 
 bool isJPEG=false;
 bool isPNG=false;
@@ -104,6 +104,8 @@ char* ResizeGivenImage(const char* filePath, PicPrefs myPicPrefs) {
 	char* aFile = strdup(filePath);	
 	NSString *inFile;
 	inFile = [NSString stringWithUTF8String: aFile];
+	free(aFile); //<-----NEWNEWNEW
+	aFile=NULL; //<-----NEWNEWNEW
 	
 	NSImage* source = [ [NSImage alloc] initWithContentsOfFile: inFile ];
 	[source setScalesWhenResized: YES];
@@ -206,12 +208,11 @@ char* ResizeGivenImage(const char* filePath, PicPrefs myPicPrefs) {
 																	initWithFocusedViewRect: destinationRect ];
 		_NSBitmapImageFileType filetype;
 		NSDictionary *props;
-		//fprintf(stdout, "jpeg -%i\n", myPicPrefs.allJPEG);
-		//if (isPNG || (myPicPrefs.allPNG && !myPicPrefs.allJPEG) ) {
+		
 		if ( (isPNG && !myPicPrefs.allJPEG) || myPicPrefs.allPNG) {
 				filetype = NSPNGFileType;
 				props = nil;
-			//filetype = NSJPEGFileType;
+			
 		} else {
 			filetype = NSJPEGFileType;
 			props = [  NSDictionary dictionaryWithObject:
@@ -257,5 +258,3 @@ char* ResizeGivenImage(const char* filePath, PicPrefs myPicPrefs) {
 	[pool release];
 	return new_path;
 }
-
-

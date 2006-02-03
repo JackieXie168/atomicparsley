@@ -125,7 +125,7 @@ http://developer.apple.com/documentation/QuickTime/APIREF/UserDataIDs.htm#//appl
 ©ope		OriginalArtist
 ©url		URLLink*/
 
-bool modified_atoms = false;
+char *output_file;
 
 static void kill_signal ( int sig );
 
@@ -139,7 +139,7 @@ static const char* longHelp_text =
 "\n"
 "example: AtomicParsley /path/to.m4a --E \n"
 "example: Atomicparsley /path/to.m4a --artist \"Me\" --artwork /path/art.jpg\n"
-"example: Atomicparsley /path/to.m4a --albumArtist \"You\" --podcastFlag true --freefree\n"
+"example: Atomicparsley /path/to.m4a --albumArtist \"You\" --podcastFlag true --freefree 2\n"
 "\n"
 "------------------------------------------------------------------------------------------------\n"
 " Atom Tree\n"
@@ -214,11 +214,12 @@ static const char* longHelp_text =
 " File-level options:\n"
 "\n"
 "  --mdatLock         ,  -M            Prevents moving mdat atoms to the end (poss. useful for PSP files)\n"
-"  --freefree         ,  -F            Removes all \"free\" atoms which only act as padding in the file\n"
+"  --freefree         ,  -F   ?(num)?  Remove \"free\" atoms which only act as padding in the file\n"
+"                                          (optional: numerical argument - delete 'free' up to desired level)\n"
 "  --metaDump         ,  -Q            Dumps out all metadata out to a new file next to original\n"
 "                                          (for diagnostic purposes, please remove artwork before sending)\n"
-"  --output           ,  -o            Specify the filename to to to write out to (cannot be used with overWrite)\n"
-"  --overWrite        ,  -W            If given, writes to temp file; deletes original, renames temp to original\n"
+"  --output           ,  -o            Specify the filename of tempfile (voids overWrite)\n"
+"  --overWrite        ,  -W            Writes to temp file; deletes original, renames temp to original\n"
 
 "------------------------------------------------------------------------------------------------\n"
 
@@ -249,13 +250,12 @@ void GetBasePath(const char *filepath, char* &basepath) {
 	for (int i=strlen(filepath); i >= 0; i--) {
 		const char* this_char=&filepath[i];
 		if ( strncmp(this_char, ".", 1) == 0 ) {
-			split_here = i-1;
+			split_here = i;
 			break;
 		}
 	}
-	for (int iout=0; iout <= split_here; iout++) {
-		basepath[iout] = filepath[iout];
-	}
+	memcpy(basepath, filepath, (size_t)split_here);
+	
 	return;
 }
 
@@ -267,8 +267,7 @@ int main( int argc, char *argv[])
 		fprintf (stdout,"%s", longHelp_text); exit(0);
 	} else if (argc == 2 && ((strncmp(argv[1],"-v",2) == 0) || (strncmp(argv[1],"-version",2) == 0)) ) {
 	
-		//ShowVersionInfo(false); //release version
-		ShowVersionInfo(true); //cvs version
+		ShowVersionInfo();
 		
 		exit(0);
 		
@@ -277,7 +276,7 @@ int main( int argc, char *argv[])
 	}
 	
 	char *m4afile = argv[1];
-	char *output_file = (char *)malloc(sizeof(char)* MAXPATHLEN);
+	
 	TestFileExistence(m4afile, true);
 	
 	while (1) {
@@ -323,7 +322,7 @@ int main( int argc, char *argv[])
 		{ "url",              required_argument,  NULL,           Meta_URL },
 		{ "meta-uuid",        required_argument,  NULL,           Meta_uuid },
 		
-		{ "freefree",         0,                  NULL,           Opt_FreeFree },
+		{ "freefree",         optional_argument,  NULL,           Opt_FreeFree },
 		{ "mdatLock",         0,                  NULL,           Opt_Keep_mdat_pos },
 		{ "metaEnema",        0,                  NULL,						Metadata_Purge },
 		{ "metaDump",         0,                  NULL,						Meta_dump },
@@ -336,7 +335,7 @@ int main( int argc, char *argv[])
 	int c = -1;
 	int option_index = 0; 
 	
-	c = getopt_long(argc, argv, "hTtEe:a:c:d:f:g:i:l:n:o:pq::u:w:y:z:G:k:A:B:C:D:FH:I:J:K:L:MN:QS:U:WV:ZP", long_options, &option_index);
+	c = getopt_long(argc, argv, "hTtEe:a:c:d:f:g:i:l:n:o:pq::u:w:y:z:G:k:A:B:C:D:F:H:I:J:K:L:MN:QS:U:WV:ZP", long_options, &option_index);
 	
 	if (c == -1) {
 		if (argc < 3 && argc > 2) {
@@ -377,8 +376,9 @@ int main( int argc, char *argv[])
 		}
 					
 		case OPT_ExtractPix: {
-			char* base_path=(char*)malloc(sizeof(char)*MAXPATHLEN);
-			//CarbonParentFolder( m4afile, base_path );
+			char* base_path=(char*)malloc(sizeof(char)*MAXPATHLEN+1);
+			memset(base_path, 0, MAXPATHLEN +1);
+			
 			GetBasePath( m4afile, base_path );
 			APar_ScanAtoms(m4afile);
 			openSomeFile(m4afile, true);
@@ -597,14 +597,14 @@ int main( int argc, char *argv[])
 		
 		case Meta_podcast_URL : { // usually a read-only value, but usefult for getting videos into the 'podcast' menu
 			APar_ScanAtoms(m4afile);
-			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.purl.data", AtomicDataClass_UInt8_Binary, optarg, indeterminate);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.purl.data", AtomicDataClass_UInteger, optarg, indeterminate);
 			
 			break;
 		}
 		
 		case Meta_podcast_GUID : { // Global Unique IDentifier; it is *highly* doubtful that this would be useful...
 			APar_ScanAtoms(m4afile);
-			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.egid.data", AtomicDataClass_UInt8_Binary, optarg, indeterminate);
+			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.egid.data", AtomicDataClass_UInteger, optarg, indeterminate);
 			
 			break;
 		}
@@ -623,6 +623,7 @@ int main( int argc, char *argv[])
 			}
 			APar_AddMetadataInfo(m4afile, "moov.udta.meta.ilst.purd.data", AtomicDataClass_Text, purd_time, true);
 			free(purd_time);
+			purd_time=NULL;
 			
 			break;
 		}
@@ -677,7 +678,11 @@ int main( int argc, char *argv[])
 		
 		case Opt_FreeFree : {
 			APar_ScanAtoms(m4afile);
-			APar_freefree();
+			uint8_t free_level = 0;
+			if (argv[optind]) {
+				sscanf(argv[optind], "%hhu", &free_level);
+			}
+			APar_freefree(free_level);
 			
 			break;
 		}
@@ -702,6 +707,8 @@ int main( int argc, char *argv[])
 		}
 		
 		case OPT_OutputFile : {
+			output_file = (char *)malloc(sizeof(char)* MAXPATHLEN +1);
+			memset(output_file, 0, MAXPATHLEN +1);
 			output_file = strdup(optarg);
 			break;
 		}
@@ -717,6 +724,10 @@ int main( int argc, char *argv[])
 		if (!alter_original) {
 			//The file was opened orignally as read-only; when it came time to writeback into the original file, that FILE was closed, and a new one opened with write abilities, so to close a FILE that no longer exists would.... be retarded.
 			openSomeFile(m4afile, false);
+		}
+		if (!output_file) {
+			free(output_file);
+			output_file=NULL;
 		}
 	}
 	return 0;
