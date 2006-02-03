@@ -22,21 +22,15 @@ OS=`uname -s | cut -d '_' -f1`
 if (test $OS = Darwin) || (test $OS = Linux) ; then
 
   if (test $OS = Darwin) ; then
-    EXTRA_CPP_FLAGS="-DUSE_ICONV_CONVERSION -DDARWIN_PLATFORM"
+    EXTRA_CPP_FLAGS="-DUSE_ICONV_CONVERSION -DUSE_MEMSET -DDARWIN_PLATFORM"
   else
-    EXTRA_CPP_FLAGS="-DUSE_ICONV_CONVERSION"
+    EXTRA_CPP_FLAGS="-DUSE_ICONV_CONVERSION -DUSE_MEMSET"
   fi
 
 else
   ## Windows (cygwin & mingw) fall here ##
-  EXTRA_CPP_FLAGS=""
+  EXTRA_CPP_FLAGS="-DUSE_ICONV_CONVERSION -DUSE_MEMSET"
 
-  ## I only have unicode typefaces under Mac OS X ##
-  ## so its the only platform I can test under properly ##
-  ## Delete the ## signs around the line below to experiment ##
-  ## with utf-8 under windows ##
-
-  ##         EXTRA_CPP_FLAGS="-DUSE_ICONV_CONVERSION"       ##
 fi
 
 #---------------------------------------------#
@@ -52,6 +46,10 @@ echo "Compiling AP_iconv.cpp ..."
 g++ -g -O2 -Wall $EXTRA_CPP_FLAGS -MT AP_iconv.o -MD -MP -MF "./obj_files/AP_iconv.Tpo" -c -o obj_files/AP_iconv.o AP_iconv.cpp
 
 if test $OS = Darwin ; then
+  echo "Compiling AP_NSFile_utils.mm ..."
+
+  g++ -g -O2 -Wall -MT obj_files/AP_NSFile_utils.o -MD -MP -MF "./obj_files/AP_NSFile_utils.Tpo" -c -o obj_files/AP_NSFile_utils.o AP_NSFile_utils.mm
+
   echo "Compiling AP_NSImage.mm ..."
 
   g++ -g -O2 -Wall -MT obj_files/AP_NSImage.o -MD -MP -MF "./obj_files/AP_NSImage.Tpo" -c -o obj_files/AP_NSImage.o AP_NSImage.mm
@@ -71,7 +69,7 @@ g++ -g -O2 -Wall $EXTRA_CPP_FLAGS -I../AtomicParsley -MT obj_files/main.o -MD -M
 echo "Linking AtomicParsley..."
 
 if test $OS = Darwin ; then
-  g++ -g -O2 -Wall -liconv -framework Cocoa -o AtomicParsley obj_files/AtomicParsley_genres.o obj_files/AP_iconv.o obj_files/AP_NSImage.o obj_files/AtomicParsley.o obj_files/main.o
+  g++ -g -O2 -Wall -liconv -framework Cocoa -o AtomicParsley obj_files/AtomicParsley_genres.o obj_files/AP_iconv.o obj_files/AP_NSFile_utils.o obj_files/AP_NSImage.o obj_files/AtomicParsley.o obj_files/main.o
 
 elif test $OS = Linux ; then
   g++ -O2 -Wall -o AtomicParsley obj_files/AtomicParsley_genres.o obj_files/AP_iconv.o obj_files/AtomicParsley.o obj_files/main.o

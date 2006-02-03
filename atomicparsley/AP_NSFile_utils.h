@@ -1,6 +1,6 @@
 //==================================================================//
 /*
-    AtomicParsley - AP_NSImage.h
+    AtomicParsley - AP_NSFile_utils.h
 
     AtomicParsley is GPL software; you can freely distribute, 
     redistribute, modify & use under the terms of the GNU General
@@ -15,10 +15,9 @@
     cannot, write to the Free Software Foundation, 59 Temple Place
     Suite 330, Boston, MA 02111-1307, USA.  Or www.fsf.org
 
-    Copyright ©2005-2006 puck_lock
+    Copyright ©2006 puck_lock
                                                                    */
 //==================================================================//
 
-#if defined (DARWIN_PLATFORM)
-char* ResizeGivenImage(const char* filePath, PicPrefs myPicPrefs);
-#endif
+void APar_SupplySelectiveTypeCreatorCodes(const char *inputPath, const char *outputPath);
+uint32_t APar_4CC_CreatorCode(const char* filepath, uint32_t new_creator_code);
