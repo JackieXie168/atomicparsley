@@ -3081,7 +3081,7 @@ void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_origi
 		exit(1);
 	}
 	
-	if (rewrite_original && outfile) { //if (rewrite_original && strlen(outfile) == 0) { //disable overWrite when writing out to a specifically named file; presumably the enumerated output file was meant to be the final destination
+	if (rewrite_original && !outfile) { //disable overWrite when writing out to a specifically named file; presumably the enumerated output file was meant to be the final destination
 		fclose(source_file);
 
 		int err = rename(temp_file_name, m4aFile);
