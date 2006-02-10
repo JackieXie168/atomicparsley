@@ -1,0 +1,96 @@
+#!/bin/sh
+##################################################################
+#                                                                #
+#    Mac OS X Universal Binary build script                      #
+#      (tuned for ppc, x86 builders see comments in linking)     #
+#                                                                #
+##################################################################
+
+#---------------------------------------------#
+#             pseudo-configure                #
+#---------------------------------------------#
+
+rm -rf obj_files/*
+
+mkdir -p obj_files/ppc
+mkdir -p obj_files/386
+
+OS=`uname -s | cut -d '_' -f1`
+
+if (test $OS = Darwin) || (test $OS = Linux) ; then
+  EXTRA_CPP_FLAGS="-DUSE_ICONV_CONVERSION -DUSE_MEMSET -DDARWIN_PLATFORM"
+fi
+
+echo "Building Universal Binary"
+
+#---------------------------------------------#
+#                 Compiling                   #
+#---------------------------------------------#
+
+echo "Compiling AtomicParsley_genres.cpp ..."
+
+g++ -arch i386 -g -O2 -Wall -MT obj_files/386/AtomicParsley_genres.o -MD -MP -MF "./obj_files/386/AtomicParsley_genres.Tpo" -c -o obj_files/386/AtomicParsley_genres.o AtomicParsley_genres.cpp
+
+g++ -arch ppc -g -O2 -Wall -MT obj_files/ppc/AtomicParsley_genres.o -MD -MP -MF "./obj_files/ppc/AtomicParsley_genres.Tpo" -c -o obj_files/ppc/AtomicParsley_genres.o AtomicParsley_genres.cpp
+
+#--------------------------------#
+echo "Compiling AP_iconv.cpp ..."
+
+g++ -arch i386 -g -O2 -Wall $EXTRA_CPP_FLAGS -MT AP_iconv.o -MD -MP -MF "./obj_files/386/AP_iconv.Tpo" -c -o obj_files/386/AP_iconv.o AP_iconv.cpp
+
+g++ -arch ppc -g -O2 -Wall $EXTRA_CPP_FLAGS -MT AP_iconv.o -MD -MP -MF "./obj_files/ppc/AP_iconv.Tpo" -c -o obj_files/ppc/AP_iconv.o AP_iconv.cpp
+
+#--------------------------------#
+echo "Compiling AP_NSFile_utils.mm ..."
+
+g++ -arch i386 -g -O2 -Wall -MT obj_files/386/AP_NSFile_utils.o -MD -MP -MF "./obj_files/386/AP_NSFile_utils.Tpo" -c -o obj_files/386/AP_NSFile_utils.o AP_NSFile_utils.mm
+g++ -arch ppc -g -O2 -Wall -MT obj_files/ppc/AP_NSFile_utils.o -MD -MP -MF "./obj_files/ppc/AP_NSFile_utils.Tpo" -c -o obj_files/ppc/AP_NSFile_utils.o AP_NSFile_utils.mm
+
+#--------------------------------#
+echo "Compiling AP_NSImage.mm ..."
+
+g++ -arch i386 -g -O2 -Wall -MT obj_files/386/AP_NSImage.o -MD -MP -MF "./obj_files/386/AP_NSImage.Tpo" -c -o obj_files/386/AP_NSImage.o AP_NSImage.mm
+g++ -arch ppc -g -O2 -Wall -MT obj_files/ppc/AP_NSImage.o -MD -MP -MF "./obj_files/ppc/AP_NSImage.Tpo" -c -o obj_files/ppc/AP_NSImage.o AP_NSImage.mm
+
+#--------------------------------#
+echo "Compiling AtomicParsley.cpp ..."
+
+g++ -arch i386 -g -O2 -Wall -Wno-unused $EXTRA_CPP_FLAGS -MT obj_files/386/AtomicParsley.o -MD -MP -MF "./obj_files/386/AtomicParsley.Tpo" -c -o obj_files/386/AtomicParsley.o AtomicParsley.cpp
+
+g++ -arch ppc -g -O2 -Wall -Wno-unused $EXTRA_CPP_FLAGS -MT obj_files/ppc/AtomicParsley.o -MD -MP -MF "./obj_files/ppc/AtomicParsley.Tpo" -c -o obj_files/ppc/AtomicParsley.o AtomicParsley.cpp
+
+#--------------------------------#
+echo "Compiling main.cpp ..."
+
+g++ -arch i386 -g -O2 -Wall $EXTRA_CPP_FLAGS -I../AtomicParsley -MT obj_files/386/main.o -MD -MP -MF "./obj_files/386/main.Tpo" -c -o obj_files/386/main.o main.cpp
+
+g++ -arch ppc -g -O2 -Wall $EXTRA_CPP_FLAGS -I../AtomicParsley -MT obj_files/ppc/main.o -MD -MP -MF "./obj_files/ppc/main.Tpo" -c -o obj_files/ppc/main.o main.cpp
+
+#---------------------------------------------#
+#                  Linking                    #
+#---------------------------------------------#
+echo "Linking AtomicParsley..."
+
+############## THIS SECTION IS **PROBABLY** PLATFORM SPECIFIC #################
+#     Because compiles on ppc needs an Intel UniversalSDK, the -isysroot      #
+#    flag below is for the '-arch i386' cross-compile. If you were to build   #
+#       a universal binary on Intel, the -isysroot /Dev/SDK combo would       #
+#       need to be moved onto the '-arch ppc' line to create the binary       #
+###############################################################################
+
+g++ -arch i386 -g -O2 -Wall -liconv -framework Cocoa -isysroot /Developer/SDKs/MacOSX10.4u.sdk -o AtomicParsley_386 obj_files/386/AtomicParsley_genres.o obj_files/386/AP_iconv.o obj_files/386/AP_NSFile_utils.o obj_files/386/AP_NSImage.o obj_files/386/AtomicParsley.o obj_files/386/main.o
+
+g++ -arch ppc -g -O2 -Wall -liconv -framework Cocoa -o AtomicParsley_ppc obj_files/ppc/AtomicParsley_genres.o obj_files/ppc/AP_iconv.o obj_files/ppc/AP_NSFile_utils.o obj_files/ppc/AP_NSImage.o obj_files/ppc/AtomicParsley.o obj_files/ppc/main.o
+
+
+#---------------------------------------------#
+#    Stripping (enabled on Mac OS X only)     #
+#---------------------------------------------#
+
+echo "Stripping & lipo joining for multiple architectures..."
+
+strip -x AtomicParsley_ppc
+strip -x AtomicParsley_386
+
+lipo -arch ppc AtomicParsley_ppc -arch i386 AtomicParsley_386 -create -output AtomicParsley
+
