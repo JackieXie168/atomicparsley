@@ -19,9 +19,9 @@
                                                                    */
 //==================================================================//
 
-#ifdef _WIN32
+#if defined (_WIN32) || defined (_MSC_VER)
 
-#define MAXPATHLEN = 255;
+#define MAXPATHLEN 255
 //and I would really have no idea, but that sounds good
 #else
 //MAXPATHLEN
@@ -42,7 +42,11 @@ typedef unsigned int         uint32_t;
 
 #ifndef _UINT64_T
 #define _UINT64_T
+#if defined (_MSC_VER)
+typedef unsigned __int64	 uint64_t;
+#else
 typedef unsigned long long   uint64_t;
+#endif /* _MSC_VER */
 #endif /* _UINT64_T */
 
 
@@ -83,6 +87,7 @@ struct AtomicInfo  {
 	bool tempFile; //used to delete temp pic files (if set as an environmental preference)
 	//bool extended_atom;
 	bool uuidAtomType;
+	uint32_t stsd_codec;
 };
 
 struct PicPrefs  {
@@ -142,7 +147,7 @@ bool TestFileExistence(const char *filePath, bool errorOut);
 void APar_PrintDataAtoms(const char *path, bool extract_pix, char* pic_output_path);
 void APar_PrintAtomicTree();
 
-void APar_ScanAtoms(const char *path);
+void APar_ScanAtoms(const char *path, bool parse_stsd_atom = false);
 
 void APar_DetermineAtomLengths();
 AtomicInfo APar_CreateSparseAtom(const char* present_hierarchy, char* new_atom_name,
@@ -181,8 +186,6 @@ v0.7.5d 12/11/2005 endian issues for x86 mostly resolved; setting genre's segfau
 v0.7.5e 12/16/2005 ammends how atoms are added at the end of the hierarchy (notably this affects ffmpeg video files); writes "keyw", "catg", "pcst", "aART" atoms; read-only "purl" & "egid" added
 v0.7.6  12/31/2005 ceased flawed null-termination (which was implemented more in my mind) of text 'data' atoms; UTF-8 output on Mac OS X & Linux - comment in DUSE_ICONV_CONVERSION in the build file to test it other platforms (maybe my win98Se isn't utf8 aware?); cygwin build accommodations; fix to the secondary "of" number for track/disk on non-PPC; implemented user-defined completely sanctioned 'uuid' atoms to hold.... anything (text only for now); "--tagtime", "--url" & "--information" now get set onto uuid atoms; allow creation of uuid atoms directly from the cli; cygwin-win98SE port added to binary releases; added '--freefree' to remove any&all 'free' atoms
 v0.8    01/14/2006 switched over to uint8_t for former ADC_CPIL_TMPO & former ADC_Integer; added podcast stik setting & purl/egid; bugfixes to APar_RemoveAtom; bugfixes & optimizations to APar_FindAtom; changes to text output & set values for stik atom; increase in buffer size; limit non-uuid strings to 255bytes; fixed retreats in progress bar; added purd atom; support mdat.length=0 atom (length=1/64-bit isn't supported; I'll somehow cope with a < 4GB file); switch from long to uint32_t; better x86 bitshifting; added swtich to prevent moving mdat atoms (possible PSP requires mdat before moov); universal binary for Mac OS X release; no text limit on lyrics tag
-v0.8x   0?/0?/2006 fixed an imaging bug from preferences; fixed metaEnema screwing up the meta atom (APar_RemoveAtom bugfix to remove a direct_find atom); added --output, --overWrite; added --metaDump to dump ONLY metadata tags to a file; versioning for cvs builds; limited support for 64-bit mdat atoms (limited to a little less than a 32-bit atom; > 4GB); bugfixes to APar_RemoveAtom for removing uuid atoms or non-existing atoms & to delete all artwork, then add in 1 command ("--artwork REMOVE_ALL --artwork /path --artwork /path"); support 64-bit co64 atom; support MacOSX-style type/creator codes for tempfiles that end in ".mp4" (no need to change extn to ".m4v"/".m4a" anymore); moved purl/egid onto AtomicDataClass_UInteger (0x00 instead of 0x15) to mirror Apple's change on these tags; start incorporating Brian's Win32 fixes (if you malloc, memset is sure to follow; fopen); give the 'name' atom for '---' internal iTunes tags for metadata printouts; allow --freefree remove 'free's up to a certain level (preserves iTunes padding); squash some memory leaks; change how CreateSparseAtom was matching atoms to accommodate EliminateAtom-ed atoms (facilitates the previous artwork amendments)
+v0.8x   0?/0?/2006 fixed an imaging bug from preferences; fixed metaEnema screwing up the meta atom (APar_RemoveAtom bugfix to remove a direct_find atom); added --output, --overWrite; added --metaDump to dump ONLY metadata tags to a file; versioning for cvs builds; limited support for 64-bit mdat atoms (limited to a little less than a 32-bit atom; > 4GB); bugfixes to APar_RemoveAtom for removing uuid atoms or non-existing atoms & to delete all artwork, then add in 1 command ("--artwork REMOVE_ALL --artwork /path --artwork /path"); support 64-bit co64 atom; support MacOSX-style type/creator codes for tempfiles that end in ".mp4" (no need to change extn to ".m4v"/".m4a" anymore); moved purl/egid onto AtomicDataClass_UInteger (0x00 instead of 0x15) to mirror Apple's change on these tags; start incorporating Brian's Win32 fixes (if you malloc, memset is sure to follow; fopen); give the 'name' atom for '---' internal iTunes tags for metadata printouts; allow --freefree remove 'free's up to a certain level (preserves iTunes padding); squash some memory leaks; change how CreateSparseAtom was matching atoms to accommodate EliminateAtom-ed atoms (facilitates the previous artwork amendments); exit on unsupported 'ftyp' file brands; anonymous 3rd party native win32 contributions; reworked APar_DetermineAtomLengths to accommodate proper tag setting with --mdatLock; parsing atoms under 'stsd' is no longer internally used - only for tree printing; reworked Mac OS X TYPE determination based on new stsd_codec structure member; revisit co64 offset calculations
 
 */
-// TODO: revisit how atoms are parsed to get around the tricks for atoms under stsd;
-
