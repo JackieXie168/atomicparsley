@@ -21,6 +21,7 @@
     Code Contributions by:
 		
     * Mike Brancato - Debian patches & build support
+		* Brian Story - porting getopt & native Win32 patches
                                                                    */
 //==================================================================//
 
@@ -28,7 +29,13 @@
 #include <stdio.h>
 #include <string.h>
 #include <signal.h>
+
+//TODO: At some point, cvs commit the getopt.x files and then switch to a unified release; then uncomment this stuff
+//#if defined (_MSC_VER)
+//#include "getopt.h"
+//#else
 #include <getopt.h>
+//#endif
 
 #include "AtomicParsley.h"
 
@@ -145,7 +152,7 @@ static const char* longHelp_text =
 " Atom Tree\n"
 "\n"
 "  --test             ,  -T      Tests header of an m4a to see if its a usable m4a file.\n"
-"                               Also prints out the hierarchical atom tree.\n"
+"                                Also prints out the hierarchical atom tree.\n"
 "\n"
 "------------------------------------------------------------------------------------------------\n"
 " Atom contents (printing on screen & extracting artwork(s) to files)\n"
@@ -154,7 +161,9 @@ static const char* longHelp_text =
 "\n"
 "  Extract any pictures in user data \"covr\" atoms to separate files. \n"
 "  --extractPix       ,  -E                     Extract to same folder (basename derived from file).\n"
-"  --extractPixToPath ,  -e  (/path/basename)   Extract to specific path (numbers affixed to name).\n"
+"  --extractPixToPath ,  -e  (/path/basename)   Extract to specific path (numbers added to basename).\n"
+"                                                 example: --e ~/Desktop/SomeText\n"
+"                                                 gives: SomeText_artwork_1.jpg  SomeText_artwork_2.png\n"
 "\n"
 "------------------------------------------------------------------------------------------------\n"
 " Tag setting options:\n"
@@ -179,7 +188,7 @@ static const char* longHelp_text =
 "  --stik             ,  -S   (1of6)   Sets the iTunes \"stik\" atom (options available below) \n"
 "                                                \"Movie\", \"Normal\", \"Whacked Bookmark\", \n"
 "                                                \"Music Video\", \"Short Film\", \"TV Show\" \n"
-"  --description      ,  -p   (str)    Sets the description - used in TV shows\n"
+"  --description      ,  -p   (str)    Sets the description on the \"desc\" atom\n"
 "  --TVNetwork        ,  -n   (str)    Sets the TV Network name on the \"tvnn\" atom\n"
 "  --TVShowName       ,  -H   (str)    Sets the TV Show name on the \"tvsh\" atom\n"
 "  --TVEpisode        ,  -I   (str)    Sets the TV Episode on \"tven\":\"209\", but its a string: \"209 Part 1\"\n"
@@ -339,7 +348,7 @@ int main( int argc, char *argv[])
 	
 	if (c == -1) {
 		if (argc < 3 && argc > 2) {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(m4afile, true);
 			APar_PrintAtomicTree();
 		}
 		break;
@@ -361,7 +370,7 @@ int main( int argc, char *argv[])
 		}
 					
 		case OPT_TEST: {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(m4afile, true);
 			APar_PrintAtomicTree();
 			break;
 		}

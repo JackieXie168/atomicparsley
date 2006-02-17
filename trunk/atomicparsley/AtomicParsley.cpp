@@ -22,6 +22,7 @@
 		
     * Mike Brancato - Debian patches & build support
     * Lowell Stewart - null-termination bugfix for Apple compliance
+		* Brian Story - native Win32 patches; memset/framing/leaks fixes
                                                                    */
 //==================================================================//
 
@@ -36,11 +37,18 @@
 
 #include "AtomicParsley.h"
 #include "AtomicParsley_genres.h"
+
+#if !defined (_MSC_VER)
 #include "AP_iconv.h"
+#endif
 
 #if defined (DARWIN_PLATFORM)
 #include "AP_NSImage.h"
 #include "AP_NSFile_utils.h"
+#endif
+
+#if defined (_MSC_VER)
+#define USE_MEMSET    /* makes memset the default under native win32; soon to be default behavior */
 #endif
 
 ///////////////////////////////////////////////////////////////////////////////////////
@@ -63,7 +71,6 @@ short generalAtomicLevel = 1;
 
 bool file_opened = false;
 bool parsedfile = false;
-bool flag_drms_atom = false;
 bool Create__udta_meta_hdlr__atom = false;
 bool move_mdat_atoms = true;
 
@@ -75,7 +82,7 @@ uint32_t new_file_size = 0; //used for the progressbar
 
 bool contains_unsupported_64_bit_atom = false; //reminder that there are some 64-bit files that aren't yet supported (and where that limit is set)
 
-#if defined (WIN32)
+#if defined (WIN32) || defined (__CYGWIN__)
 short max_display_width = 45;
 #else
 short max_display_width = 75; //ah, figured out grub - vga=773 makes a whole new world open up
@@ -112,79 +119,16 @@ void ShowVersionInfo() {
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////
-//                        Picture Preferences Functions                              //
-///////////////////////////////////////////////////////////////////////////////////////
-
-PicPrefs ExtractPicPrefs(char* env_PicOptions) {
-	if (!parsed_prefs) {
-		
-		parsed_prefs = true; //only set default values & parse once
-		
-		myPicturePrefs.max_dimension=0; //dimensions won't be used to alter image
-		myPicturePrefs.dpi = 72;
-		myPicturePrefs.max_Kbytes = 0; //no target size to shoot for
-		myPicturePrefs.allJPEG = false;
-		myPicturePrefs.allPNG = false;
-		myPicturePrefs.addBOTHpix = false;
-		char* this_pref;
-		while (env_PicOptions != NULL) {
-			this_pref = strsep(&env_PicOptions,":");
-			char* a_pref = strdup(this_pref);
-			if (strncmp(a_pref,"MaxDimensions=",14) == 0) {
-				char* MaxDimPref = strsep(&a_pref,"=");
-				long DimensionNumber=strtol(a_pref, NULL, 10);
-				//fprintf(stdout, "dimensions %i\n", (int)DimensionNumber);
-				myPicturePrefs.max_dimension = (int)DimensionNumber;
-				
-			} else if (strncmp(a_pref,"DPI=",4) == 0) {
-				char* TotalDPI = strsep(&a_pref,"=");
-				long dpiNumber=strtol(a_pref, NULL, 10);
-				//fprintf(stdout, "dpi %i\n", (int)dpiNumber);
-				myPicturePrefs.dpi = (int)dpiNumber;
-				
-			} else if (strncmp(a_pref,"MaxKBytes=",10) == 0) {
-				char* MaxBytes = strsep(&a_pref,"=");
-				long bytesNumber=strtol(a_pref, NULL, 10);
-				//fprintf(stdout, "dpi %i\n", (int)dpiNumber);
-				myPicturePrefs.max_Kbytes = (int)bytesNumber*1024;
-				
-			} else if (strncmp(a_pref,"AllPixJPEG=",11) == 0) {
-				char* onlyJPEG = strsep(&a_pref,"=");
-				if (strncmp(a_pref, "true", 4) == 0) {
-					//fprintf(stdout, "it's true\n");
-					myPicturePrefs.allJPEG = true;
-				}
-				
-			} else if (strncmp(a_pref,"AllPixPNG=",10) == 0) {
-				char* onlyPNG = strsep(&a_pref,"=");
-				if (strncmp(a_pref, "true", 4) == 0) {
-					//fprintf(stdout, "it's true\n");
-					myPicturePrefs.allPNG = true;
-				}
-				
-			} else if (strncmp(a_pref,"AddBothPix=",11) == 0) {
-				char* addBoth = strsep(&a_pref,"=");
-				if (strncmp(a_pref, "true", 4) == 0) {
-					//fprintf(stdout, "it's true\n");
-					myPicturePrefs.addBOTHpix = true;
-				}
-				
-			} else if (strncmp(a_pref,"SquareUp",7) == 0) {
-				myPicturePrefs.squareUp = true;
-				
-			} else if (strncmp(a_pref,"removeTempPix",7) == 0) {
-				myPicturePrefs.removeTempPix = true;
-			}
-		}
-	}
-	return myPicturePrefs;
-}
-
-///////////////////////////////////////////////////////////////////////////////////////
 //                               Generic Functions                                   //
 ///////////////////////////////////////////////////////////////////////////////////////
 
-#if defined (WIN32) && !defined (__CYGWIN__) && !defined (_LIBC)
+#if defined (_MSC_VER)
+int lroundf(float a) {
+	return a/1;
+}
+#endif
+
+#if ( defined (WIN32) && !defined (__CYGWIN__) && !defined (_LIBC) ) || defined (_MSC_VER)
 // use glibc's strsep only on windows when cygwin & libc are undefined; otherwise the internal strsep will be used
 // This marks the point where a ./configure & makefile combo would make this easier
 
@@ -363,7 +307,8 @@ int APar_TestArtworkBinaryData(const char* artworkPath) {
 	return artwork_dataType;
 }
 
-// enables writing out the contents of a single memory-resident atom out to a text file
+#if defined (DARWIN_PLATFORM)
+// enables writing out the contents of a single memory-resident atom out to a text file; for in-house testing purposes only - and unused in some time
 void APar_AtomicWriteTest(short AtomicNumber, bool binary) {
 	AtomicInfo anAtom = parsedAtoms[AtomicNumber];
 	
@@ -396,6 +341,76 @@ void APar_AtomicWriteTest(short AtomicNumber, bool binary) {
 	free(indy_atom_path);
 	return;
 }
+#endif
+
+///////////////////////////////////////////////////////////////////////////////////////
+//                        Picture Preferences Functions                              //
+///////////////////////////////////////////////////////////////////////////////////////
+
+PicPrefs ExtractPicPrefs(char* env_PicOptions) {
+	if (!parsed_prefs) {
+		
+		parsed_prefs = true; //only set default values & parse once
+		
+		myPicturePrefs.max_dimension=0; //dimensions won't be used to alter image
+		myPicturePrefs.dpi = 72;
+		myPicturePrefs.max_Kbytes = 0; //no target size to shoot for
+		myPicturePrefs.allJPEG = false;
+		myPicturePrefs.allPNG = false;
+		myPicturePrefs.addBOTHpix = false;
+		char* this_pref;
+		while (env_PicOptions != NULL) {
+			this_pref = strsep(&env_PicOptions,":");
+			char* a_pref = strdup(this_pref);
+			if (strncmp(a_pref,"MaxDimensions=",14) == 0) {
+				char* MaxDimPref = strsep(&a_pref,"=");
+				long DimensionNumber=strtol(a_pref, NULL, 10);
+				//fprintf(stdout, "dimensions %i\n", (int)DimensionNumber);
+				myPicturePrefs.max_dimension = (int)DimensionNumber;
+				
+			} else if (strncmp(a_pref,"DPI=",4) == 0) {
+				char* TotalDPI = strsep(&a_pref,"=");
+				long dpiNumber=strtol(a_pref, NULL, 10);
+				//fprintf(stdout, "dpi %i\n", (int)dpiNumber);
+				myPicturePrefs.dpi = (int)dpiNumber;
+				
+			} else if (strncmp(a_pref,"MaxKBytes=",10) == 0) {
+				char* MaxBytes = strsep(&a_pref,"=");
+				long bytesNumber=strtol(a_pref, NULL, 10);
+				//fprintf(stdout, "dpi %i\n", (int)dpiNumber);
+				myPicturePrefs.max_Kbytes = (int)bytesNumber*1024;
+				
+			} else if (strncmp(a_pref,"AllPixJPEG=",11) == 0) {
+				char* onlyJPEG = strsep(&a_pref,"=");
+				if (strncmp(a_pref, "true", 4) == 0) {
+					//fprintf(stdout, "it's true\n");
+					myPicturePrefs.allJPEG = true;
+				}
+				
+			} else if (strncmp(a_pref,"AllPixPNG=",10) == 0) {
+				char* onlyPNG = strsep(&a_pref,"=");
+				if (strncmp(a_pref, "true", 4) == 0) {
+					//fprintf(stdout, "it's true\n");
+					myPicturePrefs.allPNG = true;
+				}
+				
+			} else if (strncmp(a_pref,"AddBothPix=",11) == 0) {
+				char* addBoth = strsep(&a_pref,"=");
+				if (strncmp(a_pref, "true", 4) == 0) {
+					//fprintf(stdout, "it's true\n");
+					myPicturePrefs.addBOTHpix = true;
+				}
+				
+			} else if (strncmp(a_pref,"SquareUp",7) == 0) {
+				myPicturePrefs.squareUp = true;
+				
+			} else if (strncmp(a_pref,"removeTempPix",7) == 0) {
+				myPicturePrefs.removeTempPix = true;
+			}
+		}
+	}
+	return myPicturePrefs;
+}
 
 ///////////////////////////////////////////////////////////////////////////////////////
 //                            Track Level Atom Info                                  //
@@ -419,9 +434,9 @@ void APar_TrackInfo(uint8_t &total_tracks, uint8_t &track_num, short &codec_atom
 					
 					if (strncmp(parsedAtoms[next_atom].AtomicName, "stsd", 4) == 0) {
 					
-						codec_atom = parsedAtoms[next_atom].NextAtomNumber;
-						//return with the atom number right after stsd
-						//it's name is the 4cc codec used for the track (mp4v, avc1, drmi, mp4a, drms, alac, mp4s, text, tx3g or jpeg)
+						codec_atom = parsedAtoms[next_atom].AtomicNumber;
+						//return with the stsd atom - its stsd_codec uint32_t holds the 4CC name of the codec for the trak
+						//(mp4v, avc1, drmi, mp4a, drms, alac, mp4s, text, tx3g or jpeg)
 						return;
 					} else {
 						next_atom = parsedAtoms[next_atom].NextAtomNumber;
@@ -1016,7 +1031,7 @@ void APar_ExtractDataAtom(int this_atom_number) {
 						fprintf(stdout, "false\n");
 					}
 					
-				} else if (strncmp(parent_atom_name, "stik", 4) == 0) { //no idea what this atom is; resembles cpil
+				} else if (strncmp(parent_atom_name, "stik", 4) == 0) { //no idea what 'stik' stands for; the State of the Union address came as 0x02
 					primary_number_data[3] = data_payload[0];
 					primary_number = UInt32FromBigEndian(primary_number_data);
 					if (primary_number == 0) {
@@ -1203,6 +1218,7 @@ void APar_AtomizeFileInfo(AtomicInfo &thisAtom, uint32_t Astart, uint32_t Alengt
 	thisAtom.AtomicLevel = Alevel;
 	thisAtom.AtomicDataClass = Aclass;
 	thisAtom.uuidAtomType = uuid_type;
+	thisAtom.stsd_codec = 0;
 	
 	//set the next atom number of the PREVIOUS atom (we didn't know there would be one until now); this is our default normal mode
 	if (( NextAtomNum == 0 ) && ( atom_number !=0 )) {
@@ -1422,6 +1438,61 @@ short APar_DetermineDataType(char* atom, bool uuid_type) {
 	return (int)type_of_data;
 }
 
+void APar_IdentifyBrand(char* file_brand ) {
+	uint32_t brand = UInt32FromBigEndian(file_brand);
+	switch (brand) {
+		//what ISN'T supported
+		case 0x71742020 : //'qt  '
+			fprintf(stdout, "AtomicParsley error: Quicktime movie files are not supported.\n");
+			exit(2);
+			break;
+		
+		case 0x33677035 : //'3gp5'
+			fprintf(stdout, "AtomicParsley error: 3gp(5) files are no longer supported.\n");
+			exit(2);
+			break;
+			
+		case 0x33677036 : //'3gp6'
+			fprintf(stdout, "AtomicParsley error: 3gp(6) files are no longer supported.\n");
+			exit(2);
+			break;
+			
+		//what IS supported
+		case 0x4D534E56 : //'MSNV'  (PSP)
+		case 0x4D344120 : //'M4A '
+		case 0x4D344220 : //'M4B '
+		case 0x4D345620 : //'M4V '
+		case 0x6D703432 : //'mp42'
+		case 0x6D703431 : //'mp41'
+		case 0x69736F6D : //'isom'
+		case 0x69736F32 : //'iso2'
+		case 0x61766331 : //'avc1'
+			break;
+		
+		//other lesser unsupported brands; http://www.mp4ra.org/filetype.html
+		default :
+			fprintf(stdout, "AtomicParsley error: unsupported MPEG-4 file brand found '%s'\n", file_brand);
+			exit(2);
+			break;
+	
+	}
+
+	return;
+}
+
+void APar_Extract_stsd_codec(FILE* file, uint32_t midJump) {
+	char *codec_data = (char *) malloc(12);
+	memset(codec_data, 0, 12);
+	fseek(file, midJump, SEEK_SET);
+	fread(codec_data, 1, 12, file);
+	//uint32_t codec_num = UInt32FromBigEndian( extractAtomName(codec_data, 1) );
+	//fprintf(stdout, "codec %x", codec_num);
+	parsedAtoms[atom_number-1].stsd_codec = UInt32FromBigEndian( extractAtomName(codec_data, 1) );
+	
+	free(codec_data);
+  return;
+}
+
 void APar_Parse_stsd_Atoms(FILE* file, uint32_t midJump, uint32_t drmLength) {
 	//fprintf(stdout,"---> drms atom %s begins #: %u \t to %u\n", parsedAtoms[atom_number-1].AtomicName, midJump, drmLength);
 	//stsd atom carrys data (8bytes )
@@ -1444,7 +1515,7 @@ void APar_Parse_stsd_Atoms(FILE* file, uint32_t midJump, uint32_t drmLength) {
 		fread(data, 1, 12, file);
 		char *atom = extractAtomName(data, 1);
 		
-		if (strncasecmp(atom, "uuid", 4) == 0) {
+		if (memcmp(atom, "uuid", 4) == 0) {
 			atom = extractAtomName(data, 2);
 			uuid_atom = true;
 		}
@@ -1468,12 +1539,11 @@ void APar_Parse_stsd_Atoms(FILE* file, uint32_t midJump, uint32_t drmLength) {
 			fseek (file, midJump+8, SEEK_SET);
 			fread(parsedAtoms[atom_number-1].AtomicData, 1, 28, file); //store the entire atom (data class won't even be used; only the length & atom name are created)
 			parsedAtoms[atom_number-1].AtomicDataClass = AtomicDataClass_UInteger;
-			//APar_AtomicWriteTest(atom_number-1, true);
+			
 			midJump += 36; //drms is so odd.... it contains data so it should *NOT* have any child atoms, and yet...
 										 // 983bytes (and the next atom 36 bytes away) says that it *IS* a parent atom.... very odd indeed.
 			stsd_progress += 36;		
 			atomLevel++;
-			flag_drms_atom = true;
 			
 		} else if (strncmp(atom, "drmi", 4) == 0) { //TODO TODO TODO: just as a drmi atom is 86 bytes, so is avc1 (hex length of 0x83
 			//a new drm atom in a different trkn than the first - appeared (first for me) in an iTMS TV Show episode (Lost 209)
@@ -1489,7 +1559,6 @@ void APar_Parse_stsd_Atoms(FILE* file, uint32_t midJump, uint32_t drmLength) {
 			stsd_progress += 86;	
 			parsedAtoms[atom_number-1].AtomicDataClass = AtomicDataClass_UInteger;
 			atomLevel++;
-			flag_drms_atom = true; //although almost assuredly, we already set this to true by finding a "drms" atom before this atom
 			
 		} else if ( (strncmp(atom, "mp4a", 4) == 0) || ( (strncmp(atom, "alac", 4) == 0) && (atomLevel == 7) ) ) {
 				parsedAtoms[atom_number-1].AtomicData = (char *)malloc(sizeof(char)*28);
@@ -1570,7 +1639,7 @@ uint64_t APar_64bitAtomRead(FILE *file, uint32_t jump_point) {
 	return extended_dataSize;
 }
 
-void APar_ScanAtoms(const char *path) {
+void APar_ScanAtoms(const char *path, bool parse_stsd_atom) {
 	if (!parsedfile) {
 		file_size = findFileSize(path);
 		
@@ -1589,9 +1658,11 @@ void APar_ScanAtoms(const char *path) {
 			
 			fread(data, 1, 12, file);
 			char *atom = extractAtomName(data, 1);
-			//fprintf(stdout, "atom: %s @ offset: %u ", atom, jump);
-			if ( (strncmp(atom, "ftyp", 4) == 0 ) || (strncmp(atom, "jP  ", 4) == 0) ) //jpeg2000 files will be "jP  " (2 spaces)
-			{
+
+			if ( memcmp(atom, "ftyp", 4) == 0) { //jpeg2000 files will have a beginning 'jp  ' atom that won't get through here
+			
+				APar_IdentifyBrand( extractAtomName(data, 2) );
+			
 				dataSize = UInt32FromBigEndian(data);
 				jump = dataSize;
 				
@@ -1600,13 +1671,13 @@ void APar_ScanAtoms(const char *path) {
 				fseek(file, jump, SEEK_SET);
 				
 				while (jump < (uint32_t)file_size) {
-					//a jpg2000 file will have a "jp2c" atom of 0000 jump length (don't know the rest).
+					
 					fread(data, 1, 12, file);
 					char *atom = extractAtomName(data , 1);
 					int atom_class = -1;
 					bool uuid_atom = false;
 					
-					if (strncasecmp(atom, "uuid", 4) == 0) {
+					if (memcmp(atom, "uuid", 4) == 0) {
 						atom = extractAtomName(data, 2);
 						uuid_atom = true;
 					}
@@ -1655,8 +1726,12 @@ void APar_ScanAtoms(const char *path) {
 					}
 					
 					if (strncmp(atom, "stsd", 4) == 0) {
-						//For now, this will be treated as a special scenario, and it is... odd... and mostly working
-						APar_Parse_stsd_Atoms(file, jump+16, dataSize);
+						//For internal use, stsd is no longer parsed; only when printing an atom hierarchical tree will it be parsed
+						if (parse_stsd_atom) {
+							APar_Parse_stsd_Atoms(file, jump+16, dataSize);
+						} else {
+							APar_Extract_stsd_codec(file, jump+16);
+						}
 					}
 					
 					if (strncmp(atom, "meta", 4) == 0) {
@@ -1961,8 +2036,8 @@ void APar_EncapsulateData(short thisnum, const char* atomData, uint8_t unsignedD
 					}
 #endif
 
-					for (int i = 0; i <= (int)data_length; i++) {
-						parsedAtoms[thisnum].AtomicData[i+4] = atomData[i]; //...and this sets the rest of the data (with a string)
+					for (int j = 0; j <= (int)data_length; j++) {
+						parsedAtoms[thisnum].AtomicData[j+4] = atomData[j]; //...and this sets the rest of the data (with a string)
 					}
 					parsedAtoms[thisnum].AtomicLength = data_length + 12 + 4;
 					
@@ -1974,8 +2049,8 @@ void APar_EncapsulateData(short thisnum, const char* atomData, uint8_t unsignedD
 					memset(parsedAtoms[thisnum].AtomicData, 0, sizeof(char)* ((unsignedData[0]-1) * sizeof(uint8_t)) );
 #endif
 				
-					for (int i = 0; i < unsignedData[0]-1; i++) {
-						parsedAtoms[thisnum].AtomicData[i] = unsignedData[i+1]; //set the data into the struct
+					for (int k = 0; k < unsignedData[0]-1; k++) {
+						parsedAtoms[thisnum].AtomicData[k] = unsignedData[k+1]; //set the data into the struct
 					}
 				
 					parsedAtoms[thisnum].AtomicLength = (unsignedData[0]-1) + 12; //set the length here; +12 for 4bytes(atomLength) + 4bytes(atomName) + 4bytes (dataType)
@@ -2296,7 +2371,7 @@ void APar_AddGenreInfo(const char* m4aFile, const char* atomPayload) {
 void APar_AddMetadataArtwork(const char* m4aFile, const char* artworkPath, char* env_PicOptions) {
 	modified_atoms = true;
 	const char* artwork_atom = "moov.udta.meta.ilst.covr";
-	if (strncasecmp(artworkPath, "REMOVE_ALL", 10) == 0) {
+	if (memcmp(artworkPath, "REMOVE_ALL", 10) == 0) {
 		APar_RemoveAtom(artwork_atom, false, false);
 		
 	} else {
@@ -2423,16 +2498,16 @@ void APar_Readjust_CO64_atom(uint32_t supplemental_offset, short co64_number) {
 	for(uint32_t i=1; i<=entries; i++) {
 		//read 8 bytes of the atom into a 8 char uint64_t a_64bit_entry to eval it
 		for (int c = 0; c <=7; c++ ) {
-			//first stco entry (32-bit uint32_t) is the number of entries; every other one is an actual offset value
-			a_64bit_entry[c] = parsedAtoms[co64_number].AtomicData[i*8 + c];
+			//first co64 entry (32-bit uint32_t) is the number of entries; every other one is an actual offset value
+			a_64bit_entry[c] = parsedAtoms[co64_number].AtomicData[4 + (i-1)*8 + c];
 		}
 		uint64_t this_entry = UInt64FromBigEndian(a_64bit_entry);
-		this_entry += supplemental_offset; //this is where we add our new mdat offset difference
+		this_entry += (uint64_t)supplemental_offset; //this is where we add our new mdat offset difference
 		char8TOuint64(this_entry, a_64bit_entry);
 		//and put the data back into AtomicData...
-		for (int c = 0; c <=7; c++ ) {
+		for (int d = 0; d <=7; d++ ) {
 			//first stco entry is the number of entries; every other one is an actual offset value
-			parsedAtoms[co64_number].AtomicData[i*8 + c] = a_64bit_entry[c];
+			parsedAtoms[co64_number].AtomicData[4 + (i-1)*8 + d] = a_64bit_entry[d];
 		}
 	}
 	
@@ -2441,7 +2516,6 @@ void APar_Readjust_CO64_atom(uint32_t supplemental_offset, short co64_number) {
 	a_64bit_entry=NULL;
 	co64_entries=NULL;
 	//end readjustment
-	//APar_AtomicWriteTest(parsedAtoms[thisAtomNumber].AtomicNumber, true);
 	return;
 }
 
@@ -2477,9 +2551,9 @@ void APar_Readjust_STCO_atom(uint32_t supplemental_offset, short stco_number) {
 		this_entry += supplemental_offset; //this is where we add our new mdat offset difference
 		char4TOuint32(this_entry, an_entry);
 		//and put the data back into AtomicData...
-		for (int c = 0; c <=3; c++ ) {
+		for (int d = 0; d <=3; d++ ) {
 			//first stco entry is the number of entries; every other one is an actual offset value
-			parsedAtoms[stco_number].AtomicData[i*4 + c] = an_entry[c];
+			parsedAtoms[stco_number].AtomicData[i*4 + d] = an_entry[d];
 		}
 	}
 	
@@ -2488,7 +2562,6 @@ void APar_Readjust_STCO_atom(uint32_t supplemental_offset, short stco_number) {
 	an_entry=NULL;
 	stco_entries=NULL;
 	//end readjustment
-	//APar_AtomicWriteTest(parsedAtoms[thisAtomNumber].AtomicNumber, true);
 	return;
 }
 
@@ -2539,50 +2612,45 @@ void APar_DetermineAtomLengths() {
 		APar_EncapsulateData(hdlr_atom.AtomicNumber, NULL, NULL, AtomicDataClass_UInteger, false);
 	}
 	
-	short last_atom = APar_FindLastAtom();
+	short rev_atom_loop = APar_FindLastAtom();
 	//fprintf(stdout, "Last atom is named %s, num:%i\n", parsedAtoms[last_atom].AtomicName, parsedAtoms[last_atom].AtomicNumber);
-	short rev_atom_loop = APar_FindPrecedingAtom(parsedAtoms[last_atom].AtomicNumber);
 	
-	while (rev_atom_loop !=0) {
+	//To determine the lengths of the atoms, and of each parent for EVERY atom in the hierarchy (even atoms we haven't touched), we start at the end
+	//
+	//Progressing backward, we evaluate & look at each atom; if it is at the end of its hierarchy then its length is what it already states
+	//if the atom after our eval atom is a child, sum the lengths of atoms who are 1 level below to our length; also parent atoms have a lengh of 8
+	//which are taken care of in the case statement; iterate backwards through tree taking note of odball atoms as they occur.
+	
+	while (true) {
 		short next_atom = 0;
 		uint32_t atom_size = 0;
-		//fprintf(stdout, "preceding atom is named %s, num:%i\n", parsedAtoms[rev_atom_loop].AtomicName, parsedAtoms[rev_atom_loop].AtomicNumber);
-		
-		//if we were to eval our last atom, we would do it here, but it's either "free", "mdat", or a metadata "data" child atom
-		//which means, that it's either a top level atom, or a child (and not a container atom), so length has already been determined
-		//had it not (or we were on a mission to cover every base), we would eval the last atom before APar_FindPrecedingAtom.
-		next_atom = rev_atom_loop;
-		rev_atom_loop = APar_FindPrecedingAtom(parsedAtoms[rev_atom_loop].AtomicNumber);
+		short previous_atom = 0; //only gets used in testing for atom under stsd
+
 		//fprintf(stdout, "current atom is named %s, num:%i\n", parsedAtoms[rev_atom_loop].AtomicName, parsedAtoms[rev_atom_loop].AtomicNumber);
-		short previous_atom = APar_FindPrecedingAtom(rev_atom_loop);
-
-		if (parsedAtoms[rev_atom_loop].AtomicLevel == ( parsedAtoms[next_atom].AtomicLevel - 1) ) {
-			//apparently, a newly created atom of some sort.... we'll need to discern if what kind of parent/container atom 
-			if ( strncmp(parsedAtoms[rev_atom_loop].AtomicName, "meta", 4) == 0 ) {
-				atom_size += 12;
-				
-			} else if ( strncmp(parsedAtoms[rev_atom_loop].AtomicName, "stsd", 4) == 0 ) {
-				atom_size += 16;
-
-			//video drm
-			} else if (strncmp(parsedAtoms[previous_atom].AtomicName, "stsd", 4) == 0) {
-				if (strncmp(parsedAtoms[rev_atom_loop].AtomicName, "drmi", 4) == 0) {
-					atom_size += 86;
-				
-				//chapter atoms from Apple's chapter tool make 3 trkn hierarchies with these types; if any new ones show up, they default to the next "else": +36
-				} else if ( (strncmp(parsedAtoms[rev_atom_loop].AtomicName, "text", 4) == 0) || 
-										(strncmp(parsedAtoms[rev_atom_loop].AtomicName, "jpeg", 4) == 0) ||
-										(strncmp(parsedAtoms[rev_atom_loop].AtomicName, "tx3g", 4) == 0) ) {
-					atom_size += 16;
-					
-				} else {
-					//all the other nonstandard atoms directly after stsd: "drms", "mp4a", "alac" (and any new ones that may come up will default to +36 - watch for it)
-					atom_size += 36;
-				}
+		
+		if (rev_atom_loop == 0) {
+			break; //we seem to have hit the first atom
+		} else {
+			previous_atom = APar_FindPrecedingAtom(rev_atom_loop);
+		}
+		
+		uint32_t _atom_ = UInt32FromBigEndian(parsedAtoms[rev_atom_loop].AtomicName);
+		switch (_atom_) {
+			case 0x6D657461 : //'meta'
+				atom_size += 12; //meta has 4 bytes length, 4 bytes name & 4 bytes NULL space (...it could be versioned atom...)
+				break;
 			
-			} else {
-				atom_size += 8;
-			}
+			case 0x73747364 : //'stsd'
+				atom_size += 16;
+				break;
+			
+			default :
+				atom_size += 8; //all atoms have *at least* 4bytes length & 4 bytes name
+				break;		
+		}
+		
+		if (parsedAtoms[rev_atom_loop].NextAtomNumber != 0) {
+			next_atom = parsedAtoms[rev_atom_loop].NextAtomNumber;
 		}
 		
 		while (parsedAtoms[next_atom].AtomicLevel > parsedAtoms[rev_atom_loop].AtomicLevel) { // eval all child atoms....
@@ -2590,11 +2658,15 @@ void APar_DetermineAtomLengths() {
 			if (parsedAtoms[rev_atom_loop].AtomicLevel == ( parsedAtoms[next_atom].AtomicLevel - 1) ) { // only child atoms 1 level down
 				atom_size += parsedAtoms[next_atom].AtomicLength;
 				//fprintf(stdout, "\t\teval child atom %s, level:%i (sum %u)\n", parsedAtoms[next_atom].AtomicName, parsedAtoms[next_atom].AtomicLevel, atom_size); 
-				//fprintf(stdout, "\t\teval %s's child atom %s, level:%i (sum %u, added %u)\n", parsedAtoms[rev_atom_loop].AtomicName, parsedAtoms[next_atom].AtomicName, parsedAtoms[next_atom].AtomicLevel, atom_size, parsedAtoms[next_atom].AtomicLength);
+				//fprintf(stdout, "\t\teval %s's child atom %s, level:%i (sum %u, added %u)\n", parsedAtoms[previous_atom].AtomicName, parsedAtoms[next_atom].AtomicName, parsedAtoms[next_atom].AtomicLevel, atom_size, parsedAtoms[next_atom].AtomicLength);
+			} else if (parsedAtoms[next_atom].AtomicLevel < parsedAtoms[rev_atom_loop].AtomicLevel) {
+				break;
 			}
 			next_atom = parsedAtoms[next_atom].NextAtomNumber; //increment to eval next atom
 			parsedAtoms[rev_atom_loop].AtomicLength = atom_size;
 		}
+		
+		rev_atom_loop = APar_FindPrecedingAtom(parsedAtoms[rev_atom_loop].AtomicNumber);
 		
 	}
 	APar_DetermineNewFileLength();
@@ -2632,37 +2704,51 @@ void APar_TestTracksForKind() {
 			//Now total_tracks != 0; this ships off which trak atom to test, and returns codec_atom set to the atom after stsd.
 			APar_TrackInfo(total_tracks, track_num, codec_atom);
 			
-			//now test trak's stsd's 1st child atom against these 4cc codes:			
-			//video types
-			if (strncmp(parsedAtoms[codec_atom].AtomicName, "avc1", 4) == 0) {
-				track_codecs.has_avc1 = true;
-			} else if (strncmp(parsedAtoms[codec_atom].AtomicName, "mp4v", 4) == 0) { 
-				track_codecs.has_mp4v = true;
-			} else if (strncmp(parsedAtoms[codec_atom].AtomicName, "drmi", 4) == 0) { 
-				track_codecs.has_drmi = true;
-			
-			//audio types
-			} else if (strncmp(parsedAtoms[codec_atom].AtomicName, "alac", 4) == 0) { 
-				track_codecs.has_alac = true;
-			} else if (strncmp(parsedAtoms[codec_atom].AtomicName, "mp4a", 4) == 0) { 
-				track_codecs.has_mp4a = true;
-			} else if (strncmp(parsedAtoms[codec_atom].AtomicName, "drms", 4) == 0) { 
-				track_codecs.has_drms = true;
-			
-			//podcast types
-			} else if (strncmp(parsedAtoms[codec_atom].AtomicName, "text", 4) == 0) { 
-				track_codecs.has_timed_text = true;
-			} else if (strncmp(parsedAtoms[codec_atom].AtomicName, "jpeg", 4) == 0) { 
-				track_codecs.has_timed_jpeg = true;
-			} else if (strncmp(parsedAtoms[codec_atom].AtomicName, "tx3g", 4) == 0) { 
-				track_codecs.has_timed_tx3g = true;
-			
-			//other
-			} else if (strncmp(parsedAtoms[codec_atom].AtomicName, "mp4s", 4) == 0) { 
-				track_codecs.has_mp4s = true;
-			} else if (strncmp(parsedAtoms[codec_atom].AtomicName, "rtp ", 4) == 0) { 
-				track_codecs.has_rtp_hint = true;			
-			}			
+			//now test this trak's stsd codec against these 4cc codes:			
+			switch(parsedAtoms[codec_atom].stsd_codec) {
+				//video types
+				case 0x61766331 : // "avc1"
+					track_codecs.has_avc1 = true;
+					break;
+				case 0x6D703476 : // "mp4v"
+					track_codecs.has_mp4v = true;
+					break;
+				case 0x64726D69 : // "drmi"
+					track_codecs.has_drmi = true;
+					break;
+					
+				//audio types
+				case 0x616C6163 : // "alac"
+					track_codecs.has_alac = true;
+					break;
+				case 0x6D703461 : // "mp4a"
+					track_codecs.has_mp4a = true;
+					break;
+				case 0x64726D73 : // "drms"
+					track_codecs.has_drms = true;
+					break;
+				
+				//podcast types
+				case 0x74657874 : // "text"
+					track_codecs.has_timed_text = true;
+					break;
+				case 0x6A706567 : // "jpeg"
+					track_codecs.has_timed_jpeg = true;
+					break;
+				
+				//either podcast type (audio-only) or a QT-unsupported video file with subtitles
+				case 0x74783367 : // "tx3g"
+					track_codecs.has_timed_tx3g = true;
+					break;
+				
+				//other
+				case 0x6D703473 : // "mp4s"
+					track_codecs.has_mp4s = true;
+					break;
+				case 0x72747020  : // "rtp "
+					track_codecs.has_rtp_hint = true;
+					break;
+			}
 		}
 	}	
 	return;
@@ -3083,6 +3169,10 @@ void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_origi
 	
 	if (rewrite_original && !outfile) { //disable overWrite when writing out to a specifically named file; presumably the enumerated output file was meant to be the final destination
 		fclose(source_file);
+
+#if defined (_MSC_VER) /* native windows seems to require removing the file first; rename() on Mac OS X does the removing automatically as needed */
+		remove(m4aFile);
+#endif
 
 		int err = rename(temp_file_name, m4aFile);
 		if (err != 0) {
