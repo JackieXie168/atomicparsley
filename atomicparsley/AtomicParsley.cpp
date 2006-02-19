@@ -184,6 +184,16 @@ off_t findFileSize(const char *path) {
 	return fileStats.st_size;
 }
 
+uint16_t UInt16FromBigEndian(const char *string) {
+#if defined (__ppc__) || defined (__ppc64__)
+	uint16_t test;
+	memcpy(&test,string,2);
+	return test;
+#else
+	return ((string[0] & 0xff) << 8 | string[1] & 0xff) << 0;
+#endif
+}
+
 uint32_t UInt32FromBigEndian(const char *string) {
 #if defined (__ppc__) || defined (__ppc64__)
 	uint32_t test;
@@ -241,7 +251,7 @@ char* extractAtomName(char *fileData, int name_position) {
 	free(scan_atom_name);
 }
 
-void openSomeFile(const char* file, bool open) {
+FILE* openSomeFile(const char* file, bool open) {
 	if ( open && !file_opened) {
 		source_file = fopen(file, "rb");
 		if (file != NULL) {
@@ -251,6 +261,7 @@ void openSomeFile(const char* file, bool open) {
 		fclose(source_file);
 		file_opened = false;
 	}
+	return source_file;
 }
 
 bool TestFileExistence(const char *filePath, bool errorOut) {
@@ -1073,6 +1084,20 @@ void APar_ExtractDataAtom(int this_atom_number) {
 						fprintf(stdout, "%u\n", primary_number);
 					} else {
 					  fprintf(stdout, "%s\n", data_payload);
+						/*fprintf(stdout, "hex 0x");
+						for( int hexx = 1; hexx <= (int)(thisAtom.AtomicLength - atom_header_size); ++hexx) {
+							fprintf(stdout,"%02X -(%i)", data_payload[hexx-1], hexx);
+							if ((hexx % 4) == 0 && hexx >= 4) {
+								fprintf(stdout," ");
+							}
+							if ((hexx % 16) == 0 && hexx > 16) {
+								fprintf(stdout,"\n\t\t\t");
+							}
+							if (hexx == (int)(thisAtom.AtomicLength - atom_header_size) ) {
+								fprintf(stdout,"\n");
+							}
+						}*/
+						
 					}
 				}
 					

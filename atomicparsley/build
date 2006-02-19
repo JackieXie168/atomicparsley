@@ -59,6 +59,10 @@ echo "Compiling AtomicParsley.cpp ..."
 
 g++ -g -O2 -Wall -Wno-unused $EXTRA_CPP_FLAGS -MT obj_files/AtomicParsley.o -MD -MP -MF "./obj_files/AtomicParsley.Tpo" -c -o obj_files/AtomicParsley.o AtomicParsley.cpp
 
+echo "Compiling AP_AtomExtracts.cpp ..."
+
+g++ -g -O2 -Wall $EXTRA_CPP_FLAGS -I../AtomicParsley -MT obj_files/AP_AtomExtracts.o -MD -MP -MF "./obj_files/AP_AtomExtracts.Tpo" -c -o obj_files/AP_AtomExtracts.o AP_AtomExtracts.cpp
+
 echo "Compiling main.cpp ..."
 
 g++ -g -O2 -Wall $EXTRA_CPP_FLAGS -I../AtomicParsley -MT obj_files/main.o -MD -MP -MF "./obj_files/main.Tpo" -c -o obj_files/main.o main.cpp
@@ -69,16 +73,16 @@ g++ -g -O2 -Wall $EXTRA_CPP_FLAGS -I../AtomicParsley -MT obj_files/main.o -MD -M
 echo "Linking AtomicParsley..."
 
 if test $OS = Darwin ; then
-  g++ -g -O2 -Wall -liconv -framework Cocoa -o AtomicParsley obj_files/AtomicParsley_genres.o obj_files/AP_iconv.o obj_files/AP_NSFile_utils.o obj_files/AP_NSImage.o obj_files/AtomicParsley.o obj_files/main.o
+  g++ -g -O2 -Wall -liconv -framework Cocoa -o AtomicParsley obj_files/AtomicParsley_genres.o obj_files/AP_iconv.o obj_files/AP_NSFile_utils.o obj_files/AP_NSImage.o obj_files/AP_AtomExtracts.o obj_files/AtomicParsley.o obj_files/main.o
 
 elif test $OS = Linux ; then
-  g++ -O2 -Wall -o AtomicParsley obj_files/AtomicParsley_genres.o obj_files/AP_iconv.o obj_files/AtomicParsley.o obj_files/main.o
+  g++ -O2 -Wall -o AtomicParsley obj_files/AtomicParsley_genres.o obj_files/AP_iconv.o obj_files/AP_AtomExtracts.o obj_files/AtomicParsley.o obj_files/main.o
 
 elif test $OS = CYGWIN ; then
-  g++ -g -O2 -Wall -o AtomicParsley.exe  obj_files/AtomicParsley_genres.o obj_files/AP_iconv.o obj_files/AtomicParsley.o obj_files/main.o -liconv -lgcc 
+  g++ -g -O2 -Wall -o AtomicParsley.exe  obj_files/AtomicParsley_genres.o obj_files/AP_iconv.o obj_files/AP_AtomExtracts.o obj_files/AtomicParsley.o obj_files/main.o -liconv -lgcc 
 
 else
-  g++ -g -O2 -Wall -liconv -o AtomicParsley.exe obj_files/AtomicParsley_genres.o obj_files/AP_iconv.o obj_files/AtomicParsley.o obj_files/main.o
+  g++ -g -O2 -Wall -liconv -o AtomicParsley.exe obj_files/AtomicParsley_genres.o obj_files/AP_iconv.o obj_files/AP_AtomExtracts.o obj_files/AtomicParsley.o obj_files/main.o
 fi
 
 #---------------------------------------------#
