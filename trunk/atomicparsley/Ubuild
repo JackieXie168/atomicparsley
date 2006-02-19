@@ -60,6 +60,13 @@ g++ -arch i386 -g -O2 -Wall -Wno-unused $EXTRA_CPP_FLAGS -MT obj_files/386/Atomi
 g++ -arch ppc -g -O2 -Wall -Wno-unused $EXTRA_CPP_FLAGS -MT obj_files/ppc/AtomicParsley.o -MD -MP -MF "./obj_files/ppc/AtomicParsley.Tpo" -c -o obj_files/ppc/AtomicParsley.o AtomicParsley.cpp
 
 #--------------------------------#
+echo "Compiling AP_AtomExtracts.cpp ..."
+
+g++ -arch i386 -g -O2 -Wall $EXTRA_CPP_FLAGS -MT obj_files/386/AP_AtomExtracts.o -MD -MP -MF "./obj_files/386/AP_AtomExtracts.Tpo" -c -o obj_files/386/AP_AtomExtracts.o AP_AtomExtracts.cpp
+
+g++ -arch ppc -g -O2 -Wall $EXTRA_CPP_FLAGS -MT obj_files/ppc/AP_AtomExtracts.o -MD -MP -MF "./obj_files/ppc/AP_AtomExtracts.Tpo" -c -o obj_files/ppc/AP_AtomExtracts.o AP_AtomExtracts.cpp
+
+#--------------------------------#
 echo "Compiling main.cpp ..."
 
 g++ -arch i386 -g -O2 -Wall $EXTRA_CPP_FLAGS -I../AtomicParsley -MT obj_files/386/main.o -MD -MP -MF "./obj_files/386/main.Tpo" -c -o obj_files/386/main.o main.cpp
@@ -78,9 +85,9 @@ echo "Linking AtomicParsley..."
 #       need to be moved onto the '-arch ppc' line to create the binary       #
 ###############################################################################
 
-g++ -arch i386 -g -O2 -Wall -liconv -framework Cocoa -isysroot /Developer/SDKs/MacOSX10.4u.sdk -o AtomicParsley_386 obj_files/386/AtomicParsley_genres.o obj_files/386/AP_iconv.o obj_files/386/AP_NSFile_utils.o obj_files/386/AP_NSImage.o obj_files/386/AtomicParsley.o obj_files/386/main.o
+g++ -arch i386 -g -O2 -Wall -liconv -framework Cocoa -isysroot /Developer/SDKs/MacOSX10.4u.sdk -o AtomicParsley_386 obj_files/386/AtomicParsley_genres.o obj_files/386/AP_iconv.o obj_files/386/AP_NSFile_utils.o obj_files/386/AP_NSImage.o obj_files/386/AP_AtomExtracts.o obj_files/386/AtomicParsley.o obj_files/386/main.o
 
-g++ -arch ppc -g -O2 -Wall -liconv -framework Cocoa -o AtomicParsley_ppc obj_files/ppc/AtomicParsley_genres.o obj_files/ppc/AP_iconv.o obj_files/ppc/AP_NSFile_utils.o obj_files/ppc/AP_NSImage.o obj_files/ppc/AtomicParsley.o obj_files/ppc/main.o
+g++ -arch ppc -g -O2 -Wall -liconv -framework Cocoa -o AtomicParsley_ppc obj_files/ppc/AtomicParsley_genres.o obj_files/ppc/AP_iconv.o obj_files/ppc/AP_NSFile_utils.o obj_files/ppc/AP_NSImage.o obj_files/ppc/AP_AtomExtracts.o obj_files/ppc/AtomicParsley.o obj_files/ppc/main.o
 
 
 #---------------------------------------------#

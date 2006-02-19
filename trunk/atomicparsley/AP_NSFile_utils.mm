@@ -111,6 +111,7 @@ void APar_SupplySelectiveTypeCreatorCodes(const char *inputPath, const char *out
 			
 		//for a podcast an audio track with either a text, jpeg or url track is required, otherwise it will fall through to generic m4a;
 		//files that are already .m4b or 'M4B ' don't even enter into this situation, so they are safe
+		//if the file had video with subtitles (tx3g), then it would get taken care of above in the video section - unsupported by QT currently
 		} else if (track_codecs.has_mp4a && (track_codecs.has_timed_text || track_codecs.has_timed_jpeg || track_codecs.has_timed_tx3g) ) {
 			creator_code = APar_4CC_CreatorCode(outputPath, 'M4B ');
 			

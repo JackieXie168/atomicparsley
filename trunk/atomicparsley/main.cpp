@@ -142,17 +142,20 @@ static void kill_signal (int sig) {
 
 static const char* longHelp_text =
 "AtomicParsley longhelp.\n"
-"Usage: AtomicParsley [m4aFILE]... [OPTION]... [ARGUMENT]... [ [OPTION2]...[ARGUMENT2]...] \n"
+"Usage: AtomicParsley [mp4FILE]... [OPTION]... [ARGUMENT]... [ [OPTION2]...[ARGUMENT2]...] \n"
 "\n"
-"example: AtomicParsley /path/to.m4a --E \n"
-"example: Atomicparsley /path/to.m4a --artist \"Me\" --artwork /path/art.jpg\n"
-"example: Atomicparsley /path/to.m4a --albumArtist \"You\" --podcastFlag true --freefree 2\n"
+"example: AtomicParsley /path/to.mp4 --E \n"
+"example: AtomicParsley /path/to.mp4 --T 1 \n"
+"example: Atomicparsley /path/to.mp4 --artist \"Me\" --artwork /path/art.jpg\n"
+"example: Atomicparsley /path/to.mp4 --albumArtist \"You\" --podcastFlag true --freefree 2\n"
+"example: Atomicparsley /path/to.mp4 --stik \"TV Show\" --advisory explicit --purchaseDate timestamp\n"
 "\n"
 "------------------------------------------------------------------------------------------------\n"
 " Atom Tree\n"
 "\n"
-"  --test             ,  -T      Tests header of an m4a to see if its a usable m4a file.\n"
-"                                Also prints out the hierarchical atom tree.\n"
+"  --test             ,  -T      Tests file to see if its a valid MPEG-4 file.\n"
+"                                Prints out the hierarchical atom tree & some track-level info.\n"
+"                                Supplemental track level info with \"-T 1\" or \"--test foo\"\n"
 "\n"
 "------------------------------------------------------------------------------------------------\n"
 " Atom contents (printing on screen & extracting artwork(s) to files)\n"
@@ -291,7 +294,7 @@ int main( int argc, char *argv[])
 	while (1) {
 	static struct option long_options[] = {
 		{ "help",						  0,									NULL,						OPT_HELP },
-		{ "test",					  	0,									NULL,						OPT_TEST },
+		{ "test",					  	optional_argument,	NULL,						OPT_TEST },
 		{ "textdata",         0,                  NULL,           OPT_ShowTextData },
 		{ "extractPix",				0,									NULL,           OPT_ExtractPix },
 		{ "extractPixToPath", required_argument,	NULL,				    OPT_ExtractPixToPath },
@@ -372,6 +375,9 @@ int main( int argc, char *argv[])
 		case OPT_TEST: {
 			APar_ScanAtoms(m4afile, true);
 			APar_PrintAtomicTree();
+			if (argv[optind]) {
+				APar_ExtractDetails( openSomeFile(m4afile, true) );
+			}
 			break;
 		}
 		
