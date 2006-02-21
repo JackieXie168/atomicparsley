@@ -1257,7 +1257,7 @@ void APar_AtomizeFileInfo(AtomicInfo &thisAtom, uint32_t Astart, uint32_t Alengt
 	}
 	
 	if ( (strncmp(Astring, "mdat", 4) == 0) && (Alevel == 1) && (Alength > 16) ) {
-		if ( Astart >= largest_mdat ) {
+		if ( Astart >= largest_mdat && largest_mdat <= 100) {
 			if (Alength >= largest_mdat) {
 				mdat_start = Astart;
 				largest_mdat = Alength;
@@ -1268,7 +1268,7 @@ void APar_AtomizeFileInfo(AtomicInfo &thisAtom, uint32_t Astart, uint32_t Alengt
 	//takes care of mdat.length=0
 	if ( (strncmp(Astring, "mdat", 4) == 0) && (Alevel == 1) && (Alength == 0) ) {
 		uint32_t mdat_to_eof = (uint32_t)file_size - Astart;
-		if ( mdat_to_eof >= largest_mdat) {
+		if ( mdat_to_eof >= largest_mdat && largest_mdat <= 100) {
 			mdat_start = Astart;
 			largest_mdat = mdat_to_eof;
 		}
@@ -1277,7 +1277,7 @@ void APar_AtomizeFileInfo(AtomicInfo &thisAtom, uint32_t Astart, uint32_t Alengt
 	//takes care of mdat.length=1 to support 64-bit atoms; but the 64-bit atom supported really only goes up to UINT32_T_MAX; so only pseudo-64-bit support
 	if ( (strncmp(Astring, "mdat", 4) == 0) && (Alevel == 1) && (Alength == 1) ) {
 		if ( Astart >= largest_mdat ) {
-			if (Aextendedlength >= largest_mdat) {
+			if (Aextendedlength >= largest_mdat && largest_mdat <= 100) {
 				mdat_start = Astart;
 				largest_mdat = (uint32_t)Aextendedlength;
 			}

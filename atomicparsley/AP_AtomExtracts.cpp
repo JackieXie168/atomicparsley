@@ -151,6 +151,7 @@ char* APar_ExtractUTC(uint32_t total_secs) {
 	timeinfo.tm_yday = literal_days_into_year;
 	timeinfo.tm_mon = month - 1;
 	timeinfo.tm_mday = days;
+	timeinfo.tm_wday = (((total_secs / 86400) - (offset_year / 4)) - 5 ) % 7;
 	
 	timeinfo.tm_hour = hours;
 	timeinfo.tm_min = (literal_seconds_into_day - (hours * 3600)) / 60;
