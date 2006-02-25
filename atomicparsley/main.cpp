@@ -291,6 +291,12 @@ int main( int argc, char *argv[])
 	
 	TestFileExistence(m4afile, true);
 	
+	//it would probably be better to test output_file if provided & if --overWrite was provided.... probably only of use on Windows - and I'm not on it.
+	if (strlen(m4afile) + 11 > MAXPATHLEN) {
+		fprintf(stderr, "%c %s", '\a', "AtomicParsley error: filename/filepath was too long.\n");
+		exit(1);
+	}
+	
 	while (1) {
 	static struct option long_options[] = {
 		{ "help",						  0,									NULL,						OPT_HELP },
