@@ -65,7 +65,7 @@ bool cvs_build = true; //controls which type of versioning - cvs build-time stam
 FILE* source_file;
 off_t file_size;
 
-struct AtomicInfo parsedAtoms[250]; //max out at 250 atoms (most I've seen is 144 for an untagged mp4)
+struct AtomicInfo parsedAtoms[MAX_ATOMS]; //(most I've seen is 144 for an untagged mp4)
 short atom_number = 0;
 short generalAtomicLevel = 1;
 
@@ -76,8 +76,10 @@ bool move_mdat_atoms = true;
 
 uint32_t max_buffer = 4096*125; // increased to 512KB
 
-uint32_t mdat_start=0;
-uint32_t largest_mdat=0;
+uint32_t bytes_before_mdat=0;
+uint32_t bytes_into_mdat = 0;
+uint64_t mdat_supplemental_offset = 0;
+uint32_t removed_bytes_tally = 0;
 uint32_t new_file_size = 0; //used for the progressbar
 
 bool contains_unsupported_64_bit_atom = false; //reminder that there are some 64-bit files that aren't yet supported (and where that limit is set)
@@ -501,6 +503,26 @@ short APar_FindPrecedingAtom(short an_atom_num) {
 		}
 	}
 	return precedingAtom;
+}
+
+bool APar_Eval_ChunkOffsetImpact(short an_atom_num) {
+	bool impact_calculations_directly = false;
+	short iter = 0;
+	
+	while (true) {
+		if ( strncmp(parsedAtoms[iter].AtomicName, "mdat", 4) == 0) {
+			if (an_atom_num < iter && parsedAtoms[an_atom_num].AtomicLevel == 1) {
+				impact_calculations_directly = true;
+			}
+			break;
+		} else {
+			iter=parsedAtoms[iter].NextAtomNumber;
+		}
+		if (iter == 0) {
+			break;
+		}
+	}
+	return impact_calculations_directly;
 }
 
 AtomicInfo APar_FindAtom(const char* atom_name, bool createMissing, bool uuid_atom_type, bool findChild, bool directFind) {
@@ -1075,30 +1097,29 @@ void APar_ExtractDataAtom(int this_atom_number) {
 				} else if ( (strncmp(parent_atom_name, "purl", 4) == 0) || (strncmp(parent_atom_name, "egid", 4) == 0) ) {
 					fprintf(stdout,"%s\n", data_payload);
 				
-				} else {
-					if (thisAtom.AtomicLength >= 20 ) {
+				} else if ( (strncmp(parent_atom_name, "tvsn", 4) == 0) || (strncmp(parent_atom_name, "tves", 4) == 0) ) {
 					  for (int i=0; i < 4; i++) {
 						  primary_number_data[i] = data_payload[i]; 
 					  }
 					  primary_number = UInt32FromBigEndian(primary_number_data);
 						fprintf(stdout, "%u\n", primary_number);
-					} else {
-					  fprintf(stdout, "%s\n", data_payload);
-						/*fprintf(stdout, "hex 0x");
-						for( int hexx = 1; hexx <= (int)(thisAtom.AtomicLength - atom_header_size); ++hexx) {
-							fprintf(stdout,"%02X -(%i)", data_payload[hexx-1], hexx);
-							if ((hexx % 4) == 0 && hexx >= 4) {
-								fprintf(stdout," ");
-							}
-							if ((hexx % 16) == 0 && hexx > 16) {
-								fprintf(stdout,"\n\t\t\t");
-							}
-							if (hexx == (int)(thisAtom.AtomicLength - atom_header_size) ) {
-								fprintf(stdout,"\n");
-							}
-						}*/
 						
+				} else {
+					  
+					fprintf(stdout, "hex 0x");
+					for( int hexx = 1; hexx <= (int)(thisAtom.AtomicLength - atom_header_size); ++hexx) {
+						fprintf(stdout,"%02X", (uint8_t)data_payload[hexx-1]);
+						if ((hexx % 4) == 0 && hexx >= 4) {
+							fprintf(stdout," ");
+						}
+						if ((hexx % 16) == 0 && hexx > 16) {
+							fprintf(stdout,"\n\t\t\t");
+						}
+						if (hexx == (int)(thisAtom.AtomicLength - atom_header_size) ) {
+							fprintf(stdout,"\n");
+						}
 					}
+						
 				}
 					
 				free(primary_number_data);
@@ -1228,6 +1249,8 @@ bool APar_DetermineMain_mdat() {
 
 void APar_AtomizeFileInfo(AtomicInfo &thisAtom, uint32_t Astart, uint32_t Alength, uint64_t Aextendedlength, char* Astring,
 													short Alevel, int Aclass, int NextAtomNum, bool uuid_type) {
+	static bool passed_mdat = false;
+	
 	thisAtom.AtomicStart = Astart;
 	thisAtom.AtomicLength = Alength;
 	thisAtom.AtomicLengthExtended = Aextendedlength;
@@ -1256,34 +1279,14 @@ void APar_AtomizeFileInfo(AtomicInfo &thisAtom, uint32_t Astart, uint32_t Alengt
 		thisAtom.AtomicDataClass = AtomicDataClass_UInteger;
 	}
 	
-	if ( (strncmp(Astring, "mdat", 4) == 0) && (Alevel == 1) && (Alength > 16) ) {
-		if ( Astart >= largest_mdat && largest_mdat <= 100) {
-			if (Alength >= largest_mdat) {
-				mdat_start = Astart;
-				largest_mdat = Alength;
-			}
-		}
+	if (strncmp(Astring, "mdat", 4) == 0) {
+		passed_mdat = true;
 	}
-	
-	//takes care of mdat.length=0
-	if ( (strncmp(Astring, "mdat", 4) == 0) && (Alevel == 1) && (Alength == 0) ) {
-		uint32_t mdat_to_eof = (uint32_t)file_size - Astart;
-		if ( mdat_to_eof >= largest_mdat && largest_mdat <= 100) {
-			mdat_start = Astart;
-			largest_mdat = mdat_to_eof;
-		}
+
+	if (!passed_mdat && Alevel == 1) {
+		bytes_before_mdat += Alength; //this value gets used during FreeFree (for removed_bytes_tally) & chunk offset calculations
 	}
-	
-	//takes care of mdat.length=1 to support 64-bit atoms; but the 64-bit atom supported really only goes up to UINT32_T_MAX; so only pseudo-64-bit support
-	if ( (strncmp(Astring, "mdat", 4) == 0) && (Alevel == 1) && (Alength == 1) ) {
-		if ( Astart >= largest_mdat ) {
-			if (Aextendedlength >= largest_mdat && largest_mdat <= 100) {
-				mdat_start = Astart;
-				largest_mdat = (uint32_t)Aextendedlength;
-			}
-		}
-	}
-	
+			
 	atom_number++; //increment to the next AtomicInfo array
 	
 	return;
@@ -1570,8 +1573,8 @@ void APar_Parse_stsd_Atoms(FILE* file, uint32_t midJump, uint32_t drmLength) {
 			stsd_progress += 36;		
 			atomLevel++;
 			
-		} else if (strncmp(atom, "drmi", 4) == 0) { //TODO TODO TODO: just as a drmi atom is 86 bytes, so is avc1 (hex length of 0x83
-			//a new drm atom in a different trkn than the first - appeared (first for me) in an iTMS TV Show episode (Lost 209)
+		} else if (strncmp(atom, "drmi", 4) == 0) {
+		
 			parsedAtoms[atom_number-1].AtomicData = (char *)malloc(sizeof(char)*78); //74
 			
 #if defined (USE_MEMSET)
@@ -1886,7 +1889,7 @@ void APar_RemoveAtom(const char* atom_path, bool direct_find, bool uuid_atom_typ
     free(atom_hierarchy);
 		atom_hierarchy=NULL;
   }
-  return;
+	return;
 }
 
 void APar_freefree(uint8_t purge_level) {
@@ -1897,15 +1900,18 @@ void APar_freefree(uint8_t purge_level) {
 	while (true) {
 		prev_atom = eval_atom;
 		eval_atom = parsedAtoms[eval_atom].NextAtomNumber;
-				if (eval_atom == 0) { //we've hit the last atom
+		if (eval_atom == 0) { //we've hit the last atom
 			break;
 		}
 
 		if ( strncmp(parsedAtoms[eval_atom].AtomicName, "free", 4) == 0 ) {
 			if (purge_level == 0 || purge_level >= (uint8_t)parsedAtoms[eval_atom].AtomicLevel) {
+				if (parsedAtoms[eval_atom].AtomicLevel == 1 && APar_Eval_ChunkOffsetImpact(eval_atom) ) {
+					removed_bytes_tally += parsedAtoms[eval_atom].AtomicLength;
+				}
 				short prev_atom = APar_FindPrecedingAtom(eval_atom);
 				parsedAtoms[prev_atom].NextAtomNumber = parsedAtoms[eval_atom].NextAtomNumber;
-				//fprintf(stdout, "After this %s atom, the %s atom will be removed\n", parsedAtoms[prev_atom].AtomicName, parsedAtoms[eval_atom].AtomicName);
+				
 				eval_atom = prev_atom; //go back to the previous atom and continue the search
 			}
 		}
@@ -1959,6 +1965,30 @@ void APar_MoveAtom(short this_atom_number, short new_position) {
 	parsedAtoms[this_atom_number].NextAtomNumber = new_position;
 
 	return;
+}
+
+bool APar_Move_mdat_Determination() {
+	bool rearrange_mdat_atoms = false;
+	bool found_moov_atom = false;
+	int eval_atom_num = 0; 
+	
+	while (true) {
+		if ( (strncmp(parsedAtoms[eval_atom_num].AtomicName, "moov", 4) == 0)  && (parsedAtoms[eval_atom_num].AtomicLevel == 1) ){
+			found_moov_atom = true;
+		}
+		if ( (strncmp(parsedAtoms[eval_atom_num].AtomicName, "mdat", 4) == 0)  && (parsedAtoms[eval_atom_num].AtomicLevel == 1) ){
+			if (!found_moov_atom) {
+				rearrange_mdat_atoms = true;
+				break;
+			}
+		}
+		eval_atom_num = parsedAtoms[eval_atom_num].NextAtomNumber;
+		
+		if (eval_atom_num == 0) {
+			break;
+		}
+	}
+	return rearrange_mdat_atoms;
 }
 
 void APar_Move_mdat_Atoms() {
@@ -2482,25 +2512,25 @@ uint32_t APar_DetermineMediaData_AtomPosition() {
 	
 	//loop through each atom in the struct array (which holds the offset info/data)
  	while (parsedAtoms[thisAtomNumber].NextAtomNumber != 0) {
-		AtomicInfo thisAtom = parsedAtoms[thisAtomNumber];
-		//fprintf(stdout, "our atom is %s\n", thisAtom.AtomicName);
 		
-		if ( (strncmp(thisAtom.AtomicName, "mdat", 4) == 0) && (thisAtom.AtomicLevel == 1) && (thisAtom.AtomicLength <= 1 || thisAtom.AtomicLength > 75) ) {
+		if ( (strncmp(parsedAtoms[thisAtomNumber].AtomicName, "mdat", 4) == 0) && 
+				 (parsedAtoms[thisAtomNumber].AtomicLevel == 1) && 
+				(parsedAtoms[thisAtomNumber].AtomicLength <= 1 || parsedAtoms[thisAtomNumber].AtomicLength > 75) ) {
 			break;
 		}
-		if (thisAtom.AtomicLevel == 1 && thisAtom.AtomicLengthExtended == 0) {
-			mdat_position +=thisAtom.AtomicLength;
+		if (parsedAtoms[thisAtomNumber].AtomicLevel == 1 && parsedAtoms[thisAtomNumber].AtomicLengthExtended == 0) {
+			mdat_position +=parsedAtoms[thisAtomNumber].AtomicLength;
 		} else {
 			//part of the pseudo 64-bit support
-			mdat_position +=thisAtom.AtomicLengthExtended;
+			mdat_position +=parsedAtoms[thisAtomNumber].AtomicLengthExtended;
 		}
 		thisAtomNumber = parsedAtoms[thisAtomNumber].NextAtomNumber;
-	}	
-	return mdat_position - mdat_start;
+	}
+	return mdat_position;
 }
 
-void APar_Readjust_CO64_atom(uint32_t supplemental_offset, short co64_number) {
-	AtomicInfo thisAtom = parsedAtoms[co64_number];
+bool APar_Readjust_CO64_atom(uint32_t mdat_position, short co64_number) {
+	bool co64_changed = false;
 	APar_AtomicRead(co64_number);
 	parsedAtoms[co64_number].AtomicDataClass = AtomicDataClass_UInteger;
 	//readjust
@@ -2527,7 +2557,22 @@ void APar_Readjust_CO64_atom(uint32_t supplemental_offset, short co64_number) {
 			a_64bit_entry[c] = parsedAtoms[co64_number].AtomicData[4 + (i-1)*8 + c];
 		}
 		uint64_t this_entry = UInt64FromBigEndian(a_64bit_entry);
-		this_entry += (uint64_t)supplemental_offset; //this is where we add our new mdat offset difference
+		
+		if (i == 1 && mdat_supplemental_offset == 0) { //for the first chunk, and only for the first *ever* entry, make the global mdat supplemental offset
+			
+			mdat_supplemental_offset = mdat_position - (this_entry - removed_bytes_tally);
+			bytes_into_mdat = this_entry - bytes_before_mdat - removed_bytes_tally;
+			
+			if (mdat_supplemental_offset == 0) {
+				break;
+			}
+		}
+		
+		if (mdat_supplemental_offset != 0) {
+			co64_changed = true;
+		}
+		
+		this_entry += mdat_supplemental_offset + bytes_into_mdat; //this is where we add our new mdat offset difference
 		char8TOuint64(this_entry, a_64bit_entry);
 		//and put the data back into AtomicData...
 		for (int d = 0; d <=7; d++ ) {
@@ -2541,12 +2586,11 @@ void APar_Readjust_CO64_atom(uint32_t supplemental_offset, short co64_number) {
 	a_64bit_entry=NULL;
 	co64_entries=NULL;
 	//end readjustment
-	return;
+	return co64_changed;
 }
 
-void APar_Readjust_STCO_atom(uint32_t supplemental_offset, short stco_number) {
-	AtomicInfo thisAtom = parsedAtoms[stco_number];
-	//fprintf(stdout, "Just checking stco = %s\n", thisAtom.AtomicName);
+bool APar_Readjust_STCO_atom(uint32_t mdat_position, short stco_number) {
+	bool stco_changed = false;
 	APar_AtomicRead(stco_number);
 	parsedAtoms[stco_number].AtomicDataClass = AtomicDataClass_UInteger;
 	//readjust
@@ -2572,8 +2616,24 @@ void APar_Readjust_STCO_atom(uint32_t supplemental_offset, short stco_number) {
 			//first stco entry is the number of entries; every other one is an actual offset value
 			an_entry[c] = parsedAtoms[stco_number].AtomicData[i*4 + c];
 		}
+		
 		uint32_t this_entry = UInt32FromBigEndian(an_entry);
-		this_entry += supplemental_offset; //this is where we add our new mdat offset difference
+						
+		if (i == 1 && mdat_supplemental_offset == 0) { //for the first chunk, and only for the first *ever* entry, make the global mdat supplemental offset
+		
+			mdat_supplemental_offset = (uint64_t)(mdat_position - (this_entry - removed_bytes_tally) );
+			bytes_into_mdat = this_entry - bytes_before_mdat - removed_bytes_tally;
+			
+			if (mdat_supplemental_offset == 0) {
+				break;
+			}
+		}
+		
+		if (mdat_supplemental_offset != 0) {
+			stco_changed = true;
+		}
+
+		this_entry += mdat_supplemental_offset + bytes_into_mdat;
 		char4TOuint32(this_entry, an_entry);
 		//and put the data back into AtomicData...
 		for (int d = 0; d <=3; d++ ) {
@@ -2587,7 +2647,7 @@ void APar_Readjust_STCO_atom(uint32_t supplemental_offset, short stco_number) {
 	an_entry=NULL;
 	stco_entries=NULL;
 	//end readjustment
-	return;
+	return stco_changed;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////
@@ -2621,7 +2681,7 @@ void APar_DetermineAtomLengths() {
 
 	APar_Verify__udta_meta_hdlr__atom();
 
-	if (move_mdat_atoms) { //from cli flag
+	if (move_mdat_atoms && APar_Move_mdat_Determination() ) { //from cli flag
 		APar_Move_mdat_Atoms();
 	}
 	
@@ -3100,7 +3160,7 @@ void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_origi
 	memset(data, 0, sizeof(char)*4);
 #endif
 	
-	uint32_t mdat_offset = APar_DetermineMediaData_AtomPosition();
+	uint32_t mdat_position = APar_DetermineMediaData_AtomPosition();
 	
 	if (!outfile) {  //if (outfile == NULL) {  //if (strlen(outfile) == 0) { 
 		APar_DeriveNewPath(m4aFile, temp_file_name, 0, "-temp-");
@@ -3141,22 +3201,15 @@ void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_origi
 			AtomicInfo thisAtom = parsedAtoms[thisAtomNumber];
 			//the loop where the critical determination is made
 			if (strncmp(parsedAtoms[thisAtomNumber].AtomicName, "stco", 4) == 0) {
-					if (mdat_offset != 0 ) {
-						//stco atom will need to be readjusted
-						APar_Readjust_STCO_atom(mdat_offset, thisAtomNumber);
-						temp_file_bytes_written += APar_WriteAtomically(source_file, temp_file, false, file_buffer, data, temp_file_bytes_written, thisAtomNumber);
-					} else {
-						temp_file_bytes_written += APar_WriteAtomically(source_file, temp_file, true, file_buffer, data, temp_file_bytes_written, thisAtomNumber);
-					}
+				bool readjusted_stco = APar_Readjust_STCO_atom(mdat_position, thisAtomNumber);
+				
+				temp_file_bytes_written += APar_WriteAtomically(source_file, temp_file, !readjusted_stco, file_buffer, data, temp_file_bytes_written, thisAtomNumber);
 					
 			} else if (strncmp(parsedAtoms[thisAtomNumber].AtomicName, "co64", 4) == 0) {
-					if (mdat_offset != 0 ) {
-						//co64 (64-bit stco) atom will need to be readjusted
-						APar_Readjust_CO64_atom(mdat_offset, thisAtomNumber);
-						temp_file_bytes_written += APar_WriteAtomically(source_file, temp_file, false, file_buffer, data, temp_file_bytes_written, thisAtomNumber);
-					} else {
-						temp_file_bytes_written += APar_WriteAtomically(source_file, temp_file, true, file_buffer, data, temp_file_bytes_written, thisAtomNumber);
-					}
+				bool readjusted_co64 = APar_Readjust_CO64_atom(mdat_position, thisAtomNumber);
+				
+				temp_file_bytes_written += APar_WriteAtomically(source_file, temp_file, !readjusted_co64, file_buffer, data, temp_file_bytes_written, thisAtomNumber);
+				
 
 			//AtomicDataClass comes into play for a missing "moov.udta.meta" atom, his has a data type class, but no actual data (or conversely, no type with 4 bytes of data
 			} else if ( (thisAtom.AtomicData != NULL) || ( strncmp(thisAtom.AtomicName, "meta", 4)  == 0 && thisAtom.AtomicDataClass >= 0) ) {

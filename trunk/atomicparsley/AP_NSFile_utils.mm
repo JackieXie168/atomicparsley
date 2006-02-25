@@ -56,6 +56,14 @@ char* APar_4CC_CreatorCodeCARBON(const char* filepath, const char* new_creator_c
 }
 */
 
+
+//TODO: there is a problem with this code seen in: "5.1channel audio-orig.mp4"
+//it makes no difference what the file contains, iTunes won't see any (ANY) metadata if its hook/'M4A '.
+//in fact, iTunes won't play the file at all
+//changing the exact file (with all kinds of metadata) to TVOD/mpg4 - iTunes can play it fine, but doesn't fetch any metadata
+//
+//it might be beneficial to eval for channels and if its audio only & multichannel to NOT change the TYPE/creator codes
+
 uint32_t APar_4CC_CreatorCode(const char* filepath, uint32_t new_creator_code) {
 	uint32_t return_value = 0;
 	NSAutoreleasePool * pool = [[NSAutoreleasePool alloc] init];

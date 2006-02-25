@@ -79,6 +79,21 @@ uint32_t APar_FindValueInAtom(char* &uint32_buffer, FILE* m4afile, short an_atom
 	return current_pos;
 }
 
+uint8_t APar_skip_filler(FILE* m4afile, uint32_t start_position) {
+	uint8_t skip_bytes = 0;
+	
+	while (true) {
+		uint8_t eval_byte = APar_read8(m4afile, start_position + skip_bytes);
+		
+		if (eval_byte == 0x80 || eval_byte == 0xFE) {
+			skip_bytes++;
+		} else {
+			break;
+		}
+	}
+	return skip_bytes;
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////
 //                       Time / Language / Channel specifics                         //
 ///////////////////////////////////////////////////////////////////////////////////////
@@ -176,6 +191,80 @@ uint8_t APar_ExtractChannelInfo(FILE* m4afile, uint32_t pos) {
 	return unpacked_channels;
 }
 
+esds_AudioInfo* APar_Extract_audio_esds_Info(char* &uint32_buffer, FILE* m4afile, short track_level_atom) {
+	static esds_AudioInfo this_esds_info;
+	esds_AudioInfo* esds_ptr = &this_esds_info;
+	memset ( &this_esds_info, 0, sizeof (esds_AudioInfo) );	
+	uint32_t offset_into_stsd = 0;
+	
+	while (offset_into_stsd < parsedAtoms[track_level_atom].AtomicLength) {
+		offset_into_stsd ++;
+		if ( APar_read32(uint32_buffer, m4afile, parsedAtoms[track_level_atom].AtomicStart + offset_into_stsd) == 0x65736473 ) {
+			this_esds_info.contains_esds = true;
+		
+			uint32_t esds_start = parsedAtoms[track_level_atom].AtomicStart + offset_into_stsd - 4;
+			uint32_t esds_length = APar_read32(uint32_buffer, m4afile, esds_start);
+			uint32_t offset_into_esds = 12; //4bytes length + 4 bytes name + 4bytes null
+						
+			if ( APar_read8(m4afile, esds_start + offset_into_esds) == 0x03 ) {
+				offset_into_esds++;
+				offset_into_esds += APar_skip_filler(m4afile, esds_start + offset_into_esds);
+			}
+
+			uint8_t section3_length = APar_read8(m4afile, esds_start + offset_into_esds);
+			if ( section3_length <= esds_length && section3_length != 0) {
+				this_esds_info.section3_length = section3_length;
+			} else {
+				break;
+			}
+			
+			offset_into_esds+= 4; //1 bytes section 0x03 length + 2 bytes + 1 byte
+			
+			if ( APar_read8(m4afile, esds_start + offset_into_esds) == 0x04 ) {
+				offset_into_esds++;
+				offset_into_esds += APar_skip_filler(m4afile, esds_start + offset_into_esds);
+			}
+			
+			uint8_t section4_length = APar_read8(m4afile, esds_start + offset_into_esds);
+			if ( section4_length <= section3_length && section4_length != 0) {
+				this_esds_info.section4_length = section4_length;
+				
+				offset_into_esds++;
+				this_esds_info.descriptor_object_typeID = APar_read8(m4afile, esds_start + offset_into_esds);
+				
+				offset_into_esds+= 5;
+				this_esds_info.max_bitrate = APar_read32(uint32_buffer, m4afile, esds_start + offset_into_esds);
+				offset_into_esds+= 4;
+				this_esds_info.avg_bitrate = APar_read32(uint32_buffer, m4afile, esds_start + offset_into_esds);
+				offset_into_esds+= 4;
+			} else {
+				break;
+			}
+			
+			if ( APar_read8(m4afile, esds_start + offset_into_esds) == 0x05 ) {
+				offset_into_esds++;
+				offset_into_esds += APar_skip_filler(m4afile, esds_start + offset_into_esds);
+			}
+			
+			uint8_t section5_length = APar_read8(m4afile, esds_start + offset_into_esds);
+			if ( section5_length <= section4_length && section5_length != 0) {
+				this_esds_info.section5_length = section5_length;
+				offset_into_esds+=2;
+				this_esds_info.channels = APar_ExtractChannelInfo(m4afile, esds_start + offset_into_esds);
+				//fprintf(stdout, "channs = %u", this_esds_info.channels);
+			}
+			break; //uh, I've extracted the pertinent info
+		
+		}
+		if (offset_into_stsd > parsedAtoms[track_level_atom].AtomicLength) {
+			break;
+		}
+	
+	}
+
+	return esds_ptr;
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////
 //                            Track Level Atom Info                                  //
 //              (suspiciously like the original in AtomicParsley.cpp)                //
@@ -266,50 +355,17 @@ void APar_ExtractDetails(FILE* m4afile) {
 			char4TOuint32(four_bytes, uint32_buffer);
 			fprintf(stdout, "    Kind/Codec: %s", uint32_buffer);
 			
-			//number of channels;     there doesn't seem to be an easy way of getting this info relative to the start/end of atom XXXX
-			//the this isn't well documented in the specifications
+			//number of channels
 			
 			if (is_sound_file) {
 			
-				_offset = APar_FindValueInAtom(uint32_buffer, m4afile, track_level_atom, 24, 0x080808002); //catches most files
-				
-				if (_offset > 0 && _offset < parsedAtoms[track_level_atom].AtomicLength) {
-					fprintf(stdout, "    Channels: [%u]", APar_ExtractChannelInfo(m4afile, parsedAtoms[track_level_atom].AtomicStart + _offset + 5) );
+				esds_AudioInfo* this_info = APar_Extract_audio_esds_Info(uint32_buffer, m4afile, track_level_atom);
+				if (this_info->contains_esds) {
+					fprintf(stdout, "    Channels: [%u]", this_info->channels);
 					
-					//the alac file doesn't work this way at all, its stsd.AtomicStart = 41bytes
-				} else if (strncmp(parsedAtoms[track_level_atom +1].AtomicName, "alac", 4) == 0) {
-					fprintf(stdout, "    Channels: %u", APar_read8(m4afile, parsedAtoms[track_level_atom].AtomicStart + 41) );
-					
-				} else {				
-					_offset = APar_FindValueInAtom(uint32_buffer, m4afile, track_level_atom, 24, 0x0211); //few will get here; gpac muxes do
-					if (_offset > 0 && _offset < parsedAtoms[track_level_atom].AtomicLength) {
-						fprintf(stdout, "    Channels: {%u}", APar_ExtractChannelInfo(m4afile, parsedAtoms[track_level_atom].AtomicStart + _offset + 2) );
-						
-					} else {
-					
-						//fprintf(stdout, "    You must have a fucking annoying Nero file");
-						//for NeroAAC & NeroAVC files, a joyous slog through stsd searching for their hallmarks
-						uint32_t current_pos = 20;
-						
-						while (current_pos <= parsedAtoms[track_level_atom].AtomicLength) {
-							four_bytes = APar_read32(uint32_buffer, m4afile, parsedAtoms[track_level_atom].AtomicStart + current_pos);
-							switch(four_bytes) {
-								case 0x05808080 : //NeroAAC
-								case 0x05808002 : //NeroAAC
-								case 0x80808005 : //NeroAAC
-								case 0x25058080 : //NeroAVC
-								case 0x37058080 : //NeroAVC
-									fprintf(stdout, "    Channels: (%u)", APar_ExtractChannelInfo(m4afile, parsedAtoms[track_level_atom].AtomicStart + current_pos +4 +2) );
-									break;
-							}
-							
-							current_pos +=2;
-							if (current_pos > parsedAtoms[track_level_atom].AtomicLength) {
-								break;
-							}
-						}
-						
-					}
+				} else { //alac files don't have esds; channels aren't bitpacked either; moot since Apple Lossless doesn't appear able to convert to 5.1
+					this_info->channels = APar_read8(m4afile, parsedAtoms[track_level_atom].AtomicStart + 41);
+					fprintf(stdout, "    Channels: (%u)", this_info->channels );
 				}
 			}
 			
