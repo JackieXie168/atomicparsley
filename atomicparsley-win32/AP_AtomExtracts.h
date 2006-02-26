@@ -1,6 +1,6 @@
 //==================================================================//
 /*
-    AtomicParsley - AtomicParsley_genres.h
+    AtomicParsley - AP_AtomExtracts.h
 
     AtomicParsley is GPL software; you can freely distribute, 
     redistribute, modify & use under the terms of the GNU General
@@ -15,9 +15,8 @@
     cannot, write to the Free Software Foundation, 59 Temple Place
     Suite 330, Boston, MA 02111-1307, USA.  Or www.fsf.org
 
-    Copyright ©2005-2006 puck_lock
-                                                                   */
+    Copyright ©2006 puck_lock
+																																		*/
 //==================================================================//
 
-int GenreIntToString(char** genre_string, int genre);
-uint8_t StringGenreToInt(const char* genre_string);
+void APar_ExtractDetails(FILE* m4afile);
