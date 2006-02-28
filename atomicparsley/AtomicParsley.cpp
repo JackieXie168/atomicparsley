@@ -1189,11 +1189,15 @@ void APar_PrintDataAtoms(const char *path, bool extract_pix, char* pic_output_pa
 					
 						fprintf(stdout, "Atom \"%s\" [%s] contains: ", parent_atom, iTunes_internal_tag);
 					}
+					
+				} else if (strncmp(parent_atom,"covr", 4) == 0) { //libmp4v2 doesn't properly set artwork with the right flags (its all 0x00)
+					artwork_count++;
+					
 				} else {
 					fprintf(stdout, "Atom \"%s\" contains: ", parent_atom);
+					APar_ExtractDataAtom(i);
 				}
-				APar_ExtractDataAtom(i);
-				
+								
 			} else if (strncmp(parent_atom,"covr", 4) == 0) {
 				artwork_count++;
 				if (extract_pix) {
