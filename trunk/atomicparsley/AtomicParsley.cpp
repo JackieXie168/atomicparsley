@@ -1188,11 +1188,11 @@ void APar_PrintDataAtoms(const char *path, bool extract_pix, char* pic_output_pa
 						fread(iTunes_internal_tag, 1, parsedAtoms[parent.AtomicNumber + 2].AtomicLength - 12, source_file);
 					
 						fprintf(stdout, "Atom \"%s\" [%s] contains: ", parent_atom, iTunes_internal_tag);
+						APar_ExtractDataAtom(i);
 					}
-					
+				
 				} else if (strncmp(parent_atom,"covr", 4) == 0) { //libmp4v2 doesn't properly set artwork with the right flags (its all 0x00)
-					artwork_count++;
-					
+					artwork_count++;					
 				} else {
 					fprintf(stdout, "Atom \"%s\" contains: ", parent_atom);
 					APar_ExtractDataAtom(i);
@@ -1203,8 +1203,6 @@ void APar_PrintDataAtoms(const char *path, bool extract_pix, char* pic_output_pa
 				if (extract_pix) {
 					APar_ExtractAAC_Artwork(thisAtom.AtomicNumber, pic_output_path, artwork_count);
 				}
-			} else {
-				//fprintf(stdout, "parent atom %s had data atom (of class:) %i\n ", parent_atom, thisAtom.AtomicDataClass);
 			}
 		} else if (thisAtom.uuidAtomType) {
 #if defined (USE_ICONV_CONVERSION)
