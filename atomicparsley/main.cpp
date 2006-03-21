@@ -82,6 +82,7 @@
 #define Meta_uuid                'z'
 
 #define Metadata_Purge           'P'
+#define foobar_purge             '2'
 #define Meta_dump                'Q'
 #define Opt_FreeFree             'F'
 #define Opt_Keep_mdat_pos        'M'
@@ -206,8 +207,6 @@ static const char* longHelp_text =
 "  --purchaseDate     ,  -D   (UTC)    Set Universal Coordinated Time of purchase on a \"purd\" atom\n"
 "                                       (use \"timestamp\" to set UTC to now; can be akin to id3v2 TDTG tag)\n"
 "\n"
-"  --metaEnema        ,  -P            Douches away every atom under \"moov.udta.meta.ilst\" \n"
-"\n"
 " To delete a single atom, set the tag to null (except artwork):\n"
 "  --artist \"\" --lyrics \"\"\n"
 "  --artwork REMOVE_ALL \n"
@@ -225,6 +224,8 @@ static const char* longHelp_text =
 "------------------------------------------------------------------------------------------------\n"
 " File-level options:\n"
 "\n"
+"  --metaEnema        ,  -P            Douches away every atom under \"moov.udta.meta.ilst\" \n"
+"  --foobar2000Enema  ,  -2            Eliminates foobar2000's non-compliant so-out-o-spec tagging scheme\n"
 "  --mdatLock         ,  -M            Prevents moving mdat atoms to the end (poss. useful for PSP files)\n"
 "  --freefree         ,  -F   ?(num)?  Remove \"free\" atoms which only act as padding in the file\n"
 "                                          (optional: numerical argument - delete 'free' up to desired level)\n"
@@ -343,6 +344,7 @@ int main( int argc, char *argv[])
 		{ "freefree",         optional_argument,  NULL,           Opt_FreeFree },
 		{ "mdatLock",         0,                  NULL,           Opt_Keep_mdat_pos },
 		{ "metaEnema",        0,                  NULL,						Metadata_Purge },
+		{ "foobar2000Enema",  0,                  NULL,           foobar_purge },
 		{ "metaDump",         0,                  NULL,						Meta_dump },
 		{ "output",           required_argument,  NULL,						OPT_OutputFile },
 		{ "overWrite",        0,                  NULL,						OPT_OverWrite },
@@ -353,7 +355,7 @@ int main( int argc, char *argv[])
 	int c = -1;
 	int option_index = 0; 
 	
-	c = getopt_long(argc, argv, "hTtEe:a:c:d:f:g:i:l:n:o:pq::u:w:y:z:G:k:A:B:C:D:F:H:I:J:K:L:MN:QS:U:WV:ZP", long_options, &option_index);
+	c = getopt_long(argc, argv, "hTtEe:a:c:d:f:g:i:l:n:o:pq::u:w:y:z:G:k:A:B:C:D:F:H:I:J:K:L:MN:QS:U:WV:ZP2", long_options, &option_index);
 	
 	if (c == -1) {
 		if (argc < 3 && argc > 2) {
@@ -693,6 +695,13 @@ int main( int argc, char *argv[])
 		case Metadata_Purge : {
 			APar_ScanAtoms(m4afile);
 			APar_RemoveAtom("moov.udta.meta.ilst", true, false);
+			
+			break;
+		}
+		
+		case foobar_purge : {
+			APar_ScanAtoms(m4afile);
+			APar_RemoveAtom("moov.udta.tags", true, false);
 			
 			break;
 		}

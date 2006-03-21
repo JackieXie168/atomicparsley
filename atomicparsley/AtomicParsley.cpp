@@ -896,6 +896,24 @@ short APar_FindEndingAtom() {
 	return end_atom_num;
 }
 
+short APar_FindLastChild_of_ParentAtom(short thisAtom) {
+	short hierarchy_ending = thisAtom;
+	
+	while (true) {
+		if (parsedAtoms[ parsedAtoms[hierarchy_ending].NextAtomNumber ].AtomicLevel > parsedAtoms[thisAtom].AtomicLevel) {
+			hierarchy_ending = parsedAtoms[hierarchy_ending].NextAtomNumber;		
+		} else {
+			break;
+		}
+		
+		if (hierarchy_ending == 0) {
+			break;
+		}
+	}
+	//return (hierarchy_ending == 0 ? 0 : parsedAtoms[hierarchy_ending].AtomicNumber);
+	return hierarchy_ending;
+}
+
 bool APar_AtomHasChildren(short thisAtom) {
 	bool is_parent = false;
 	if (parsedAtoms[parsedAtoms[thisAtom].NextAtomNumber].AtomicLevel > parsedAtoms[thisAtom].AtomicLevel) {
@@ -1308,6 +1326,7 @@ void APar_PrintAtomicTree() {
 	uint32_t mdatData = 0;
 	short thisAtomNumber = 0;
 	char* atom_name = (char*)malloc(sizeof(char)*5);
+	bool foobar_noncompliant_tags_present = false; //with any luck, it should stay that way
 		
 	//loop through each atom in the struct array (which holds the offset info/data)
  	while (true) { //while (parsedAtoms[thisAtomNumber].NextAtomNumber != 0) { 
@@ -1354,19 +1373,33 @@ void APar_PrintAtomicTree() {
 		if (strncmp(thisAtom.AtomicName, "free", 4) == 0) {
 			freeSpace=freeSpace+thisAtom.AtomicLength;
 		}
-		//this is where the *raw* audio/video file is, the rest if fluff.
+		//this is where the *raw* audio/video file is, the rest is container-related fluff.
 		if ( (strncmp(thisAtom.AtomicName, "mdat", 4) == 0) && (thisAtom.AtomicLength > 100) ) {
 			mdatData = thisAtom.AtomicLength;
 		} else if ( strncmp(thisAtom.AtomicName, "mdat", 4) == 0 && thisAtom.AtomicLength == 0 ) { //mdat.length = 0 = ends at EOF
 			mdatData = (uint32_t)file_size - thisAtom.AtomicStart;
 		} else if (strncmp(thisAtom.AtomicName, "mdat", 4) == 0 && thisAtom.AtomicLengthExtended != 0 ) {
 			mdatData = thisAtom.AtomicLengthExtended; //this is still adding a (limited) uint64_t into a uint32_t
+			
+		} else if (strncmp(thisAtom.AtomicName, "tags", 4) == 0) { // hmmm, I must have missed the 'tags' atom in the ISO spec
+			AtomicInfo FUBAR_tag_atom = APar_FindAtom("moov.udta.tags", false, false, false, true);
+			if (FUBAR_tag_atom.AtomicNumber != 0) {
+				foobar_noncompliant_tags_present = true;
+			}
 		}
+		
 		if (parsedAtoms[thisAtomNumber].NextAtomNumber == 0) {
 			break;
 		} else {
 			thisAtomNumber = parsedAtoms[thisAtomNumber].NextAtomNumber;
 		}
+	}
+	
+	if (foobar_noncompliant_tags_present) {
+		fprintf(stdout, "\n"); 
+		fprintf(stdout, "AtomicParsley warning: this file was tagged by foobar2000 with non-compliant tags\n");
+		fprintf(stdout, "\tmore atoms may be present, but foobar2000 writes invalid atom structures.\n");
+		fprintf(stdout, "\n"); 
 	}
 		
 	fprintf(stdout, "------------------------------------------------------\n");
@@ -1669,7 +1702,7 @@ uint64_t APar_64bitAtomRead(FILE *file, uint32_t jump_point) {
 	return extended_dataSize;
 }
 
-void APar_ScanAtoms(const char *path, bool parse_stsd_atom) {
+void APar_ScanAtoms(const char *path, bool scan_for_tree_ONLY) {
 	if (!parsedfile) {
 		file_size = findFileSize(path);
 		
@@ -1757,7 +1790,7 @@ void APar_ScanAtoms(const char *path, bool parse_stsd_atom) {
 					
 					if (strncmp(atom, "stsd", 4) == 0) {
 						//For internal use, stsd is no longer parsed; only when printing an atom hierarchical tree will it be parsed
-						if (parse_stsd_atom) {
+						if (scan_for_tree_ONLY) {
 							APar_Parse_stsd_Atoms(file, jump+16, dataSize);
 						} else {
 							APar_Extract_stsd_codec(file, jump+16);
@@ -1768,6 +1801,19 @@ void APar_ScanAtoms(const char *path, bool parse_stsd_atom) {
 						jump += 12;
 					} else if ( strncmp(atom, "tkhd", 4) == 0 ) {
             jump += dataSize; //tkhd atoms are always 92 bytes uint32_t; don't even bother to test for any children
+						
+					} else if ( strncmp(atom, "tags", 4) == 0 ) { //oh dear, we have foobar2000's prison-rape tags; thick white gelatinous goo oozes out of this atom
+
+						if (!scan_for_tree_ONLY) { //latch onto scan_for_tree_ONLY as it signals whether we are *really* writing or just getting the tree.
+							jump += dataSize;
+						} else { //we'll just be *showing* the tree, no harm in showing what foobar does to the files...
+							if ( APar_TestforChildAtom(data, dataSize, atom) ) {
+								jump += 8;
+							} else {
+								jump += dataSize;
+							}
+						}
+						
 					} else if ( APar_TestforChildAtom(data, dataSize, atom) && strncmp(atom, "free", 4) != 0 ) { // if bytes 9-12 are less than bytes 1-4 (and not 0) we have a child; if its a data atom, all bets are off
 						jump += 8; //skip a head a grand total of... 8 *WHOLE* bytes - what progress!
 					} else if ( generalAtomicLevel > 1 ) { // apparently, we didn't have a child
@@ -1815,6 +1861,11 @@ void APar_EliminateAtom(short this_atom_number, int resume_atom_number) {
 		memset(parsedAtoms[this_atom_number].AtomicName, 0, 4); //blank out the name of the parent atom name
 		parsedAtoms[this_atom_number].AtomicNumber = -1;
 		parsedAtoms[this_atom_number].NextAtomNumber = -1;
+		
+	} else if (resume_atom_number == 0) { //we are removing the last atom
+		short preceding_atom_pos = APar_FindPrecedingAtom(this_atom_number);
+		parsedAtoms[preceding_atom_pos].NextAtomNumber = resume_atom_number;
+		memset ( &parsedAtoms[this_atom_number], 0, sizeof (AtomicInfo) );	
 	}
 	return;
 }
