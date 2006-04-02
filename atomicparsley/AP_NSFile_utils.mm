@@ -21,6 +21,7 @@
 
 #import <Cocoa/Cocoa.h>
 //#include <Carbon/Carbon.h>
+#include "AP_commons.h"
 #include "AtomicParsley.h"
 
 /*
@@ -101,10 +102,7 @@ void APar_SupplySelectiveTypeCreatorCodes(const char *inputPath, const char *out
 	char* output_suffix = strrchr(outputPath, '.');
 	
 	char* creatorcode = (char*)malloc( sizeof(char)* 4 );
-	
-#if defined (USE_MEMSET)
 	memset(creatorcode, 0, sizeof(char)*4);
-#endif
 	
 	uint32_t creator_code = APar_4CC_CreatorCode(inputPath, 0);
 	

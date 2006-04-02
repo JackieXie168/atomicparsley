@@ -23,61 +23,14 @@
 #include <string.h>
 #include <stdlib.h>
 #include <time.h>
-#include "AP_AtomExtracts.h"
+
+#include "AP_commons.h"
 #include "AtomicParsley.h"
+#include "AP_AtomExtracts.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////
 //                             File reading routines                                 //
 ///////////////////////////////////////////////////////////////////////////////////////
-
-uint8_t APar_read8(FILE* m4afile, uint32_t pos) {
-	uint8_t a_byte = 0;
-	fseek(m4afile, pos, SEEK_SET);
-	fread(&a_byte, 1, 1, m4afile);
-	return a_byte;
-}
-
-uint16_t APar_read16(char* &buffer, FILE* m4afile, uint32_t pos) {
-	fseek(m4afile, pos, SEEK_SET);
-	fread(buffer, 1, 2, m4afile);
-	return UInt16FromBigEndian(buffer);
-}
-
-uint32_t APar_read32(char* &buffer, FILE* m4afile, uint32_t pos) {
-	fseek(m4afile, pos, SEEK_SET);
-	fread(buffer, 1, 4, m4afile);
-	return UInt32FromBigEndian(buffer);
-}
-
-void APar_readX(char* &buffer, FILE* m4afile, uint32_t pos, uint32_t length) {
-	fseek(m4afile, pos, SEEK_SET);
-	fread(buffer, 1, length, m4afile);
-	return;
-}
-
-uint32_t APar_FindValueInAtom(char* &uint32_buffer, FILE* m4afile, short an_atom, uint32_t start_position, uint32_t eval_number) {
-	uint32_t current_pos = start_position;
-	memset(uint32_buffer, 0, 5);
-	while (current_pos <= parsedAtoms[an_atom].AtomicLength) {
-		current_pos ++;
-		if (eval_number > 65535) {
-			//current_pos +=4;
-			if (APar_read32(uint32_buffer, m4afile, parsedAtoms[an_atom].AtomicStart + current_pos) == eval_number) {
-				break;
-			}
-		} else {
-			//current_pos +=2;
-			if (APar_read16(uint32_buffer, m4afile, parsedAtoms[an_atom].AtomicStart + current_pos) == (uint16_t)eval_number) {
-				break;
-			}
-		}
-		if (current_pos >= parsedAtoms[an_atom].AtomicLength) {
-			current_pos =  0;
-			break;
-		}
-	}
-	return current_pos;
-}
 
 uint8_t APar_skip_filler(FILE* m4afile, uint32_t start_position) {
 	uint8_t skip_bytes = 0;
@@ -174,14 +127,6 @@ char* APar_ExtractUTC(uint32_t total_secs) {
 		
 	
 	return asctime(&timeinfo);
-}
-
-void APar_UnpackLanguage(unsigned char lang_code[], uint16_t packed_language) {
-	lang_code[3] = 0;
-	lang_code[2] = (packed_language &0x1F) + 0x60;
-	lang_code[1] = ((packed_language >> 5) &0x1F) + 0x60;
-	lang_code[0] = ((packed_language >> 10) &0x1F) + 0x60;
-	return;
 }
 
 uint8_t APar_ExtractChannelInfo(FILE* m4afile, uint32_t pos) {
@@ -340,8 +285,8 @@ void APar_ExtractDetails(FILE* m4afile) {
 			}
 			
 			if ( parsedAtoms[track_level_atom].AtomicLength > 34) {
-				char* trackname = (char*)malloc( sizeof(char)*parsedAtoms[track_level_atom].AtomicLength - 32 );
-				memset(trackname, 0, parsedAtoms[track_level_atom].AtomicLength - 32);
+				char* trackname = (char*)malloc( sizeof(char)*parsedAtoms[track_level_atom].AtomicLength - 31 );
+				memset(trackname, 0, parsedAtoms[track_level_atom].AtomicLength - 31);
 				
 				APar_readX(trackname, m4afile, parsedAtoms[track_level_atom].AtomicStart + 32, parsedAtoms[track_level_atom].AtomicLength - 32);
 				fprintf(stdout, "    Name: %s", trackname);
