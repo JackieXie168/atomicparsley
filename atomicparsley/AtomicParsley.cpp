@@ -831,15 +831,15 @@ void APar_unicode_win32Printout(wchar_t* unicode_out) { //based on http://blogs.
 	if ( (GetFileType(outHandle) & FILE_TYPE_CHAR) && GetConsoleMode( outHandle, &fdwMode) ) {
 		WriteConsoleW( outHandle, unicode_out, wcslen(unicode_out), &dwBytesWritten, 0);
 	} else {
-		//setting the codepage is of *NO* help - each codepage is will still contain a 256 character set - not nearly representative (and the first 128 of them are the same in all of them (ASCII). That's why codepage 65001/CP_UTF8 doesn't work well wither
 		//http://www.ansi.edu.pk/library/WSLP/book4/html/ch08e.htm
-		//WriteConsoleW above works best, but doesn't redirect well out to a file (AP.exe foo.mp4 -t > E:\tags.txt)
+		//WriteConsoleW above works best, but doesn't redirect well out to a file (AP.exe foo.mp4 -t > E:\tags.txt); here is were any redirection gets shunted to
+		//any utf8 that gets redirected here first gets read from the mpeg-4 file, converted to utf16 (carried on unsigned chars), put into wchar_t, and soon be converted back into utf8 for output to file - some round trip!
 		
 		int found_codepage = GetConsoleOutputCP();
-		int set_codepage = SetConsoleCP(1252);
-		int charCount = WideCharToMultiByte(1252, 0, unicode_out, -1, 0, 0, 0, 0);
+		int set_codepage = SetConsoleCP(CP_UTF8);
+		int charCount = WideCharToMultiByte(CP_UTF8, 0, unicode_out, -1, 0, 0, 0, 0);
 		char* szaStr = (char*) malloc(charCount);
-		WideCharToMultiByte( 1252, 0, unicode_out, -1, szaStr, charCount, 0, 0);
+		WideCharToMultiByte( CP_UTF8, 0, unicode_out, -1, szaStr, charCount, 0, 0);
 		WriteFile(outHandle, szaStr, charCount-1, &dwBytesWritten, 0);
 		set_codepage = SetConsoleCP(found_codepage); //restore it back to what it was
 		free(szaStr);
@@ -854,8 +854,11 @@ void APar_fprintf_UTF8_data(char* utf8_encoded_data) {
 		fprintf(stdout, "%s", utf8_encoded_data); //just printout the raw utf8 bytes (not characters) under pre-NT windows
 	} else {
 		wchar_t* utf16_data = Convert_multibyteUTF8_to_wchar(utf8_encoded_data);
+		fflush(stdout);
+		
 		APar_unicode_win32Printout(utf16_data);
-							
+		
+		fflush(stdout);
 		free(utf16_data);
 		utf16_data = NULL;
 	}
@@ -866,9 +869,13 @@ void APar_fprintf_UTF8_data(char* utf8_encoded_data) {
 }
 
 void APar_PrintUserDataAssests() { //3gp files
+
 #if defined (USE_ICONV_CONVERSION)
-	fprintf(stdout, "\xEF\xBB\xBF"); //Default to a UTF-8 BOM;
+	fprintf(stdout, "\xEF\xBB\xBF"); //Default to output of a UTF-8 BOM (except under win32's WriteConsoleW where it gets transparently eliminated)
+#else if defined (_MSC_VER) && defined (UTF16_CONSOLE_OUTPUT)
+	APar_unicode_win32Printout(L"\xEF\xBB\xBF");
 #endif
+
 	AtomicInfo udtaAtom = APar_FindAtom("moov.udta", false, false, false, true);
 	
 	//due to the somewhat lax nature of APar_FindAtom, it will return the first atom
@@ -1197,27 +1204,25 @@ void APar_ExtractDataAtom(int this_atom_number) {
 void APar_PrintDataAtoms(const char *path, bool extract_pix, char* pic_output_path) {
 
 #if defined (USE_ICONV_CONVERSION)
-	fprintf(stdout, "\xEF\xBB\xBF"); //Default to a UTF-8 BOM; maybe UTF-16 one day... but not yet
+	fprintf(stdout, "\xEF\xBB\xBF"); //Default to output of a UTF-8 BOM (except under win32's WriteConsoleW where it gets transparently eliminated)
+#else if defined (_MSC_VER) && defined (UTF16_CONSOLE_OUTPUT)
+	APar_unicode_win32Printout(L"\xEF\xBB\xBF");
 #endif
 
 	short artwork_count=0;
-	char* atom_name = (char*)malloc(sizeof(char)*5);
-	char* parent_atom = (char*)malloc(sizeof(char)*5);
+	char* atom_name = (char*)malloc(sizeof(char)*10);
+	char* parent_atom = (char*)malloc(sizeof(char)*10);
 
 	for (int i=0; i < atom_number; i++) { 
 		AtomicInfo thisAtom = parsedAtoms[i];
-		memset(atom_name, 0, sizeof(char)*5);
+		memset(atom_name, 0, sizeof(char)*10);
 
 		strncpy(atom_name, thisAtom.AtomicName, 4);
 		if ( strncmp(atom_name, "data", 4) == 0 ) {
-			memset(parent_atom, 0, sizeof(char)*5);
+			memset(parent_atom, 0, sizeof(char)*10);
 			
 			AtomicInfo parent = parsedAtoms[ APar_FindParentAtom(i, thisAtom.AtomicLevel) ];
 			strncpy(parent_atom, parent.AtomicName, 4);
-			
-#if defined (USE_ICONV_CONVERSION)
-			StringReEncode(parent_atom, "UTF-8", "ISO-8859-1");
-#endif
 			
 			if ( (thisAtom.AtomicDataClass == AtomicDataClass_UInteger ||
             thisAtom.AtomicDataClass == AtomicDataClass_Text || 
@@ -1235,10 +1240,23 @@ void APar_PrintDataAtoms(const char *path, bool extract_pix, char* pic_output_pa
 					}
 				
 				} else if (strncmp(parent_atom,"covr", 4) == 0) { //libmp4v2 doesn't properly set artwork with the right flags (its all 0x00)
-					artwork_count++;					
+					artwork_count++;
+					
 				} else {
+					char* parent_duplicate = strdup(parent_atom);
+					//converts iso8859 © in '©ART' to a 2byte utf8 © glyph; replaces libiconv conversion
+					isolat1ToUTF8((unsigned char*)parent_atom, 10, (unsigned char*)parent_duplicate, 4);
+
+#if defined (_MSC_VER) && defined (UTF16_CONSOLE_OUTPUT)
+					fprintf(stdout, "Atom \"");
+					APar_fprintf_UTF8_data(parent_atom);
+					fprintf(stdout, "\" contains: ");
+#else
 					fprintf(stdout, "Atom \"%s\" contains: ", parent_atom);
+#endif
 					APar_ExtractDataAtom(i);
+					free(parent_duplicate);
+					parent_duplicate = NULL;
 				}
 								
 			} else if (strncmp(parent_atom,"covr", 4) == 0) {
@@ -1248,9 +1266,9 @@ void APar_PrintDataAtoms(const char *path, bool extract_pix, char* pic_output_pa
 				}
 			}
 		} else if (thisAtom.uuidAtomType) {
-#if defined (USE_ICONV_CONVERSION)
-			StringReEncode(atom_name, "UTF-8", "ISO-8859-1");
-#endif
+			char* uuid_duplicate = strdup(atom_name);
+			//converts iso8859 © in '©foo' to a 2byte utf8 © glyph; replaces libiconv conversion
+			isolat1ToUTF8((unsigned char*)atom_name, 10, (unsigned char*)uuid_duplicate, 4);
 
 			if (thisAtom.AtomicDataClass == AtomicDataClass_Text && !pic_output_path) {
 				fprintf(stdout, "Atom uuid=\"%s\" contains: ", atom_name);
@@ -1340,23 +1358,31 @@ void APar_AtomizeFileInfo(AtomicInfo &thisAtom, uint32_t Astart, uint32_t Alengt
 
 //this function reflects the atom tree as it stands in memory accurately (so I hope).
 void APar_PrintAtomicTree() {
+
 #if defined (USE_ICONV_CONVERSION)
-	fprintf(stdout, "\xEF\xBB\xBF"); //UTF-8 BOM
+	fprintf(stdout, "\xEF\xBB\xBF"); //Default to output of a UTF-8 BOM (except under win32's WriteConsoleW where it gets transparently eliminated)
+#else if defined (_MSC_VER) && defined (UTF16_CONSOLE_OUTPUT)
+	APar_unicode_win32Printout(L"\xEF\xBB\xBF");
 #endif
+
 	char* tree_padding = (char*)malloc(sizeof(char)*126); //for a 25-deep atom tree (4 spaces per atom)+single space+term.
 	uint32_t freeSpace = 0;
 	uint32_t mdatData = 0;
 	short thisAtomNumber = 0;
-	char* atom_name = (char*)malloc(sizeof(char)*5);
+	char* atom_name = (char*)malloc(sizeof(char)*10);
 	bool foobar_noncompliant_tags_present = false; //with any luck, it should stay that way
 		
 	//loop through each atom in the struct array (which holds the offset info/data)
  	while (true) { //while (parsedAtoms[thisAtomNumber].NextAtomNumber != 0) { 
 		AtomicInfo thisAtom = parsedAtoms[thisAtomNumber];
 		memset(tree_padding, 0, sizeof(char)*126);
-		memset(atom_name, 0, sizeof(char)*5);
+		memset(atom_name, 0, sizeof(char)*10);
 		
 		strncpy(atom_name, thisAtom.AtomicName, 4);
+		char* atom_duplicate = strdup(atom_name);
+		isolat1ToUTF8((unsigned char*)atom_name, 10, (unsigned char*)atom_duplicate, 4); //converts iso8859 © in '©ART' to a 2byte utf8 © glyph
+		free(atom_duplicate);
+		atom_duplicate = NULL;
 		
 		strcpy(tree_padding, "");
 		if ( thisAtom.AtomicLevel != 1 ) {
@@ -1365,10 +1391,6 @@ void APar_PrintAtomicTree() {
 			}
 			strcat(tree_padding, " "); // add a single space
 		}
-
-#if defined (USE_ICONV_CONVERSION)
-		StringReEncode(atom_name, "UTF-8", "ISO-8859-1");
-#endif
 		
 		if (thisAtom.AtomicLength == 0) {
 			fprintf(stdout, "%sAtom %s @ %u of size: %u (%u*), ends @ %u\n", tree_padding, atom_name, thisAtom.AtomicStart, ( (uint32_t)file_size - thisAtom.AtomicStart), thisAtom.AtomicLength, (uint32_t)file_size );
@@ -1433,10 +1455,12 @@ void APar_PrintAtomicTree() {
 	return;
 }
 
-void APar_SimpleAtomPrintout() {
-	//loop through each atom in the struct array (which holds the offset info/data)
+void APar_SimpleAtomPrintout() { //loop through each atom in the struct array (which holds the offset info/data)
+
 #if defined (USE_ICONV_CONVERSION)
-	fprintf(stdout, "\xEF\xBB\xBF"); //UTF-8 BOM
+	fprintf(stdout, "\xEF\xBB\xBF"); //Default to output of a UTF-8 BOM (except under win32's WriteConsoleW where it gets transparently eliminated)
+#else if defined (_MSC_VER) && defined (UTF16_CONSOLE_OUTPUT)
+	APar_unicode_win32Printout(L"\xEF\xBB\xBF");
 #endif
 
  	for (int i=0; i < atom_number; i++) { 
@@ -1564,8 +1588,6 @@ void APar_Extract_stsd_codec(FILE* file, uint32_t midJump) {
 	memset(codec_data, 0, 12 + 1);
 	fseek(file, midJump, SEEK_SET);
 	fread(codec_data, 1, 12, file);
-	//uint32_t codec_num = UInt32FromBigEndian( extractAtomName(codec_data, 1) );
-	//fprintf(stdout, "codec %x", codec_num);
 	parsedAtoms[atom_number-1].stsd_codec = UInt32FromBigEndian( extractAtomName(codec_data, 1) );
 	
 	free(codec_data);
@@ -2141,7 +2163,7 @@ AtomicInfo APar_CreateSparseAtom(const char* present_hierarchy, char* new_atom_n
 /*----------------------
 APar_Unified_atom_Put
   atom_num - the index into the parsedAtoms array for the atom we are setting (aka AtomicNumber)
-  unicode_data - a pointer to a string (possibly containing NULLs) of (possibly) utf16 or utf8 or lower-ascii data
+  unicode_data - a pointer to a string (possibly utf8 already); may go onto conversion to utf16 prior to the put
   text_tag_style - flag to denote that unicode_data is utf-16, or the flavors of utf8 (iTunes style, 3gp style...)
   ancillary_data - a (possibly cast) 32-bit number of any type of supplemental data to be set
 	anc_bit_width - controls the number of bytes to set for ancillary data [0 to skip, 8 (1byte) - 32 (4 bytes)]
@@ -2168,7 +2190,7 @@ void APar_Unified_atom_Put(short atom_num, const char* unicode_data, uint8_t tex
 			break;
 		}
 		
-		case 16 : { //lang & its ilk //is this endian safe? probably not (yet)
+		case 16 : { //lang & its ilk
 			parsedAtoms[atom_num].AtomicData[atom_data_pos] = (ancillary_data & 0xff00) >> 8;
 			parsedAtoms[atom_num].AtomicData[atom_data_pos + 1] = (ancillary_data & 0xff) << 0;
 			parsedAtoms[atom_num].AtomicLength+= 2;
@@ -2382,19 +2404,34 @@ short APar_uuid_atom_Init(const char* atom_path, char* uuidName, const int dataT
 	char uuid_path[256];
 	memset(uuid_path, 0, sizeof(uuid_path));
 	AtomicInfo desiredAtom = { 0 };
+	char *uuid_4char_name;
+	bool free_uuid_char = false;
 
-#if defined (USE_ICONV_CONVERSION)	
+//#if defined (USE_ICONV_CONVERSION)	
+//	if (shellAtom) {
+//		StringReEncode(uuidName, "ISO-8859-1", "UTF-8"); //all atom names characters are iso8859-1
+//	}
+//#endif
 	if (shellAtom) {
-		StringReEncode(uuidName, "ISO-8859-1", "UTF-8"); //all atom names characters are iso8859-1
+		uuid_4char_name = (char*)malloc(sizeof(char)*10);
+		memset(uuid_4char_name, 0, 10);
+		int conver = UTF8Toisolat1((unsigned char*)uuid_4char_name, 10, (unsigned char*)uuidName, strlen(uuidName) );
+		free_uuid_char = true;
+	
+	} else {
+		uuid_4char_name = uuidName;
 	}
-#endif
 	
 #if defined (_MSC_VER) /* sprintf must behave differently in win32 VisualC as a DEBUG release */
 	strncpy(uuid_path, atom_path, strlen(atom_path) -2 );
-	strncat(uuid_path, uuidName, 4);
+	strncat(uuid_path, uuid_4char_name, 4);
 #else
-	sprintf(uuid_path, atom_path, uuidName); //gives "moov.udta.meta.uuid=©url"
+	sprintf(uuid_path, atom_path, uuid_4char_name); //gives "moov.udta.meta.uuid=©url"
 #endif
+	if (free_uuid_char) {
+		free(uuid_4char_name);
+		uuid_4char_name = NULL;
+	}
 	
 	if ( strlen(uuidValue) == 0) {
 		APar_RemoveAtom(uuid_path, true, true); //find the atom; don't create if it's "" to remove

@@ -921,7 +921,7 @@ int main( int argc, char *argv[])
 			//APar_Add_uuid_atom(m4afile, "moov.udta.meta.ilst.uuid=%s", optarg, AtomicDataClass_Text, argv[optind +1], true); //apple iTunes bug; not allowed
 			//APar_Add_uuid_atom(m4afile, "moov.udta.meta.uuid=%s", optarg, AtomicDataClass_Text, argv[optind +1], true);
 			
-			short genericUUID = APar_uuid_atom_Init("moov.udta.meta.uuid=%s", optarg, AtomicDataClass_Text, argv[optind +1], false);
+			short genericUUID = APar_uuid_atom_Init("moov.udta.meta.uuid=%s", optarg, AtomicDataClass_Text, argv[optind +1], true);
 			APar_Unified_atom_Put(genericUUID, argv[optind +1], UTF8_iTunesStyle_Unlimited, 0, 0);
 			break;
 		}

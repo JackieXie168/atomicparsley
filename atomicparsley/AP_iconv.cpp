@@ -24,84 +24,11 @@
                                                                    */
 //==================================================================//
 
-#include <stdlib.h>
-#include <stdio.h>
+//#include <stdlib.h>
+//#include <stdio.h>
 #include <string.h>
 
-#include <wchar.h>
-
-#if defined (USE_ICONV_CONVERSION)
-
-#include <iconv.h>
-#include <errno.h>
-
-		//StringReEncode(encoded_string, string_len, "UTF-16", "UTF-8");
-		//StringReEncode(encoded_string, string_len, "LATIN1", "UTF-8");
-
-void StringReEncode(char *a_string, char *tocode, char *fromcode) {
-	int length = strlen(a_string)+1;
-	size_t result;
-	iconv_t frt;
-	int len = length;
-	int len1 = 2*length;
-
-	char a_string_before[length];
-	char a_string_after[len1];
-	
-	char *asbptr = a_string_before;
-	char *asaptr = a_string_after;
-	
-	strncpy(a_string_before, a_string, length);
-	frt = iconv_open(tocode, fromcode);
-	if (frt == (iconv_t) - 1)
-	{
-	   fprintf(stderr,"Error iconv_open()!\n");
-		return;
-	}
-#if defined (DARWIN_PLATFORM) || defined (__CYGWIN__)   /* a configure/makefile duo would help determine this */
-	result = iconv(frt, (const char**) &asbptr, (size_t*) &len, &asaptr, (size_t*) &len1);
-#else
-	result = iconv(frt, &asbptr, (size_t*) &len, &asaptr, (size_t*) &len1);
-#endif
-	//fprintf (stdout, "Output string %s\n", a_string_after);
-	if (result == (size_t) - 1)
-	{
-		switch (errno) {
-			case EILSEQ: {
-				fprintf (stdout, "Invalid input sequence at %s\n", a_string_before);
-				exit (-1);
-			} 
-			case EINVAL: {
-				fprintf (stdout, "Incomplete multibyte sequence.\n");
-				exit (-1);
-			}
-			case E2BIG: {
-				fprintf (stdout, "Insufficient buffer for transcoding.\n");
-				exit (-1);
-			}
-			default: {
-				fprintf (stdout, "Unknown errno %i\n", (int) result);
-				exit (-1);
-			}
-		}
-		return;
-	}
-	else {
-		strncpy(a_string, a_string_after, length);
-		a_string[length]='\0';
-	}
-	if (iconv_close(frt) != 0)
-		if (iconv_close(frt) != 0)
-			fprintf(stderr,"Error iconv_close()!\n");
-	return;
-}
-
-//NOTES:
-// I can determine the encoding from Terminal by reading its preferences ("defaults read com.apple.Terminal StringEncoding")
-// 4 = utf8; 30 = Mac OS Roman
-// HOWEVER, this is only the default prefences for Terminal.app; each individual window CAN be different, but I can't find where each window/session stores its encoding.
-
-#endif /* USE_ICONV_CONVERSION */
+//#include <wchar.h>
 
 /*
 wchar_t* char_to_wchar(char * in_string) {
@@ -198,18 +125,18 @@ void xmlInitEndianDetection() {
  *     if the return value is positive, else unpredictable.
  * The value of @outlen after return is the number of octets consumed.
  */
-int isolat1ToUTF8(unsigned char* out, int *outlen, const unsigned char* in, int *inlen) {
+int isolat1ToUTF8(unsigned char* out, int outlen, const unsigned char* in, int inlen) {
     unsigned char* outstart = out;
     const unsigned char* base = in;
     unsigned char* outend;
     const unsigned char* inend;
     const unsigned char* instop;
 
-    if ((out == NULL) || (in == NULL) || (outlen == NULL) || (inlen == NULL))
+    if ((out == NULL) || (in == NULL) || (outlen == 0) || (inlen == 0))
 	return(-1);
 
-    outend = out + *outlen;
-    inend = in + (*inlen);
+    outend = out + outlen;
+    inend = in + (inlen);
     instop = inend;
     
     while (in < inend && out < outend - 1) {
@@ -226,9 +153,9 @@ int isolat1ToUTF8(unsigned char* out, int *outlen, const unsigned char* in, int 
     if (in < inend && out < outend && *in < 0x80) {
         *out++ = *in++;
     }
-    *outlen = out - outstart;
-    *inlen = in - base;
-    return(*outlen);
+    outlen = out - outstart;
+    inlen = in - base;
+    return(outlen);
 }
 
 /**
@@ -247,7 +174,7 @@ int isolat1ToUTF8(unsigned char* out, int *outlen, const unsigned char* in, int 
  *     if the return value is positive, else unpredictable.
  * The value of @outlen after return is the number of octets consumed.
  */
-int UTF8Toisolat1(unsigned char* out, int *outlen, const unsigned char* in, int *inlen) {
+int UTF8Toisolat1(unsigned char* out, int outlen, const unsigned char* in, int inlen) {
     const unsigned char* processed = in;
     const unsigned char* outend;
     const unsigned char* outstart = out;
@@ -256,32 +183,32 @@ int UTF8Toisolat1(unsigned char* out, int *outlen, const unsigned char* in, int 
     unsigned int c, d;
     int trailing;
 
-    if ((out == NULL) || (outlen == NULL) || (inlen == NULL)) return(-1);
+    if ((out == NULL) || (outlen == 0) || (inlen == 0)) return(-1);
     if (in == NULL) {
         /*
 	 * initialization nothing to do
 	 */
-	*outlen = 0;
-	*inlen = 0;
+	outlen = 0;
+	inlen = 0;
 	return(0);
     }
-    inend = in + (*inlen);
-    outend = out + (*outlen);
+    inend = in + (inlen);
+    outend = out + (outlen);
     while (in < inend) {
 	d = *in++;
 	if      (d < 0x80)  { c= d; trailing= 0; }
 	else if (d < 0xC0) {
 	    /* trailing byte in leading position */
-	    *outlen = out - outstart;
-	    *inlen = processed - instart;
+	    outlen = out - outstart;
+	    inlen = processed - instart;
 	    return(-2);
         } else if (d < 0xE0)  { c= d & 0x1F; trailing= 1; }
         else if (d < 0xF0)  { c= d & 0x0F; trailing= 2; }
         else if (d < 0xF8)  { c= d & 0x07; trailing= 3; }
 	else {
 	    /* no chance for this in IsoLat1 */
-	    *outlen = out - outstart;
-	    *inlen = processed - instart;
+	    outlen = out - outstart;
+	    inlen = processed - instart;
 	    return(-2);
 	}
 
@@ -293,8 +220,8 @@ int UTF8Toisolat1(unsigned char* out, int *outlen, const unsigned char* in, int 
 	    if (in >= inend)
 		break;
 	    if (((d= *in++) & 0xC0) != 0x80) {
-		*outlen = out - outstart;
-		*inlen = processed - instart;
+		outlen = out - outstart;
+		inlen = processed - instart;
 		return(-2);
 	    }
 	    c <<= 6;
@@ -308,15 +235,15 @@ int UTF8Toisolat1(unsigned char* out, int *outlen, const unsigned char* in, int 
 	    *out++ = c;
 	} else {
 	    /* no chance for this in IsoLat1 */
-	    *outlen = out - outstart;
-	    *inlen = processed - instart;
+	    outlen = out - outstart;
+	    inlen = processed - instart;
 	    return(-2);
 	}
 	processed = in;
     }
-    *outlen = out - outstart;
-    *inlen = processed - instart;
-    return(*outlen);
+    outlen = out - outstart;
+    inlen = processed - instart;
+    return(outlen);
 }
 
 /**

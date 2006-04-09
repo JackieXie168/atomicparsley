@@ -92,9 +92,9 @@ echo "Linking AtomicParsley..."
 #       need to be moved onto the '-arch ppc' line to create the binary       #
 ###############################################################################
 
-g++ -arch i386 -g -O2 -Wall -liconv -framework Cocoa -isysroot /Developer/SDKs/MacOSX10.4u.sdk -o AtomicParsley_386 obj_files/386/AP_commons.o obj_files/386/AtomicParsley_genres.o obj_files/386/AP_iconv.o obj_files/386/AP_NSFile_utils.o obj_files/386/AP_NSImage.o obj_files/386/AP_AtomExtracts.o obj_files/386/AtomicParsley.o obj_files/386/main.o
+g++ -arch i386 -g -O2 -Wall -framework Cocoa -isysroot /Developer/SDKs/MacOSX10.4u.sdk -o AtomicParsley_386 obj_files/386/AP_commons.o obj_files/386/AtomicParsley_genres.o obj_files/386/AP_iconv.o obj_files/386/AP_NSFile_utils.o obj_files/386/AP_NSImage.o obj_files/386/AP_AtomExtracts.o obj_files/386/AtomicParsley.o obj_files/386/main.o
 
-g++ -arch ppc -g -O2 -Wall -liconv -framework Cocoa -o AtomicParsley_ppc obj_files/ppc/AP_commons.o obj_files/ppc/AtomicParsley_genres.o obj_files/ppc/AP_iconv.o obj_files/ppc/AP_NSFile_utils.o obj_files/ppc/AP_NSImage.o obj_files/ppc/AP_AtomExtracts.o obj_files/ppc/AtomicParsley.o obj_files/ppc/main.o
+g++ -arch ppc -g -O2 -Wall -framework Cocoa -o AtomicParsley_ppc obj_files/ppc/AP_commons.o obj_files/ppc/AtomicParsley_genres.o obj_files/ppc/AP_iconv.o obj_files/ppc/AP_NSFile_utils.o obj_files/ppc/AP_NSImage.o obj_files/ppc/AP_AtomExtracts.o obj_files/ppc/AtomicParsley.o obj_files/ppc/main.o
 
 
 #---------------------------------------------#
