@@ -77,16 +77,16 @@ g++ -g -O2 -Wall $EXTRA_CPP_FLAGS -I../AtomicParsley -MT obj_files/main.o -MD -M
 echo "Linking AtomicParsley..."
 
 if test $OS = Darwin ; then
-  g++ -g -O2 -Wall -liconv -framework Cocoa -o AtomicParsley obj_files/AP_commons.o obj_files/AtomicParsley_genres.o obj_files/AP_iconv.o obj_files/AP_NSFile_utils.o obj_files/AP_NSImage.o obj_files/AP_AtomExtracts.o obj_files/AtomicParsley.o obj_files/main.o
+  g++ -g -O2 -Wall -framework Cocoa -o AtomicParsley obj_files/AP_commons.o obj_files/AtomicParsley_genres.o obj_files/AP_iconv.o obj_files/AP_NSFile_utils.o obj_files/AP_NSImage.o obj_files/AP_AtomExtracts.o obj_files/AtomicParsley.o obj_files/main.o
 
 elif test $OS = Linux ; then
   g++ -O2 -Wall -o AtomicParsley obj_files/AP_commons.o obj_files/AtomicParsley_genres.o obj_files/AP_iconv.o obj_files/AP_AtomExtracts.o obj_files/AtomicParsley.o obj_files/main.o
 
 elif test $OS = CYGWIN ; then
-  g++ -g -O2 -Wall -o AtomicParsley.exe  obj_files/AP_commons.o obj_files/AtomicParsley_genres.o obj_files/AP_iconv.o obj_files/AP_AtomExtracts.o obj_files/AtomicParsley.o obj_files/main.o -liconv -lgcc 
+  g++ -g -O2 -Wall -o AtomicParsley.exe  obj_files/AP_commons.o obj_files/AtomicParsley_genres.o obj_files/AP_iconv.o obj_files/AP_AtomExtracts.o obj_files/AtomicParsley.o obj_files/main.o -lgcc 
 
 else
-  g++ -g -O2 -Wall -liconv -o AtomicParsley.exe obj_files/AP_commons.o obj_files/AtomicParsley_genres.o obj_files/AP_iconv.o obj_files/AP_AtomExtracts.o obj_files/AtomicParsley.o obj_files/main.o
+  g++ -g -O2 -Wall -o AtomicParsley.exe obj_files/AP_commons.o obj_files/AtomicParsley_genres.o obj_files/AP_iconv.o obj_files/AP_AtomExtracts.o obj_files/AtomicParsley.o obj_files/main.o
 fi
 
 #---------------------------------------------#

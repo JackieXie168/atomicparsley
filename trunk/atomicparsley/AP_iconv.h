@@ -18,14 +18,6 @@
     Copyright ©2005-2006 puck_lock
                                                                    */
 //==================================================================//
-
-#if defined (USE_ICONV_CONVERSION)
-
-void StringReEncode(char *a_string, char *tocode, char *fromcode);
-
-#endif
-
-//==================================================================//
 // utf conversion functions from libxml2
 /*
 
@@ -60,8 +52,8 @@ extern int xmlLittleEndian;
 
 void xmlInitEndianDetection();
 
-int isolat1ToUTF8(unsigned char* out, int *outlen, const unsigned char* in, int *inlen);
-int UTF8Toisolat1(unsigned char* out, int *outlen, const unsigned char* in, int *inlen);
+int isolat1ToUTF8(unsigned char* out, int outlen, const unsigned char* in, int inlen);
+int UTF8Toisolat1(unsigned char* out, int outlen, const unsigned char* in, int inlen);
 int UTF16BEToUTF8(unsigned char* out, int outlen, const unsigned char* inb, int inlenb);
 int UTF8ToUTF16BE(unsigned char* outb, int outlen, const unsigned char* in, int inlen);
 
