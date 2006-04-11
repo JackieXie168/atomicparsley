@@ -114,8 +114,9 @@ void ShowVersionInfo() {
 #define unicode_enabled	"(utf8)"
 #else
 
+//in the sense that input onto an atom has to be on codepage 65001 for any sense of proper utf8 - output to the console is utf16; redirected output is utf8
 #if defined (UTF16_CONSOLE_OUTPUT)
-#define unicode_enabled	"(utf16 output)"
+#define unicode_enabled	"(utf8 input/utf16 output)"
 #else
 #define unicode_enabled	""
 #endif
@@ -829,7 +830,9 @@ void APar_unicode_win32Printout(wchar_t* unicode_out) { //based on http://blogs.
 	HANDLE outHandle = GetStdHandle(STD_OUTPUT_HANDLE);
 	// ThreadLocale adjustment, resource loading, etc. is skipped
 	if ( (GetFileType(outHandle) & FILE_TYPE_CHAR) && GetConsoleMode( outHandle, &fdwMode) ) {
-		WriteConsoleW( outHandle, unicode_out, wcslen(unicode_out), &dwBytesWritten, 0);
+		if ( wmemcmp(unicode_out, L"\xEF\xBB\xBF", 3) != 0 ) { //skip BOM when writing directly to the console
+			WriteConsoleW( outHandle, unicode_out, wcslen(unicode_out), &dwBytesWritten, 0);
+		}
 	} else {
 		//http://www.ansi.edu.pk/library/WSLP/book4/html/ch08e.htm
 		//WriteConsoleW above works best, but doesn't redirect well out to a file (AP.exe foo.mp4 -t > E:\tags.txt); here is were any redirection gets shunted to
@@ -1271,9 +1274,17 @@ void APar_PrintDataAtoms(const char *path, bool extract_pix, char* pic_output_pa
 			isolat1ToUTF8((unsigned char*)atom_name, 10, (unsigned char*)uuid_duplicate, 4);
 
 			if (thisAtom.AtomicDataClass == AtomicDataClass_Text && !pic_output_path) {
+#if defined (_MSC_VER) && defined (UTF16_CONSOLE_OUTPUT)
+				fprintf(stdout, "Atom uuid=\"");
+				APar_fprintf_UTF8_data(atom_name);
+				fprintf(stdout, "\" contains: ");
+#else
 				fprintf(stdout, "Atom uuid=\"%s\" contains: ", atom_name);
+#endif
 				APar_ExtractDataAtom(i);
 			}
+			free(uuid_duplicate);
+			uuid_duplicate = NULL;
 		}
 	}
 	free(atom_name);
@@ -1403,7 +1414,13 @@ void APar_PrintAtomicTree() {
 		} else if (thisAtom.uuidAtomType) {
 			fprintf(stdout, "%sAtom uuid=%s @ %u of size: %u, ends @ %u\n", tree_padding, atom_name, thisAtom.AtomicStart, thisAtom.AtomicLength, (thisAtom.AtomicStart + thisAtom.AtomicLength) );
 		} else {
+#if defined (_MSC_VER) && defined (UTF16_CONSOLE_OUTPUT)
+			fprintf(stdout, "%sAtom ", tree_padding);
+			APar_fprintf_UTF8_data(atom_name);
+			fprintf(stdout, " @ %u of size: %u, ends @ %u\n", thisAtom.AtomicStart, thisAtom.AtomicLength, (thisAtom.AtomicStart + thisAtom.AtomicLength) );
+#else
 			fprintf(stdout, "%sAtom %s @ %u of size: %u, ends @ %u\n", tree_padding, atom_name, thisAtom.AtomicStart, thisAtom.AtomicLength, (thisAtom.AtomicStart + thisAtom.AtomicLength) );
+#endif
 		}
 		
 		//simple tally & percentage of free space info
@@ -2270,8 +2287,42 @@ void APar_Unified_atom_Put(short atom_num, const char* unicode_data, uint8_t tex
 			}
 			
 			//if we are setting iTunes-style metadata, add 0 to the pointer; for 3gp user data atoms - add in the (length-default bare atom lenth): account for language uint16_t (plus any other crap we will set)
+
+#if defined (UTF16_CONSOLE_OUTPUT)
+			//what makes no sense here is that we are using Windows to convert unicode (utf16 in basically hex) into the ANSI codepage! ??? It makes no sense, but it does create valid utf8 (at least for the © symbol). It should convert to the CP_UTF8 codepage - but that DOESN'T work.
+			//first use windows to convert to utf16 on wchar_t, then back to utf8 before finally copying it onto AtomicData
+			if (GetConsoleCP() == CP_UTF8) {
+				int charCount = MultiByteToWideChar(CP_ACP, 0, unicode_data, strlen(unicode_data) + 1, NULL, 0);  //precalculate the amount of wchar_t's needed
+				wchar_t* utf16_string = (wchar_t*) malloc(sizeof(wchar_t)* (charCount + 2) );
+				wmemset(utf16_string, 0, charCount + 2);
+				charCount = MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED, unicode_data, strlen(unicode_data) + 1, utf16_string, charCount); //actually convert it to wchar_t's
+				if (charCount > 0) {
+					//fprintf(stdout, "in length = %i; wchar's = %i\n", strlen(unicode_data), charCount);
+					
+					char* utf8_data = (char*)malloc(sizeof(char)* strlen(unicode_data) * 6 );
+					memset(utf8_data, 0, strlen(unicode_data) * 6);
+					UTF16LEToUTF8((unsigned char*)utf8_data, strlen(unicode_data) * 6, (unsigned char*)utf16_string, charCount * 2 );
+				
+					//charCount = WideCharToMultiByte( CP_UTF8, 0, utf16_string, -1, utf8_data, charCount, 0, 0); //using windows internal calls
+
+					memcpy(parsedAtoms[atom_num].AtomicData + (text_tag_style >= UTF8_3GP_Style ? atom_data_pos :  0), utf8_data, strlen(utf8_data) );
+					parsedAtoms[atom_num].AtomicLength += strlen(utf8_data);
+					//fprintf(stdout, "utf8 string \"%s\"\n", utf8_data);
+					free(utf8_data);
+					utf8_data = NULL;
+				}
+				//wprintf(L"string \"%s\"",utf16_string);
+				//wprintf(L"byte %i\n", utf16_string[0]);
+				free(utf16_string);
+				utf16_string = NULL;
+			} else {
+				fprintf(stdout, "AP error: codepage was not set to utf8 (try 'chcp 65001') %c\n", '\a'); //give a beep
+				exit(0);
+			}
+#else
 			memcpy(parsedAtoms[atom_num].AtomicData + (text_tag_style >= UTF8_3GP_Style ? atom_data_pos :  0), unicode_data, total_bytes + 1 );
 			parsedAtoms[atom_num].AtomicLength += total_bytes;
+#endif
 		}
 	
 	}	
@@ -2279,7 +2330,12 @@ void APar_Unified_atom_Put(short atom_num, const char* unicode_data, uint8_t tex
 	return;
 }
 
-void APar_Verify__udta_meta_hdlr__atom() { //only test if the atom is present for now, it will be created just before writeout time - to insure it only happens once.
+/*----------------------
+APar_Verify__udta_meta_hdlr__atom
+
+    only test if the atom is present for now, it will be created just before writeout time - to insure it only happens once.
+----------------------*/
+void APar_Verify__udta_meta_hdlr__atom() {
 	if (!verboten_iTunesStyleMetadata) {
 		const char* udta_meta_hdlr__atom = "moov.udta.meta.hdlr";
 		AtomicInfo hdlrAtom = APar_FindAtom(udta_meta_hdlr__atom, false, false, false, true);
@@ -2294,6 +2350,15 @@ void APar_Verify__udta_meta_hdlr__atom() { //only test if the atom is present fo
 	return;
 }
 
+/*----------------------
+APar_MetaData_atomGenre_Set
+	atomPayload - the desired string value of the genre
+
+    genre is special in that it gets carried on 2 atoms. A standard genre (as listed in ID3v1GenreList) is represented as a number on a 'gnre' atom
+		any value other than those, and the genre is placed as a string onto a '©gen' atom. Only one or the other can be present. So if atomPayload is a
+		non-NULL value, first try and match the genre into the ID3v1GenreList standard genres. Try to remove the other type of genre atom, then find or
+		create the new genre atom and put the data manually onto the atom.
+----------------------*/
 void APar_MetaData_atomGenre_Set(const char* atomPayload) {
 	if (!verboten_iTunesStyleMetadata) {
 		const char* standard_genre_atom = "moov.udta.meta.ilst.gnre";
@@ -2347,6 +2412,15 @@ void APar_MetaData_atomGenre_Set(const char* atomPayload) {
 	return;
 }
 
+/*----------------------
+APar_MetaData_atomArtwork_Init
+	atom_num - the AtomicNumber of the atom in the parsedAtoms array (probably newly created)
+	artworkPath - the path that was provided on a (hopefully) existant jpg/png file
+
+    artwork will be inited differently because we need to test a) that the file exists and b) get its size in bytes. This info will be used at the size
+		of the 'data' atom under 'covr' - and the path will be carried on AtomicData until write-out time, when the binary contents of the original will be
+		copied onto the atom.
+----------------------*/
 void APar_MetaData_atomArtwork_Init(short atom_num, const char* artworkPath) {
 	TestFileExistence(artworkPath, false);
 	off_t picture_size = findFileSize(artworkPath);
@@ -2360,6 +2434,15 @@ void APar_MetaData_atomArtwork_Init(short atom_num, const char* artworkPath) {
 	return;
 }
 
+/*----------------------
+APar_MetaData_atomArtwork_Set
+	artworkPath - the path that was provided on a (hopefully) existant jpg/png file
+	env_PicOptions - picture embedding preferences from a 'export PIC_OPTIONS=foo' setting
+
+    artwork gets stored under a single 'covr' atom, but with many 'data' atoms - each 'data' atom contains the binary data for each picture.
+		When the 'covr' atom is found, we create a sparse atom at the end of the existing 'data' atoms, and then perform any of the image manipulation
+		features on the image. The path of the file (either original, modified artwork, or both) are returned to use for possible atom creation
+----------------------*/
 void APar_MetaData_atomArtwork_Set(const char* artworkPath, char* env_PicOptions) {
 	if (!verboten_iTunesStyleMetadata) {
 		modified_atoms = true;
@@ -2399,6 +2482,21 @@ void APar_MetaData_atomArtwork_Set(const char* artworkPath, char* env_PicOptions
 	return;
 }
 
+/*----------------------
+APar_uuid_atom_Init
+	atom_path - the parent hierarchy of the desired atom (with the location of the specific uuid atom supplied as '=%s')
+	uuidName - the name of the atom (possibly provided in a forbidden utf8 - only latin1 aka iso8859 is acceptable)
+	dataType - for now text is only supported
+	uuidValue - the string that will get embedded onto the atom
+	shellAtom - flag to denote whether the atom may possibly come as utf8 encoded
+
+    uuid atoms are user-supplied/user-defined atoms that allow for extended tagging support. Because a uuid atom is malleable, and defined by the utility
+		that created it, any information carried by a uuid is arbitrary, and cannot be guaranteed by a non-originating utility. In AtomicParsley uuid atoms,
+		the data is presented much like an iTunes-style atom - except that the information gets carried directly on the uuid atom - no 'data' child atom
+		exists. A uuid atom is a special longer type of traditional atom. As a traditional atom, it name is 'uuid' - and the 4 bytes after that represent
+		its uuid name. Because the data will be directly sitting on the atom, a different means of finding these atoms exists, as well as creating the
+		acutal uuidpath itself. Once created however, placing information on it is very much like any other atom - done via APar_Unified_atom_Put
+----------------------*/
 short APar_uuid_atom_Init(const char* atom_path, char* uuidName, const int dataType, const char* uuidValue, bool shellAtom) {
 	modified_atoms = true;
 	char uuid_path[256];
@@ -2407,11 +2505,6 @@ short APar_uuid_atom_Init(const char* atom_path, char* uuidName, const int dataT
 	char *uuid_4char_name;
 	bool free_uuid_char = false;
 
-//#if defined (USE_ICONV_CONVERSION)	
-//	if (shellAtom) {
-//		StringReEncode(uuidName, "ISO-8859-1", "UTF-8"); //all atom names characters are iso8859-1
-//	}
-//#endif
 	if (shellAtom) {
 		uuid_4char_name = (char*)malloc(sizeof(char)*10);
 		memset(uuid_4char_name, 0, 10);
