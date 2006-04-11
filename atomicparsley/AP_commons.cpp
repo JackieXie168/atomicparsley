@@ -198,11 +198,11 @@ wchar_t* Convert_multibyteUTF16_to_wchar(char* input_unicode, size_t glyph_lengt
 	return utf16_data;
 }
 
-unsigned char* Convert_multibyteUTF16_to_UTF8(char* input_utf8, size_t glyph_length, size_t byte_count) {
+unsigned char* Convert_multibyteUTF16_to_UTF8(char* input_utf16, size_t glyph_length, size_t byte_count) {
 	unsigned char* utf8_data = (unsigned char*)malloc(sizeof(unsigned char)* glyph_length );
 	memset(utf8_data, 0, glyph_length);
 						
-	UTF16BEToUTF8(utf8_data, glyph_length, (unsigned char*)input_utf8 + 2, byte_count);
+	UTF16BEToUTF8(utf8_data, glyph_length, (unsigned char*)input_utf16 + 2, byte_count);
 	return utf8_data;
 }
 
