@@ -47,6 +47,11 @@ typedef unsigned long long   uint64_t;
 #endif /* _MSC_VER */
 #endif /* _UINT64_T */
 
+#ifndef _INT16_T
+#define _INT16_T
+typedef short       int16_t;
+#endif /* _INT16_T */
+
 uint8_t APar_read8(FILE* m4afile, uint32_t pos);
 uint16_t APar_read16(char* &buffer, FILE* m4afile, uint32_t pos);
 uint32_t APar_read32(char* &buffer, FILE* m4afile, uint32_t pos);
@@ -74,3 +79,9 @@ uint64_t UInt64FromBigEndian(const char *string);
 void char4TOuint32(uint32_t lnum, char* data);
 void char8TOuint64(uint64_t ullnum, char* data);
 
+uint32_t float_to_16x16bit_fixed_point(double floating_val);
+double fixed_point_16x16bit_to_double(uint32_t fixed_point);
+
+uint32_t widechar_len(char* instring, uint32_t _bytes_);
+
+bool APar_assert(bool expression, int error_msg, char* supplemental_info);
