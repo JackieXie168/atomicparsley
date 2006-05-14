@@ -271,3 +271,67 @@ void char8TOuint64(uint64_t ullnum, char* data) {
 	data[7] = (ullnum >>  0) & 0xff;
 	return;
 }
+
+///////////////////////////////////////////////////////////////////////////////////////
+//                        3gp asset support (for 'loci')                             //
+///////////////////////////////////////////////////////////////////////////////////////
+
+uint32_t float_to_16x16bit_fixed_point(double floating_val) {
+	uint32_t fixedpoint_16bit = 0;
+	int16_t long_integer = (int16_t)floating_val;
+	//to get a fixed 16-bit decimal, work on the decimal part along; multiply by (2^8 * 2) which moves the decimal over 16 bits to create our int16_t
+	//now while the degrees can be negative (requiring a int16_6), the decimal portion is always positive (and thus requiring a uint16_t)
+	uint16_t long_decimal = (int16_t) ((floating_val - long_integer) * (double)(65536) ); 
+	fixedpoint_16bit = long_integer * 65536 + long_decimal; //same as bitshifting, less headache doing it
+	return fixedpoint_16bit;
+}
+
+double fixed_point_16x16bit_to_double(uint32_t fixed_point) {
+	double return_val = 0.0;
+	int16_t long_integer = fixed_point / 65536;
+	uint16_t long_decimal = fixed_point - (long_integer * 65536) ;
+	return_val = long_integer + ( (double)long_decimal / 65536);
+	
+	if (return_val < 0.0) {
+		return_val-=1.0;
+	}
+	
+	return return_val;
+}
+
+uint32_t widechar_len(char* instring, uint32_t _bytes_) {
+	uint32_t wstring_len = 0;
+	for (uint32_t i = 0; i <= _bytes_/2 ; i++) {
+		if ( instring[0] == 0 && instring[1] == 0) {
+			break;
+		} else {
+			instring+=2;
+			wstring_len++;
+		}
+	}
+	return wstring_len;
+}
+
+bool APar_assert(bool expression, int error_msg, char* supplemental_info) {
+	bool force_break = true;
+	if (!expression) {
+		force_break = false;
+		switch (error_msg) {
+			case 1 : { //trying to set an iTunes-style metadata tag on an 3GP/MobileMPEG-4
+				fprintf(stdout, "AP warning:\n\tSetting the %s tag is for ordinary MPEG-4 files.\n\tIt is not supported on 3GP files.\nSkipping\n", supplemental_info);
+				break;
+			}
+			
+			case 2 : { //trying to set a 3gp asset on an mpeg-4 file with the improper brand
+				fprintf(stdout, "AP warning:\n\tSetting the %s asset is only available on 3GPP files.\n\tIt is not supported on ordinary MPEG-4 files.\nSkipping\n", supplemental_info);
+				break;
+			}
+			
+			case 3 : { //trying to set a 3gp album asset on an early 3gp file that only came into being with 3gp6
+				fprintf(stdout, "AtomicParsley warning: \n\tthe 'albm' tag is only allowed on files of '3gp6' brand & later.\nSkipping.\n");
+				break;
+			}
+		}
+	}
+	return force_break;
+}

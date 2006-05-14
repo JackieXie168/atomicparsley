@@ -56,4 +56,7 @@ int isolat1ToUTF8(unsigned char* out, int outlen, const unsigned char* in, int i
 int UTF8Toisolat1(unsigned char* out, int outlen, const unsigned char* in, int inlen);
 int UTF16BEToUTF8(unsigned char* out, int outlen, const unsigned char* inb, int inlenb);
 int UTF8ToUTF16BE(unsigned char* outb, int outlen, const unsigned char* in, int inlen);
+int UTF16LEToUTF8(unsigned char* out, int outlen, const unsigned char* inb, int inlenb);
+
+int isUTF8(const char* in_string);
 

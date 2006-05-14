@@ -85,8 +85,10 @@
 #define Meta_uuid                'z'
 
 #define Metadata_Purge           'P'
+#define UserData_Purge           'X'
 #define foobar_purge             '.'
 #define Meta_dump                'Q'
+#define Manual_atom_removal      'R'
 #define Opt_FreeFree             'F'
 #define Opt_Keep_mdat_pos        'M'
 #define OPT_OutputFile           'o'
@@ -101,11 +103,10 @@
 #define _3GP_Copyright           '6'
 #define _3GP_Album               '7'
 #define _3GP_Year                '8'
-/* */ /* */ /* */ /* */ /* */ /* */
 #define _3GP_Rating              '9'
 #define _3GP_Classification      '0'
 #define _3GP_Keyword             '+'
-#define _3GP_Location            '_' /*gee, maybe its time to get past getopt - but I think this is the end of new metadata tags*/
+#define _3GP_Location            '_'
 
 /*
 http://developer.apple.com/documentation/QuickTime/APIREF/UserDataIdentifiers.htm#//apple_ref/doc/constant_group/User_Data_Identifiers
@@ -147,6 +148,8 @@ http://developer.apple.com/documentation/QuickTime/APIREF/UserDataIDs.htm#//appl
 ©url		URLLink*/
 
 char *output_file;
+
+int total_args;
 
 static void kill_signal ( int sig );
 
@@ -224,6 +227,7 @@ static const char* longHelp_text =
 " To delete a single atom, set the tag to null (except artwork):\n"
 "  --artist \"\" --lyrics \"\"\n"
 "  --artwork REMOVE_ALL \n"
+"  --manualAtomRemove 'moov.udta.meta.ist.hymn' (only works on iTunes-style metadata)\n"
 "------------------------------------------------------------------------------------------------\n"
 " Setting user-defined 'uuid' tags (all will appear in \"moov.udta.meta\"):\n"
 "\n"
@@ -278,15 +282,19 @@ static const char* _3gpHelp_text =
 "\n"
 "example: AtomicParsley /path/to.3gp --t \n"
 "example: AtomicParsley /path/to.3gp --T 1 \n"
-"example: Atomicparsley /path/to.3gp --3gp-artist \"Enjoy Yourself\" lang=pol UTF16\n"
+"example: Atomicparsley /path/to.3gp --3gp-performer \"Enjoy Yourself\" lang=pol UTF16\n"
 "example: Atomicparsley /path/to.3gp --3gp-year 2006 --3gp-album \"White Label\" track=8 lang=fra\n"
+"\n"
+"example: Atomicparsley /path/to.3gp --3gp-keyword keywords=foo1,foo2,foo3 UTF16\n"
+"example: Atomicparsley /path/to.3gp --3gp-location 'Bethesda Terrace' latitude=40.77 longitude=73.98W \n"
+"                                                    altitude=4.3B role='real' body=Earth notes='Underground'\n"
 "\n"
 "----------------------------------------------------------------------------------------------------\n"
 "  3GPP text tags can be encoded in either UTF-8 (default input encoding) or UTF-16 (converted from UTF-8)\n"
 "  Many 3GPP text tags can be set for a desired language by a 3-letter-lowercase code (default is \"eng\")\n"
 "  See   http://www.w3.org/WAI/ER/IG/ert/iso639.htm   to obtain more codes (codes are *not* checked)\n"
 "\n"
-"  iTunes-style metadata is not supported by the 3GPP TS 26.444 version 6.4.0 Release 6 specification\n"
+"  iTunes-style metadata is not supported by the 3GPP TS 26.444 version 6.4.0 Release 6 specification.\n"
 "  3GPP tags are set in a different hierarchy: moov.udta (versus iTunes moov.udta.meta.ilst). Some 3rd\n"
 "  party utilities may allow setting iTunes-style metadata in 3gp files. When a 3gp file is detected\n"
 "  (file extension doesn't matter), only 3gp spec-compliant metadata will be read & written.\n"
@@ -297,6 +305,8 @@ static const char* _3gpHelp_text =
 "  Note2: there are a number of different 'brands' that 3GPP files come marked as. Some will not be \n"
 "         supported by AtomicParsley due simply to them being unknown and untested. You can compile your\n"
 "         own AtomicParsley to evaluate it by adding the hex code into the source of APar_IdentifyBrand.\n"
+"\n"
+"  Note3: There are slight accuracy discrepancies in location's fixed point decimals set and retrieved.\n"
 "\n"
 "----------------------------------------------------------------------------------------------------\n"
 " Tag setting options (default lang is 'eng'; default encoding is UTF8):\n"
@@ -310,15 +320,20 @@ static const char* _3gpHelp_text =
 "  --3gp-copyright       (str)   [lang=3str]   [UTF16]  .........  Set a 3gp copyright notice tag\n"
 "\n"
 "  --3gp-album           (str)   [track=int]  [lang=3str] [UTF16]  Set a 3gp album tag (& opt. tracknum)\n"
-"  --3gp-year            (int)   ................................  Set a 3gp recording year tag\n"
+"  --3gp-year            (int)   ................................  Set a 3gp recording year tag (4 digit only)\n"
 "\n"
-"                               (Â¯`Â·.Âº-:Â¦:-unimplemented-:Â¦:-Âº.Â·Â´Â¯)\n"
 "  --3gp-rating          (str)  [entity=4str]  [criteria=4str]  [lang=3str]  [UTF16]  Set a 3gp rating tag\n"
-"                                                                                     *currently write only*\n"
 "  --3gp-classification  (str)  [entity=4str]  [criteria=4str]  [lang=3str]  [UTF16]  Set classification tag\n"
-"                                                                                     *currently write only*\n"
-"  --3gp-keyword \n"
-"  --3gp-location  (future-proofing: allow setting the \"astronomical body\" of the location - i.e. 'earth')\n"
+"\n"
+"  --3gp-keyword         (str)    [lang=3str]   [UTF16]     Format of str is 'keywords=word1,word2,word3,word4'\n"
+"\n"
+"  --3gp-location        (str)    [lang=3str]   [UTF16]     Set a 3gp location tag (defaults to Central Park)\n"
+"                                 [longitude=fxd.pt]  [latitude=fxd.pt]  [altitude=fxd.pt]\n"
+"                                 [role=str]  [body=str]  [notes=str]\n"
+"                                 fxd.pt values are decimal coordinates (55.01209, 179.25W, 63)\n"
+"                                 'role=' values: 'shooting location', 'real location', 'fictional location'\n"
+"                                         a negative value in coordinates will be seen as a cli flag\n"
+"                                         append 'S', 'W' or 'B': lat=55S, long=90.23W, alt=90.25B\n"
 "\n";
 
 void GetBasePath(const char *filepath, char* &basepath) {
@@ -341,7 +356,7 @@ void find_optional_args(char *argv[], int start_optindargs, uint16_t &packed_lan
 	packed_lang = 5575; //und = 0x55C4 = 21956, but QTPlayer doesn't like und //eng =  0x15C7 = 5575
 	
 	for (int i= 0; i <= max_optargs-1; i++) {
-		if ( argv[start_optindargs + i] ) {
+		if ( argv[start_optindargs + i] && start_optindargs + i <= total_args ) {
 			if ( memcmp(argv[start_optindargs + i], "lang=", 5) == 0 ) {
 				packed_lang = PackLanguage(argv[start_optindargs +i]);
 			
@@ -373,6 +388,7 @@ int main( int argc, char *argv[])
 		}
 	}
 	
+	total_args = argc;
 	char *m4afile = argv[1];
 	
 	TestFileExistence(m4afile, true);
@@ -430,6 +446,8 @@ int main( int argc, char *argv[])
 		{ "freefree",         optional_argument,  NULL,           Opt_FreeFree },
 		{ "mdatLock",         0,                  NULL,           Opt_Keep_mdat_pos },
 		{ "metaEnema",        0,                  NULL,						Metadata_Purge },
+		{ "manualAtomRemove", required_argument,  NULL,           Manual_atom_removal },
+		{ "udtaEnema",        0,                  NULL,           UserData_Purge },
 		{ "foobar2000Enema",  0,                  NULL,           foobar_purge },
 		{ "metaDump",         0,                  NULL,						Meta_dump },
 		{ "output",           required_argument,  NULL,						OPT_OutputFile },
@@ -455,7 +473,8 @@ int main( int argc, char *argv[])
 	int c = -1;
 	int option_index = 0; 
 	
-	c = getopt_long(argc, argv, "hTtEe:a:c:d:f:g:i:l:n:o:pq::u:w:y:z:G:k:A:B:C:D:F:H:I:J:K:L:MN:QS:U:WV:ZP1:2:3:4:5:6:7:8:9:0:", long_options, &option_index);
+	c = getopt_long(argc, argv, "hTtEe:a:c:d:f:g:i:l:n:o:pq::u:w:y:z:G:k:A:B:C:D:F:H:I:J:K:L:MN:QR:S:U:WXV:ZP1:2:3:4:5:6:7:8:9:0:",
+	                long_options, &option_index);
 	
 	if (c == -1) {
 		if (argc < 3 && argc > 2) {
@@ -493,9 +512,9 @@ int main( int argc, char *argv[])
 			APar_ScanAtoms(m4afile);
 			
 			openSomeFile(m4afile, true);
-			if (verboten_iTunesStyleMetadata) {
+			if (metadata_style >= THIRD_GEN_PARTNER) {
 				APar_PrintUserDataAssests();
-			} else {
+			} else if (metadata_style == ITUNES_STYLE) {
 				APar_PrintDataAtoms(m4afile, false, NULL); //false, don't try to extractPix
 			}
 			openSomeFile(m4afile, false);
@@ -524,6 +543,9 @@ int main( int argc, char *argv[])
 				
 		case Meta_artist : {
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "artist") ) {
+				break;
+			}
 			
 			short artistData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©ART.data", optarg, AtomicDataClass_Text);
 			APar_Unified_atom_Put(artistData_atom, optarg, UTF8_iTunesStyle_256byteLimited, 0, 0);
@@ -532,6 +554,9 @@ int main( int argc, char *argv[])
 		
 		case Meta_songtitle : {
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "title") ) {
+				break;
+			}
 			
 			short titleData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©nam.data", optarg, AtomicDataClass_Text);
 			APar_Unified_atom_Put(titleData_atom, optarg, UTF8_iTunesStyle_256byteLimited, 0, 0);
@@ -540,6 +565,9 @@ int main( int argc, char *argv[])
 		
 		case Meta_album : {
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "album") ) {
+				break;
+			}
 			
 			short albumData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©alb.data", optarg, AtomicDataClass_Text);
 			APar_Unified_atom_Put(albumData_atom, optarg, UTF8_iTunesStyle_256byteLimited, 0, 0);
@@ -548,6 +576,9 @@ int main( int argc, char *argv[])
 		
 		case Meta_genre : {
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "genre") ) {
+				break;
+			}
 			
 			APar_MetaData_atomGenre_Set(optarg);
 			break;
@@ -555,6 +586,9 @@ int main( int argc, char *argv[])
 				
 		case Meta_tracknum : {
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "track number") ) {
+				break;
+			}
 			
 			uint8_t pos_in_total = 0;
 			uint8_t the_total = 0; 
@@ -585,6 +619,9 @@ int main( int argc, char *argv[])
 		
 		case Meta_disknum : {
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "disc number") ) {
+				break;
+			}
 			
 			uint8_t pos_in_total = 0;
 			uint8_t the_total = 0;
@@ -614,6 +651,9 @@ int main( int argc, char *argv[])
 		
 		case Meta_comment : {
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "comment") ) {
+				break;
+			}
 			
 			short commentData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©cmt.data", optarg, AtomicDataClass_Text);
 			APar_Unified_atom_Put(commentData_atom, optarg, UTF8_iTunesStyle_256byteLimited, 0, 0);
@@ -622,6 +662,9 @@ int main( int argc, char *argv[])
 		
 		case Meta_year : {
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "year") ) {
+				break;
+			}
 			
 			short yearData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©day.data", optarg, AtomicDataClass_Text);
 			APar_Unified_atom_Put(yearData_atom, optarg, UTF8_iTunesStyle_256byteLimited, 0, 0);
@@ -630,6 +673,9 @@ int main( int argc, char *argv[])
 		
 		case Meta_lyrics : {
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "lyrics") ) {
+				break;
+			}
 			
 			short lyricsData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©lyr.data", optarg, AtomicDataClass_Text);
 			APar_Unified_atom_Put(lyricsData_atom, optarg, UTF8_iTunesStyle_Unlimited, 0, 0);
@@ -638,6 +684,9 @@ int main( int argc, char *argv[])
 		
 		case Meta_composer : {
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "composer") ) {
+				break;
+			}
 			
 			short composerData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©wrt.data", optarg, AtomicDataClass_Text);
 			APar_Unified_atom_Put(composerData_atom, optarg, UTF8_iTunesStyle_256byteLimited, 0, 0);
@@ -646,6 +695,9 @@ int main( int argc, char *argv[])
 		
 		case Meta_copyright : {
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "copyright") ) {
+				break;
+			}
 			
 			short copyrightData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.cprt.data", optarg, AtomicDataClass_Text);
 			APar_Unified_atom_Put(copyrightData_atom, optarg, UTF8_iTunesStyle_256byteLimited, 0, 0);
@@ -654,6 +706,9 @@ int main( int argc, char *argv[])
 		
 		case Meta_grouping : {
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "grouping") ) {
+				break;
+			}
 			
 			short groupingData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©grp.data", optarg, AtomicDataClass_Text);
 			APar_Unified_atom_Put(groupingData_atom, optarg, UTF8_iTunesStyle_256byteLimited, 0, 0);
@@ -662,6 +717,9 @@ int main( int argc, char *argv[])
 		
 		case Meta_compilation : {
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "compilation") ) {
+				break;
+			}
 			
 			if (strncmp(optarg, "false", 5) == 0 || strlen(optarg) == 0) {
 				APar_RemoveAtom("moov.udta.meta.ilst.cpil", false, false);
@@ -675,6 +733,9 @@ int main( int argc, char *argv[])
 		
 		case Meta_BPM : {
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "BPM") ) {
+				break;
+			}
 			
 			if (strncmp(optarg, "0", 1) == 0 || strlen(optarg) == 0) {
 				APar_RemoveAtom("moov.udta.meta.ilst.tmpo", false, false);
@@ -691,6 +752,9 @@ int main( int argc, char *argv[])
 		
 		case Meta_advisory : {
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "content advisory") ) {
+				break;
+			}
 			
 			if (strncmp(optarg, "remove", 6) == 0 || strlen(optarg) == 0) {
 				APar_RemoveAtom("moov.udta.meta.ilst.rtng", false, false);
@@ -711,6 +775,9 @@ int main( int argc, char *argv[])
 		case Meta_artwork : { //handled differently: there can be multiple "moov.udta.meta.ilst.covr.data" atoms
 			char* env_PicOptions = getenv("PIC_OPTIONS");
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "coverart") ) {
+				break;
+			}
 			
 			APar_MetaData_atomArtwork_Set(optarg, env_PicOptions);
 			break;
@@ -718,6 +785,9 @@ int main( int argc, char *argv[])
 				
 		case Meta_stik : {
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "'stik'") ) {
+				break;
+			}
 			
 			if (strncmp(optarg, "remove", 6) == 0 || strlen(optarg) == 0) {
 				APar_RemoveAtom("moov.udta.meta.ilst.stik", false, false);
@@ -745,6 +815,9 @@ int main( int argc, char *argv[])
 		
 		case Meta_description : {
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "description") ) {
+				break;
+			}
 			
 			short descriptionData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.desc.data", optarg, AtomicDataClass_Text);
 			APar_Unified_atom_Put(descriptionData_atom, optarg, UTF8_iTunesStyle_256byteLimited, 0, 0);
@@ -753,6 +826,9 @@ int main( int argc, char *argv[])
 		
 		case Meta_TV_Network : {
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "TV Network") ) {
+				break;
+			}
 			
 			short tvnetworkData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.tvnn.data", optarg, AtomicDataClass_Text);
 			APar_Unified_atom_Put(tvnetworkData_atom, optarg, UTF8_iTunesStyle_256byteLimited, 0, 0);
@@ -761,6 +837,9 @@ int main( int argc, char *argv[])
 		
 		case Meta_TV_ShowName : {
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "TV Show name") ) {
+				break;
+			}
 			
 			short tvshownameData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.tvsh.data", optarg, AtomicDataClass_Text);
 			APar_Unified_atom_Put(tvshownameData_atom, optarg, UTF8_iTunesStyle_256byteLimited, 0, 0);
@@ -769,6 +848,9 @@ int main( int argc, char *argv[])
 		
 		case Meta_TV_Episode : { //if the show "ABC Lost 209", its "209"
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "TV Episode string") ) {
+				break;
+			}
 			
 			short tvepisodeData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.tven.data", optarg, AtomicDataClass_Text);
 			APar_Unified_atom_Put(tvepisodeData_atom, optarg, UTF8_iTunesStyle_256byteLimited, 0, 0);
@@ -777,6 +859,9 @@ int main( int argc, char *argv[])
 		
 		case Meta_TV_SeasonNumber : { //if the show "ABC Lost 209", its 2; integer 2 not char "2"
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "TV Season") ) {
+				break;
+			}
 			
 			uint8_t data_value = 0;
 			sscanf(optarg, "%hhu", &data_value );
@@ -791,6 +876,9 @@ int main( int argc, char *argv[])
 		
 		case Meta_TV_EpisodeNumber : { //if the show "ABC Lost 209", its 9; integer 9 (0x09) not char "9"(0x39)
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "TV Episode number") ) {
+				break;
+			}
 			
 			uint8_t data_value = 0;
 			sscanf(optarg, "%hhu", &data_value );
@@ -805,14 +893,20 @@ int main( int argc, char *argv[])
 		
 		case Meta_album_artist : {
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "album artist") ) {
+				break;
+			}
 			
-			short albumartistData_atom = APar_MetaData_atom_Init("moov.udta.meta.aART.data", optarg, AtomicDataClass_Text);
+			short albumartistData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.aART.data", optarg, AtomicDataClass_Text);
 			APar_Unified_atom_Put(albumartistData_atom, optarg, UTF8_iTunesStyle_256byteLimited, 0, 0);
 			break;
 		}
 		
 		case Meta_podcastFlag : {
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "podcast flag") ) {
+				break;
+			}
 			
 			if (strncmp(optarg, "false", 5) == 0) {
 				APar_RemoveAtom("moov.udta.meta.ilst.pcst", false, false);
@@ -827,6 +921,9 @@ int main( int argc, char *argv[])
 		
 		case Meta_keyword : {    //TODO to the end of iTunes-style metadata & uuid atoms
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "keyword") ) {
+				break;
+			}
 			
 			short keywordData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.keyw.data", optarg, AtomicDataClass_Text);
 			APar_Unified_atom_Put(keywordData_atom, optarg, UTF8_iTunesStyle_256byteLimited, 0, 0);
@@ -835,6 +932,9 @@ int main( int argc, char *argv[])
 		
 		case Meta_category : { // see http://www.apple.com/itunes/podcasts/techspecs.html for available categories
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "category") ) {
+				break;
+			}
 			
 			short categoryData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.catg.data", optarg, AtomicDataClass_Text);
 			APar_Unified_atom_Put(categoryData_atom, optarg, UTF8_iTunesStyle_256byteLimited, 0, 0);
@@ -843,6 +943,9 @@ int main( int argc, char *argv[])
 		
 		case Meta_podcast_URL : { // usually a read-only value, but useful for getting videos into the 'podcast' menu
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "podcast URL") ) {
+				break;
+			}
 			
 			short podcasturlData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.purl.data", optarg, AtomicDataClass_UInteger);
 			APar_Unified_atom_Put(podcasturlData_atom, optarg, UTF8_iTunesStyle_Binary, 0, 0);
@@ -851,6 +954,9 @@ int main( int argc, char *argv[])
 		
 		case Meta_podcast_GUID : { // Global Unique IDentifier; it is *highly* doubtful that this would be useful...
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "podcast GUID") ) {
+				break;
+			}
 			
 			short globalidData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.egid.data", optarg, AtomicDataClass_UInteger);
 			APar_Unified_atom_Put(globalidData_atom, optarg, UTF8_iTunesStyle_Binary, 0, 0);
@@ -858,8 +964,11 @@ int main( int argc, char *argv[])
 		}
 		
 		case Meta_PurchaseDate : { // might be useful to *remove* this, but adding it... although it could function like id3v2 tdtg...
-			char* purd_time = (char *)malloc(sizeof(char)*255);
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "purchase date") ) {
+				break;
+			}
+			char* purd_time = (char *)malloc(sizeof(char)*255);
 			if (optarg != NULL) {
 				if (strncmp(optarg, "timestamp", 9) == 0) {
 					APar_StandardTime(purd_time);
@@ -926,10 +1035,24 @@ int main( int argc, char *argv[])
 			break;
 		}
 		
+		case Manual_atom_removal : {
+			APar_ScanAtoms(m4afile);
+			
+			char* compliant_name = (char*)malloc(sizeof(char)* strlen(optarg) +1);
+			memset(compliant_name, 0, strlen(optarg) +1);
+			UTF8Toisolat1((unsigned char*)compliant_name, strlen(optarg), (unsigned char*)optarg, strlen(optarg) );
+			
+			APar_RemoveAtom(compliant_name, false, false);
+			break;
+		}
+		
 		//3gp tags
 		
 		case _3GP_Title : {
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER, 2, "title") ) {
+				break;
+			}
 			bool set_UTF16_text = false;
 			uint16_t packed_lang = 0;
 			find_optional_args(argv, optind, packed_lang, set_UTF16_text, 2);
@@ -941,6 +1064,9 @@ int main( int argc, char *argv[])
 		
 		case _3GP_Author : {
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER, 2, "author") ) {
+				break;
+			}
 			bool set_UTF16_text = false;
 			uint16_t packed_lang = 0;
 			find_optional_args(argv, optind, packed_lang, set_UTF16_text, 2);
@@ -952,6 +1078,9 @@ int main( int argc, char *argv[])
 		
 		case _3GP_Performer : {
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER, 2, "performer") ) {
+				break;
+			}
 			bool set_UTF16_text = false;
 			uint16_t packed_lang = 0;
 			find_optional_args(argv, optind, packed_lang, set_UTF16_text, 2);
@@ -963,6 +1092,9 @@ int main( int argc, char *argv[])
 		
 		case _3GP_Genre : {
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER, 2, "genre") ) {
+				break;
+			}
 			bool set_UTF16_text = false;
 			uint16_t packed_lang = 0;
 			find_optional_args(argv, optind, packed_lang, set_UTF16_text, 2);
@@ -974,6 +1106,9 @@ int main( int argc, char *argv[])
 		
 		case _3GP_Description : {
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER, 2, "description") ) {
+				break;
+			}
 			bool set_UTF16_text = false;
 			uint16_t packed_lang = 0;
 			find_optional_args(argv, optind, packed_lang, set_UTF16_text, 2);
@@ -985,6 +1120,9 @@ int main( int argc, char *argv[])
 		
 		case _3GP_Copyright : {
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER, 2, "copyright") ) {
+				break;
+			}
 			bool set_UTF16_text = false;
 			uint16_t packed_lang = 0;
 			find_optional_args(argv, optind, packed_lang, set_UTF16_text, 2);
@@ -996,6 +1134,9 @@ int main( int argc, char *argv[])
 		
 		case _3GP_Album : {
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER_VER1_REL6, 3, NULL) ) {
+				break;
+			}
 			bool set_UTF16_text = false;
 			uint16_t packed_lang = 0;
 			find_optional_args(argv, optind, packed_lang, set_UTF16_text, 3);
@@ -1006,7 +1147,7 @@ int main( int argc, char *argv[])
 			
 			//cygle through the remaining independant arguments (before the next --cli_flag) and figure out if any are useful to us; already have lang & utf16
 			for (int i= 0; i < 3; i++) { //3 possible arguments for this tag (the first - which doesn't count - is the data for the tag itself)
-				if ( argv[optind + i] ) {
+				if ( argv[optind + i] && optind + i <= total_args) {
 					if ( memcmp(argv[optind + i], "track=", 6) == 0 ) {
 						strsep(&argv[optind + i],"=");
 						sscanf(argv[optind + i], "%hhu", &tracknum);
@@ -1019,6 +1160,9 @@ int main( int argc, char *argv[])
 		
 		case _3GP_Year : {
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER, 2, "year") ) {
+				break;
+			}
 			uint16_t year_tag = 0;
 			sscanf(optarg, "%hu", &year_tag);
 			
@@ -1029,7 +1173,9 @@ int main( int argc, char *argv[])
 		
 		case _3GP_Rating : {
 			APar_ScanAtoms(m4afile);
-			
+			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER, 2, "rating") ) {
+				break;
+			}
 			char rating_entity[5] = { 0x20, 0x20, 0x20, 0x20, 0 }; //'    ' (4 spaces) - thats what it will be if not provided
 			char rating_criteria[5] = { 0x20, 0x20, 0x20, 0x20, 0 };
 			bool set_UTF16_text = false;
@@ -1037,7 +1183,7 @@ int main( int argc, char *argv[])
 			find_optional_args(argv, optind, packed_lang, set_UTF16_text, 4);
 			
 			for (int i= 0; i < 4; i++) { //3 possible arguments for this tag (the first - which doesn't count - is the data for the tag itself)
-				if ( argv[optind + i] ) {
+				if ( argv[optind + i] && optind + i <= total_args) {
 					if ( memcmp(argv[optind + i], "entity=", 7) == 0 ) {
 						strsep(&argv[optind + i],"=");
 						memcpy(&rating_entity, argv[optind + i], 4);
@@ -1058,7 +1204,9 @@ int main( int argc, char *argv[])
 		
 		case _3GP_Classification : {
 			APar_ScanAtoms(m4afile);
-			
+			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER, 2, "classification") ) {
+				break;
+			}
 			char classification_entity[5] = { 0x20, 0x20, 0x20, 0x20, 0 }; //'    ' (4 spaces) - thats what it will be if not provided
 			uint16_t classification_index = 0;
 			bool set_UTF16_text = false;
@@ -1066,7 +1214,7 @@ int main( int argc, char *argv[])
 			find_optional_args(argv, optind, packed_lang, set_UTF16_text, 4);
 			
 			for (int i= 0; i < 4; i++) { //3 possible arguments for this tag (the first - which doesn't count - is the data for the tag itself)
-				if ( argv[optind + i] ) {
+				if ( argv[optind + i] && optind + i <= total_args) {
 					if ( memcmp(argv[optind + i], "entity=", 7) == 0 ) {
 						strsep(&argv[optind + i],"=");
 						memcpy(&classification_entity, argv[optind + i], 4);
@@ -1087,17 +1235,134 @@ int main( int argc, char *argv[])
 		
 		case _3GP_Keyword : {
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER, 2, "keyword") ) {
+				break;
+			}
+			bool set_UTF16_text = false;
+			uint16_t packed_lang = 0;
+			find_optional_args(argv, optind, packed_lang, set_UTF16_text, 3);
 			
-			//short keyword_3GP_atom = APar_UserData_atom_Init("moov.udta.kywd", optarg);
-			//APar_UserData_atom_Put(keyword_3GP_atom, NULL, false, (uint32_t)year_tag, 16);
+			if (strrchr(optarg, '=') != NULL) { //must be in the format of:   keywords=foo1,foo2,foo3,foo4
+				char* keywords_globbed = strsep(&optarg,"="); //separate out 'keyword='
+				keywords_globbed = strsep(&optarg,"="); //this is what we want to work on: just the keywords
+				char* keyword_ptr = keywords_globbed;
+				uint32_t keyword_strlen = strlen(keywords_globbed);
+				uint8_t keyword_count = 0;
+				uint32_t key_index = 0;
+				
+				if (keyword_strlen > 0) { //if there is anything past the = then it counts as a keyword
+					keyword_count++;
+				}
+				
+				while (true) { //count occurrences of comma here
+					if (*keyword_ptr == ',') {
+						keyword_count++;
+					}
+					keyword_ptr++;
+					key_index++;
+					if (keyword_strlen == key_index) {
+						break;
+					}
+				}
+
+				short keyword_3GP_atom = APar_UserData_atom_Init("moov.udta.kywd", keyword_strlen ? "temporary" : ""); //just a "temporary" valid string to satisfy a test there
+				if (keyword_strlen > 0) {
+					APar_Unified_atom_Put(keyword_3GP_atom, NULL, UTF8_3GP_Style, (uint32_t)packed_lang, 16);
+					APar_Unified_atom_Put(keyword_3GP_atom, NULL, UTF8_3GP_Style, keyword_count, 8);
+					char* formed_keyword_struct = (char*)malloc(sizeof(char)* set_UTF16_text ? keyword_strlen * 4 : keyword_strlen * 2); //*4 should carry utf16's BOM & TERM
+					memset(formed_keyword_struct, 0, set_UTF16_text ? keyword_strlen * 4 : keyword_strlen * 2 );
+					uint32_t keyword_struct_bytes = APar_3GP_Keyword_atom_Format(keywords_globbed, keyword_count, set_UTF16_text, formed_keyword_struct);
+					APar_atom_Binary_Put(keyword_3GP_atom, formed_keyword_struct, keyword_struct_bytes, 3);
+					free(formed_keyword_struct);
+					formed_keyword_struct = NULL;
+				}
+			} else {
+				APar_UserData_atom_Init("moov.udta.kywd", "");
+			}
 			break;	
 		}
 		
 		case _3GP_Location : {
 			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER, 2, "location") ) {
+				break;
+			}
+			bool set_UTF16_text = false;
+			uint16_t packed_lang = 0;
+			find_optional_args(argv, optind, packed_lang, set_UTF16_text, 9);
 			
-			//short location_3GP_atom = APar_UserData_atom_Init("moov.udta.loci", optarg);
-			//APar_UserData_atom_Put(location_3GP_atom, NULL, false, (uint32_t)year_tag, 16);
+			
+			double longitude = -73.98; //if you don't provide a place, you WILL be put right into Central Park. Welcome to New York City... now go away.
+			double latitude = 40.77;
+			double altitude = 4.3;
+			uint8_t role = 0;
+			char* astronomical_body = "Earth";
+			char* additional_notes = "no notes";
+			
+			for (int i= 0; i < 9; i++) { //9 possible arguments for this tag (the first - which doesn't count - is the data for the tag itself)
+				if ( argv[optind + i] && optind + i <= total_args) {
+					if ( memcmp(argv[optind + i], "longitude=", 10) == 0 ) {
+						strsep(&argv[optind + i],"=");
+						sscanf(argv[optind + i], "%lf", &longitude);
+						//fprintf(stdout, "%s %i\n", argv[optind + i], argv[optind + i][strlen(argv[optind + i])-1]);
+						if (argv[optind + i][strlen(argv[optind + i])-1] == 'W') {
+							longitude*=-1;
+						}
+					}
+					if ( memcmp(argv[optind + i], "latitude=", 9) == 0 ) {
+						strsep(&argv[optind + i],"=");
+						sscanf(argv[optind + i], "%lf", &latitude);
+						//fprintf(stdout, "%s %i\n", argv[optind + i], argv[optind + i][strlen(argv[optind + i])-1]);
+						if (argv[optind + i][strlen(argv[optind + i])-1] == 'S') {
+							latitude*=-1;
+						}
+					}
+					if ( memcmp(argv[optind + i], "altitude=", 9) == 0 ) {
+						strsep(&argv[optind + i],"=");
+						sscanf(argv[optind + i], "%lf", &altitude);
+						//fprintf(stdout, "%s %i\n", argv[optind + i], argv[optind + i][strlen(argv[optind + i])-1]);
+						if (argv[optind + i][strlen(argv[optind + i])-1] == 'B') {
+							altitude*=-1;
+						}
+					}
+					if ( memcmp(argv[optind + i], "role=", 5) == 0 ) {
+						strsep(&argv[optind + i],"=");
+						if (strncmp(argv[optind + i], "shooting location", 17) == 0 || strncmp(argv[optind + i], "shooting", 8) == 0) {
+							role = 0;
+						} else if (strncmp(argv[optind + i], "real location", 13) == 0 || strncmp(argv[optind + i], "real", 4) == 0) {
+							role = 1;
+						} else if (strncmp(argv[optind + i], "fictional location", 18) == 0 || strncmp(argv[optind + i], "fictional", 9) == 0) {
+							role = 2;
+						}
+					}
+					if ( memcmp(argv[optind + i], "body=", 5) == 0 ) {
+						strsep(&argv[optind + i],"=");
+						astronomical_body = argv[optind + i];
+					}
+					if ( memcmp(argv[optind + i], "notes=", 6) == 0 ) {
+						strsep(&argv[optind + i],"=");
+						additional_notes = argv[optind + i];
+					}
+				}
+			}
+			
+			//fprintf(stdout, "long, lat, alt = %lf %lf %lf\n", longitude, latitude, altitude);
+			
+			if (longitude < -180.0 || longitude > 180.0 || latitude < -90.0 || latitude > 90.0) {
+				fprintf(stdout, "AtomicParsley warning: longitude or latitude was invalid; skipping setting location\n");
+			} else {
+			
+				short location_3GP_atom = APar_UserData_atom_Init("moov.udta.loci", optarg);
+				APar_Unified_atom_Put(location_3GP_atom, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
+				APar_Unified_atom_Put(location_3GP_atom, NULL, false, (uint32_t)role, 8);
+				
+				APar_Unified_atom_Put(location_3GP_atom, NULL, false, float_to_16x16bit_fixed_point(longitude), 32);
+				//fprintf(stdout, "%lf %lf %lf\n", longitude, latitude, altitude);
+				APar_Unified_atom_Put(location_3GP_atom, NULL, false, float_to_16x16bit_fixed_point(latitude), 32);
+				APar_Unified_atom_Put(location_3GP_atom, NULL, false, float_to_16x16bit_fixed_point(altitude), 32);
+				APar_Unified_atom_Put(location_3GP_atom, astronomical_body, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), 0, 0);
+				APar_Unified_atom_Put(location_3GP_atom, additional_notes, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), 0, 0);
+			}
 			break;	
 		}
 		
@@ -1106,6 +1371,13 @@ int main( int argc, char *argv[])
 		case Metadata_Purge : {
 			APar_ScanAtoms(m4afile);
 			APar_RemoveAtom("moov.udta.meta.ilst", true, false);
+			
+			break;
+		}
+		
+		case UserData_Purge : {
+			APar_ScanAtoms(m4afile);
+			APar_RemoveAtom("moov.udta", true, false);
 			
 			break;
 		}

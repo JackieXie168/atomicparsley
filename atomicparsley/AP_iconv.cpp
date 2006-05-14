@@ -16,12 +16,7 @@
     Suite 330, Boston, MA 02111-1307, USA.  Or www.fsf.org
 
     Copyright ©2005-2006 puck_lock
-
-		----------------------
-    Code Contributions by:
-		
-    * Mike Brancato - Debian patches & build support
-                                                                   */
+*/
 //==================================================================//
 
 #include <string.h>
@@ -485,4 +480,65 @@ int UTF16LEToUTF8(unsigned char* out, int outlen, const unsigned char* inb, int 
     outlen = out - outstart;
     inlenb = processed - inb;
     return(outlen);
+}
+
+int isUTF8(const char* in_string) {
+	//fprintf(stdout, "utf8 test-> %s\n", in_string);
+	int str_bytes = 0;
+	if (in_string != NULL ) {
+		str_bytes = strlen(in_string);
+	} else {
+		return -1;
+	}
+	
+	bool is_validUTF8 = true;
+	bool is_high_ascii= false;
+
+	int index = 0;
+	while (index < str_bytes && is_validUTF8) {
+		char achar = in_string[index];
+		int supplemental_bytes = 0;
+		
+		if ( (unsigned char)achar > 0x80) {
+			is_high_ascii = true;
+		}
+		
+		if ((achar & 0x80) == 0) {  // 0xxxxxxx 
+			++index;
+			
+		} else if ((achar & 0xF8) == 0xF0) {  // 11110uuu 10uuzzzz 10yyyyyy 10xxxxxx
+			++index;
+			supplemental_bytes = 3;
+			is_high_ascii = true;
+		
+		} else if ((achar & 0xE0) == 0xE0) {  // 1110zzzz 10yyyyyy 10xxxxxx
+			++index;
+			supplemental_bytes = 2;
+			is_high_ascii = true;
+		
+		} else if ((achar & 0xE0) == 0xC0) {  // 110yyyyy 10xxxxxx
+			++index;
+			supplemental_bytes = 1;
+			is_high_ascii = true;
+			
+		} else {
+			is_validUTF8 = false;
+		}
+			
+		while (is_validUTF8 && supplemental_bytes--) {
+			if (index >= str_bytes) {
+				is_validUTF8 = false;
+			} else if ((in_string[index++] & 0xC0) != 0x80) {  // 10uuzzzz
+				is_validUTF8 = false;
+			}
+		}
+	}
+	
+	if (is_high_ascii) {
+		return 8;
+	} else if (is_validUTF8) {
+		return 1;
+	} else {
+		return 0;
+	}
 }

@@ -80,7 +80,7 @@ bool parsedfile = false;
 bool Create__udta_meta_hdlr__atom = false;
 bool move_mdat_atoms = true;
 bool skip_meta_hdlr_creation = true;
-bool verboten_iTunesStyleMetadata = false;
+int metadata_style = UNDEFINED_STYLE;
 
 uint32_t max_buffer = 4096*125; // increased to 512KB
 
@@ -91,6 +91,10 @@ uint32_t removed_bytes_tally = 0;
 uint32_t new_file_size = 0; //used for the progressbar
 
 bool contains_unsupported_64_bit_atom = false; //reminder that there are some 64-bit files that aren't yet supported (and where that limit is set)
+
+#if defined (_MSC_VER)
+bool high_bit_warning = false;
+#endif
 
 #if defined (WIN32) || defined (__CYGWIN__)
 short max_display_width = 45;
@@ -403,6 +407,22 @@ short APar_FindPrecedingAtom(short an_atom_num) {
 		}
 	}
 	return precedingAtom;
+}
+
+short Apar_FindParent_AtLevel(short starting_atom, short parental_level) {
+	short parent_atom = starting_atom;
+	while (true) {
+		if (parsedAtoms[parent_atom].AtomicLevel > 1) {
+			parent_atom = APar_FindPrecedingAtom(parent_atom);
+			//fprintf(stdout, "Preceding %s is %s\n", parsedAtoms[starting_atom].AtomicName, parsedAtoms[parent_atom].AtomicName);
+		} else {
+			break;
+		}
+		if (parsedAtoms[parent_atom].AtomicLevel == parental_level) {
+			break;
+		}
+	}
+	return parent_atom;
 }
 
 bool APar_Eval_ChunkOffsetImpact(short an_atom_num) {
@@ -809,13 +829,13 @@ AtomicInfo APar_LocateAtomInsertionPoint(const char* the_hierarchy, bool findLas
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////
-//                         'data'/'stco' Atom extraction                             //
+//                   'data'/'stco'/3GP asset Atom extraction                         //
 ///////////////////////////////////////////////////////////////////////////////////////
 
 void APar_AtomicRead(short this_atom_number) {
 	//fprintf(stdout, "Reading %u bytes\n", parsedAtoms[this_atom_number].AtomicLength-12 );
-	parsedAtoms[this_atom_number].AtomicData = (char*)malloc(sizeof(char)* (size_t)(parsedAtoms[this_atom_number].AtomicLength-12 + 1) );
-	memset(parsedAtoms[this_atom_number].AtomicData, 0, sizeof(char)* (size_t)(parsedAtoms[this_atom_number].AtomicLength-12 + 1) );
+	parsedAtoms[this_atom_number].AtomicData = (char*)malloc(sizeof(char)* (size_t)(parsedAtoms[this_atom_number].AtomicLength) );
+	memset(parsedAtoms[this_atom_number].AtomicData, 0, sizeof(char)* (size_t)(parsedAtoms[this_atom_number].AtomicLength) );
 	
 	fseek(source_file, parsedAtoms[this_atom_number].AtomicStart+12, SEEK_SET);
 	fread(parsedAtoms[this_atom_number].AtomicData, 1, parsedAtoms[this_atom_number].AtomicLength-12, source_file);
@@ -835,7 +855,7 @@ void APar_unicode_win32Printout(wchar_t* unicode_out) { //based on http://blogs.
 		}
 	} else {
 		//http://www.ansi.edu.pk/library/WSLP/book4/html/ch08e.htm
-		//WriteConsoleW above works best, but doesn't redirect well out to a file (AP.exe foo.mp4 -t > E:\tags.txt); here is were any redirection gets shunted to
+		//WriteConsoleW above works best, but doesn't redirect well out to a file (AP.exe foo.mp4 -t > E:\tags.txt); here is where any redirection gets shunted
 		//any utf8 that gets redirected here first gets read from the mpeg-4 file, converted to utf16 (carried on unsigned chars), put into wchar_t, and soon be converted back into utf8 for output to file - some round trip!
 		
 		int found_codepage = GetConsoleOutputCP();
@@ -871,11 +891,92 @@ void APar_fprintf_UTF8_data(char* utf8_encoded_data) {
 	return;
 }
 
+void APar_PrintUnicodeAssest(char* unicode_string, int asset_length) { //3gp files
+	if (memcmp(unicode_string, "\xFE\xFF", 2) == 0 ) { //utf16
+		fprintf(stdout, " (utf16)] : ");
+
+#if defined (_MSC_VER)
+		if (GetVersion() & 0x80000000) { //pre-NT (pish, thats my win98se, and without unicows support convert utf16toutf8 and output raw bytes)
+			unsigned char* utf8_data = Convert_multibyteUTF16_to_UTF8(unicode_string, (asset_length -13) * 6, asset_length-14);
+			fprintf(stdout, "%s", utf8_data);
+		
+			free(utf8_data);
+			utf8_data = NULL;
+		
+		} else {
+			wchar_t* utf16_data = Convert_multibyteUTF16_to_wchar(unicode_string, ((asset_length - 16) / 2) + 1, true);
+			APar_unicode_win32Printout(utf16_data);
+		
+			free(utf16_data);
+			utf16_data = NULL;
+		}
+#else
+		unsigned char* utf8_data = Convert_multibyteUTF16_to_UTF8(unicode_string, (asset_length-13) * 6, asset_length-14);
+		fprintf(stdout, "%s", utf8_data);
+		
+		free(utf8_data);
+		utf8_data = NULL;
+#endif
+	
+	} else { //utf8
+		fprintf(stdout, " (utf8)] : ");
+		
+		APar_fprintf_UTF8_data(unicode_string);
+	
+	}
+	return;
+}
+
+//the difference between APar_PrintUnicodeAssest above and APar_SimplePrintUnicodeAssest below is:
+//APar_PrintUnicodeAssest contains the entire contents of the atom, NULL bytes and all
+//APar_SimplePrintUnicodeAssest contains a purely unicode string (either utf8 or utf16 with BOM)
+//and slight output formatting differences
+
+void APar_SimplePrintUnicodeAssest(char* unicode_string, int asset_length, bool print_encoding) { //3gp files
+	if (memcmp(unicode_string, "\xFE\xFF", 2) == 0 ) { //utf16
+		if (print_encoding) {
+			fprintf(stdout, " (utf16): ");
+		}
+
+#if defined (_MSC_VER)
+		if (GetVersion() & 0x80000000) { //pre-NT (pish, thats my win98se, and without unicows support convert utf16toutf8 and output raw bytes)
+			unsigned char* utf8_data = Convert_multibyteUTF16_to_UTF8(unicode_string, asset_length * 6, asset_length-14);
+			fprintf(stdout, "%s", utf8_data);
+		
+			free(utf8_data);
+			utf8_data = NULL;
+		
+		} else {
+			wchar_t* utf16_data = Convert_multibyteUTF16_to_wchar(unicode_string, (asset_length / 2) + 1, true);
+			APar_unicode_win32Printout(utf16_data);
+		
+			free(utf16_data);
+			utf16_data = NULL;
+		}
+#else
+		unsigned char* utf8_data = Convert_multibyteUTF16_to_UTF8(unicode_string, asset_length * 6, asset_length);
+		fprintf(stdout, "%s", utf8_data);
+		
+		free(utf8_data);
+		utf8_data = NULL;
+#endif
+	
+	} else { //utf8
+		if (print_encoding) {
+			fprintf(stdout, " (utf8): ");
+		}
+		
+		APar_fprintf_UTF8_data(unicode_string);
+	
+	}
+	return;
+}
+
 void APar_PrintUserDataAssests() { //3gp files
 
 #if defined (USE_ICONV_CONVERSION)
 	fprintf(stdout, "\xEF\xBB\xBF"); //Default to output of a UTF-8 BOM (except under win32's WriteConsoleW where it gets transparently eliminated)
-#else if defined (_MSC_VER) && defined (UTF16_CONSOLE_OUTPUT)
+#elif defined (_MSC_VER) && defined (UTF16_CONSOLE_OUTPUT)
 	APar_unicode_win32Printout(L"\xEF\xBB\xBF");
 #endif
 
@@ -927,41 +1028,12 @@ void APar_PrintUserDataAssests() { //3gp files
 						}
 					}
 					
-					if (memcmp(box_data, "\xFE\xFF", 2) == 0 ) { //utf16
-						fprintf(stdout, "[lang=%s (utf16)] : ", unpacked_lang);
+					fprintf(stdout, "[lang=%s", unpacked_lang);
 
-#if defined (_MSC_VER)
-						if (GetVersion() & 0x80000000) { //pre-NT (pish, thats my win98se, and without unicows support convert utf16toutf8 and output raw bytes)
-							unsigned char* utf8_data = Convert_multibyteUTF16_to_UTF8(box_data, (box_length-13) * 6, box_length-14);
-							fprintf(stdout, "%s", utf8_data);
-						
-							free(utf8_data);
-							utf8_data = NULL;
-						
-						} else {
-							wchar_t* utf16_data = Convert_multibyteUTF16_to_wchar(box_data, ((box_length - 16) / 2) + 1, true);
-							APar_unicode_win32Printout(utf16_data);
-						
-							free(utf16_data);
-							utf16_data = NULL;
-						}
-#else
-						unsigned char* utf8_data = Convert_multibyteUTF16_to_UTF8(box_data, (box_length-13) * 6, box_length-14);
-						fprintf(stdout, "%s", utf8_data);
-						
-						free(utf8_data);
-						utf8_data = NULL;
-#endif
-					
-					} else { //utf8
-						fprintf(stdout, "[lang=%s (utf8)] : ", unpacked_lang);
-						
-						APar_fprintf_UTF8_data(box_data);
-					
-					}
+					APar_PrintUnicodeAssest(box_data, box_length);
 					
 					if (box == 0x616C626D && track_num != 1000) {
-						fprintf(stdout, "\n                 Track: %u", track_num);
+						fprintf(stdout, "  |  Track: %u", track_num);
 					}
 					fprintf(stdout, "\n");
 					
@@ -970,22 +1042,174 @@ void APar_PrintUserDataAssests() { //3gp files
 					
 					break;
 					}
+				
 				case 0x72746E67 : //'rtng'
-				case 0x636C7366 : //'clsf'
 					{
 					fprintf(stdout, "User data \"%s\" ", parsedAtoms[i].AtomicName);
+					
+					int box_length = parsedAtoms[i].AtomicLength;
+					char* box_data = (char*)malloc(sizeof(char)*box_length);
+					memset(box_data, 0, box_length);
+					APar_readX(box_data, source_file, parsedAtoms[i].AtomicStart + 12, 4);
+					
+					fprintf(stdout, "[Rating Entity=%s", box_data);
+					//fprintf(stdout, " Rating Criteria: %u%u%u%u", box_data[4], box_data[5], box_data[6], box_data[7]);
+					memset(box_data, 0, box_length);
+					APar_readX(box_data, source_file, parsedAtoms[i].AtomicStart + 16, 4);
+					fprintf(stdout, " | Criteria=%s", box_data);
+					
+					uint16_t packed_lang = APar_read16(bitpacked_lang, source_file, parsedAtoms[i].AtomicStart + 20);
+					unsigned char unpacked_lang[3];
+					APar_UnpackLanguage(unpacked_lang, packed_lang);
+					fprintf(stdout, " lang=%s", unpacked_lang);
+					
+					memset(box_data, 0, box_length);
+					APar_readX(box_data, source_file, parsedAtoms[i].AtomicStart + 22, box_length-8);
+					
+					APar_PrintUnicodeAssest(box_data, box_length-8);
+					fprintf(stdout, "\n");
 					break;
 					}
 				
+				case 0x636C7366 : //'clsf'
+					{
+					fprintf(stdout, "User data \"%s\" ", parsedAtoms[i].AtomicName);
+					
+					int box_length = parsedAtoms[i].AtomicLength;
+					char* box_data = (char*)malloc(sizeof(char)*box_length);
+					memset(box_data, 0, box_length);
+					APar_readX(box_data, source_file, parsedAtoms[i].AtomicStart + 12, box_length-12); //4bytes length, 4 bytes name, 4 bytes flags, 2 bytes lang
+					
+					fprintf(stdout, "[Classification Entity=%s", box_data);
+					fprintf(stdout, " | Index=%u", UInt16FromBigEndian(box_data + 4) );
+					
+					uint16_t packed_lang = APar_read16(bitpacked_lang, source_file, parsedAtoms[i].AtomicStart + 18);
+					unsigned char unpacked_lang[3];
+					APar_UnpackLanguage(unpacked_lang, packed_lang);
+					fprintf(stdout, " lang=%s", unpacked_lang);
+						
+					APar_PrintUnicodeAssest(box_data +8, box_length-8);
+					fprintf(stdout, "\n");
+					break;
+					}
+
 				case 0x6B797764 : //'kywd'
 					{
 					fprintf(stdout, "User data \"%s\" ", parsedAtoms[i].AtomicName);
+					
+					uint32_t box_length = parsedAtoms[i].AtomicLength;
+					uint32_t box_offset = 12;
+					
+					uint16_t packed_lang = APar_read16(bitpacked_lang, source_file, parsedAtoms[i].AtomicStart + box_offset);
+					box_offset+=2;
+					
+					unsigned char unpacked_lang[3];
+					APar_UnpackLanguage(unpacked_lang, packed_lang);
+					
+					uint8_t keyword_count = APar_read8(source_file, parsedAtoms[i].AtomicStart + box_offset);
+					box_offset++;
+					fprintf(stdout, "[Keyword count=%u", keyword_count);
+					fprintf(stdout, " lang=%s]", unpacked_lang);
+					
+					char* keyword_data = (char*)malloc(sizeof(char)* box_length * 2);
+					
+					for(uint8_t x = 1; x <= keyword_count; x++) {
+						memset(keyword_data, 0, box_length * 2);
+						uint8_t keyword_length = APar_read8(source_file, parsedAtoms[i].AtomicStart + box_offset);
+						box_offset++;
+						
+						APar_readX(keyword_data, source_file, parsedAtoms[i].AtomicStart + box_offset, (uint32_t)keyword_length);
+						box_offset+=keyword_length;
+						APar_SimplePrintUnicodeAssest(keyword_data, keyword_length, true);
+					}
+					free(keyword_data);
+					keyword_data = NULL;
+					
+					fprintf(stdout, "\n");
 					break;
 					}
 					
-				case 0x6C6F6369 : //'loci'
+				case 0x6C6F6369 : //'loci' aka The Most Heinous Metadata Atom Every Invented - decimal meters? fictional location? Astromical Body? Say I shoot it on the International Space Station? That isn't a Astronimical Body. And 16.16 alt only goes up to 20.3 miles (because of negatives, its really 15.15) & the ISS is at 230 miles. Oh, pish.... what ever shall I do? I fear I am on the horns of a dilema.
 					{
 					fprintf(stdout, "User data \"%s\" ", parsedAtoms[i].AtomicName);
+					
+					uint32_t box_length = parsedAtoms[i].AtomicLength;
+					uint32_t box_offset = 12;
+					
+					uint16_t packed_lang = APar_read16(bitpacked_lang, source_file, parsedAtoms[i].AtomicStart + box_offset);
+					box_offset+=2;
+					
+					unsigned char unpacked_lang[3];
+					APar_UnpackLanguage(unpacked_lang, packed_lang);
+					
+					char* location_string = (char*)malloc(sizeof(char)* box_length);
+					APar_readX(location_string, source_file, parsedAtoms[i].AtomicStart + box_offset, box_length);
+					fprintf(stdout, "[lang=%s] ", unpacked_lang);
+					
+					//the length of the location string is unknown (max is box lenth), but the long/lat/alt/body/notes needs to be retrieved.
+					//test if the location string is utf16; if so search for 0x0000 (or if utf8, find the first NULL).
+					if ( memcmp(location_string, "\xFE\xFF", 2) == 0 ) {
+						uint32_t new_tally = widechar_len(location_string, box_length);
+						box_offset+= 2 * widechar_len(location_string, box_length) + 2; //*2 for utf16 (double-byte); +2 for the terminating NULL
+						fprintf(stdout, "(utf16) ");
+					} else {
+						fprintf(stdout, "(utf8) ");
+						box_offset+= strlen(location_string) + 1; //+1 for the terminating NULL
+					}
+					fprintf(stdout, "Location: ");
+					APar_SimplePrintUnicodeAssest(location_string, box_length, false);
+					
+					uint8_t location_role = APar_read8(source_file, parsedAtoms[i].AtomicStart + box_offset);
+					box_offset++;
+					switch(location_role) {
+						case 0 : {
+							fprintf(stdout, " (Role: shooting location) ");
+							break;
+						}
+						case 1 : {
+							fprintf(stdout, " (Role: real location) ");
+							break;
+						}
+						case 2 : {
+							fprintf(stdout, " (Role: fictional location) ");
+							break;
+						}
+						default : {
+							fprintf(stdout, " (Role: [reserved]) ");
+							break;
+						}
+					}
+					
+					char* float_buffer = (char*)malloc(sizeof(char)* 5);
+					memset(float_buffer, 0, 5);
+					
+					fprintf(stdout, "[Long %lf", fixed_point_16x16bit_to_double( APar_read32(float_buffer, source_file, parsedAtoms[i].AtomicStart + box_offset) ) );
+					box_offset+=4;
+					fprintf(stdout, " Lat %lf", fixed_point_16x16bit_to_double( APar_read32(float_buffer, source_file, parsedAtoms[i].AtomicStart + box_offset) ) );
+					box_offset+=4;
+					fprintf(stdout, " Alt %lf ", fixed_point_16x16bit_to_double( APar_read32(float_buffer, source_file, parsedAtoms[i].AtomicStart + box_offset) ) );
+					box_offset+=4;
+					free(float_buffer);
+					float_buffer = NULL;
+					
+					if (box_offset < box_length) {
+						fprintf(stdout, " Body: ");
+						APar_SimplePrintUnicodeAssest(location_string+box_offset-14, box_length-box_offset, false);
+						if ( memcmp(location_string+box_offset-14, "\xFE\xFF", 2) == 0 ) {
+							uint32_t new_tally = widechar_len(location_string+box_offset-14, box_length-box_offset);
+							box_offset+= 2 * widechar_len(location_string+box_offset-14, box_length-box_offset) + 2; //*2 for utf16 (double-byte); +2 for the terminating NULL
+						} else {
+							box_offset+= strlen(location_string+box_offset-14) + 1; //+1 for the terminating NULL
+						}
+					}
+					fprintf(stdout, "]");
+					
+					if (box_offset < box_length) {
+						fprintf(stdout, " Notes: ");
+						APar_SimplePrintUnicodeAssest(location_string+box_offset-14, box_length-box_offset, false);
+					}
+					
+					fprintf(stdout, "\n");
 					break;
 					}
 					
@@ -1208,7 +1432,7 @@ void APar_PrintDataAtoms(const char *path, bool extract_pix, char* pic_output_pa
 
 #if defined (USE_ICONV_CONVERSION)
 	fprintf(stdout, "\xEF\xBB\xBF"); //Default to output of a UTF-8 BOM (except under win32's WriteConsoleW where it gets transparently eliminated)
-#else if defined (_MSC_VER) && defined (UTF16_CONSOLE_OUTPUT)
+#elif defined (_MSC_VER) && defined (UTF16_CONSOLE_OUTPUT)
 	APar_unicode_win32Printout(L"\xEF\xBB\xBF");
 #endif
 
@@ -1372,7 +1596,7 @@ void APar_PrintAtomicTree() {
 
 #if defined (USE_ICONV_CONVERSION)
 	fprintf(stdout, "\xEF\xBB\xBF"); //Default to output of a UTF-8 BOM (except under win32's WriteConsoleW where it gets transparently eliminated)
-#else if defined (_MSC_VER) && defined (UTF16_CONSOLE_OUTPUT)
+#elif defined (_MSC_VER) && defined (UTF16_CONSOLE_OUTPUT)
 	APar_unicode_win32Printout(L"\xEF\xBB\xBF");
 #endif
 
@@ -1384,7 +1608,7 @@ void APar_PrintAtomicTree() {
 	bool foobar_noncompliant_tags_present = false; //with any luck, it should stay that way
 		
 	//loop through each atom in the struct array (which holds the offset info/data)
- 	while (true) { //while (parsedAtoms[thisAtomNumber].NextAtomNumber != 0) { 
+ 	while (true) {
 		AtomicInfo thisAtom = parsedAtoms[thisAtomNumber];
 		memset(tree_padding, 0, sizeof(char)*126);
 		memset(atom_name, 0, sizeof(char)*10);
@@ -1476,7 +1700,7 @@ void APar_SimpleAtomPrintout() { //loop through each atom in the struct array (w
 
 #if defined (USE_ICONV_CONVERSION)
 	fprintf(stdout, "\xEF\xBB\xBF"); //Default to output of a UTF-8 BOM (except under win32's WriteConsoleW where it gets transparently eliminated)
-#else if defined (_MSC_VER) && defined (UTF16_CONSOLE_OUTPUT)
+#elif defined (_MSC_VER) && defined (UTF16_CONSOLE_OUTPUT)
 	APar_unicode_win32Printout(L"\xEF\xBB\xBF");
 #endif
 
@@ -1508,7 +1732,7 @@ short APar_GetCurrentAtomDepth(uint32_t atom_start, uint32_t atom_length) {
 }
 
 bool APar_TestforChildAtom(char *fileData, uint32_t sizeofParentAtom, char* atom) {
-	if ( strncmp(atom, "data", 4) == 0  || strncmp(atom, "mdat", 4) == 0 ){
+	if ( strncmp(atom, "data", 4) == 0  || strncmp(atom, "mdat", 4) == 0 || strncmp(atom, "tfhd", 4) == 0){
 		return false;
 	}
 	
@@ -1564,17 +1788,24 @@ void APar_IdentifyBrand(char* file_brand ) {
 		
 		case 0x33673261 : //'3g2a' 3GPP2 release 0
 		case 0x33673262 : //'3g2b' 3GPP2 release A
+			metadata_style = THIRD_GEN_PARTNER_VER2;
+			break;
 			
-		case 0x6D6D7034 : //'mmp4'
 		case 0x33677034 : //'3gp4'
 		case 0x33677035 : //'3gp5' //'albm' album tag was added in Release6, so it shouldn't be added to a 3gp5 or 3gp4 branded file.
+			metadata_style = THIRD_GEN_PARTNER;
+			break;
+		
 		case 0x33677036 : //'3gp6'
 		
 		case 0x33677236 : //'3gr6' progressive
 		case 0x33677336 : //'3gs6' streaming
 		case 0x33676536 : //'3ge6' extended presentations (jpeg images)
 		case 0x33676736 : //'3gg6' general (not yet suitable; superset)
-			verboten_iTunesStyleMetadata = true;
+		
+		case 0x6D6D7034 : //'mmp4' - not sure if it supports album or not
+
+			metadata_style = THIRD_GEN_PARTNER_VER1_REL6;
 			break;
 			
 		//what IS supported for iTunes-style metadata
@@ -1587,6 +1818,7 @@ void APar_IdentifyBrand(char* file_brand ) {
 		case 0x69736F6D : //'isom'
 		case 0x69736F32 : //'iso2'
 		case 0x61766331 : //'avc1'
+			metadata_style = ITUNES_STYLE;
 			break;
 		
 		//other lesser unsupported brands; http://www.mp4ra.org/filetype.html
@@ -1888,6 +2120,7 @@ void APar_EliminateAtom(short this_atom_number, int resume_atom_number) {
 	if ( this_atom_number > 0 && this_atom_number < atom_number && resume_atom_number > 0 && resume_atom_number < atom_number) {
 		short preceding_atom_pos = APar_FindPrecedingAtom(this_atom_number);
 
+		removed_bytes_tally+=parsedAtoms[this_atom_number].AtomicLength; //used in validation routine
 		parsedAtoms[preceding_atom_pos].NextAtomNumber = resume_atom_number;
 		
 		memset(parsedAtoms[this_atom_number].AtomicName, 0, 4); //blank out the name of the parent atom name
@@ -2056,8 +2289,13 @@ bool APar_Move_mdat_Determination() {
 		if ( (strncmp(parsedAtoms[eval_atom_num].AtomicName, "mdat", 4) == 0)  && (parsedAtoms[eval_atom_num].AtomicLevel == 1) ){
 			if (!found_moov_atom) {
 				rearrange_mdat_atoms = true;
-				break;
+				//break; //commented out to progress past the first mdat to... ANY of the dozens, or hundreds of 'moof's
 			}
+		}
+		if ( (strncmp(parsedAtoms[eval_atom_num].AtomicName, "moof", 4) == 0)  && (parsedAtoms[eval_atom_num].AtomicLevel == 1) ){
+			rearrange_mdat_atoms = false; //prevent rearranging atoms on a fragmented file
+			move_mdat_atoms = false;
+			break;
 		}
 		eval_atom_num = parsedAtoms[eval_atom_num].NextAtomNumber;
 		
@@ -2189,14 +2427,17 @@ APar_Unified_atom_Put
     priority is given to the numerical ancillary_data so that language can be set prior to setting whatever unicode data. Finally, advance
 	  the length of the atom so that we can tack onto the end repeated times (up to the max malloced amount - which isn't checked [blush])
 		if unicode_data is NULL itself, then only ancillary_data will be set - which is endian safe cuz o' bitshifting (or set 1 byte at a time)
+		
+		works on iTunes-style & 3GP asset style but NOT binary safe (use APar_atom_Binary_Put)
+		TODO: work past the max malloced amount onto a new larger array
 ----------------------*/
 void APar_Unified_atom_Put(short atom_num, const char* unicode_data, uint8_t text_tag_style, uint32_t ancillary_data, uint8_t anc_bit_width) {
 	if (atom_num == 0) {
-		return; //although it should error out, because we aren't setting anything on ftyp
+		return; //although it should error out, because we aren't setting anything on ftyp; APar_MetaData_atom_Init on a 3gp file (for iTunes-style metadata) will give an atom_num=0, thus preventing the setting of non-compliant metadata onto 3gp files but will allow setting of data onto a non-0 atom
 	}
 	uint32_t atom_data_pos = parsedAtoms[atom_num].AtomicLength - 12;
 	switch (anc_bit_width) {
-		case 0 : { //aye, 'twas a false alarm; arg (I'm a pirate)
+		case 0 : { //aye, 'twas a false alarm; arg (I'm a pirate), we just wanted to set a text string
 			break;
 		}
 		
@@ -2215,7 +2456,7 @@ void APar_Unified_atom_Put(short atom_num, const char* unicode_data, uint8_t tex
 			break;
 		}
 		
-		case 32 : {
+		case 32 : { //things like coordinates and.... stuff (ah, the prose)
 			parsedAtoms[atom_num].AtomicData[atom_data_pos] = (ancillary_data & 0xff000000) >> 24;
 			parsedAtoms[atom_num].AtomicData[atom_data_pos + 1] = (ancillary_data & 0xff0000) >> 16;
 			parsedAtoms[atom_num].AtomicData[atom_data_pos + 2] = (ancillary_data & 0xff00) >> 8;
@@ -2306,7 +2547,7 @@ void APar_Unified_atom_Put(short atom_num, const char* unicode_data, uint8_t tex
 					//charCount = WideCharToMultiByte( CP_UTF8, 0, utf16_string, -1, utf8_data, charCount, 0, 0); //using windows internal calls
 
 					memcpy(parsedAtoms[atom_num].AtomicData + (text_tag_style >= UTF8_3GP_Style ? atom_data_pos :  0), utf8_data, strlen(utf8_data) );
-					parsedAtoms[atom_num].AtomicLength += strlen(utf8_data);
+					parsedAtoms[atom_num].AtomicLength += total_bytes; //strlen(utf8_data);
 					//fprintf(stdout, "utf8 string \"%s\"\n", utf8_data);
 					free(utf8_data);
 					utf8_data = NULL;
@@ -2316,8 +2557,15 @@ void APar_Unified_atom_Put(short atom_num, const char* unicode_data, uint8_t tex
 				free(utf16_string);
 				utf16_string = NULL;
 			} else {
-				fprintf(stdout, "AP error: codepage was not set to utf8 (try 'chcp 65001') %c\n", '\a'); //give a beep
-				exit(0);
+				//fprintf(stdout, "AP error: codepage was not set to utf8 (try 'chcp 65001') %c\n", '\a'); //give a beep
+				//exit(0);
+				if ( isUTF8(unicode_data) == 8 && !high_bit_warning) {
+					fprintf(stdout, "AP warning: high-bit ascii was detected while not on the UTF8 codepage \nEntering as raw unchecked hex (change to utf8 codepage with 'chcp 65001')\n");
+					high_bit_warning = true;
+				}
+				memcpy(parsedAtoms[atom_num].AtomicData + (text_tag_style >= UTF8_3GP_Style ? atom_data_pos :  0), unicode_data, total_bytes + 1 );
+				parsedAtoms[atom_num].AtomicLength += total_bytes;
+				
 			}
 #else
 			memcpy(parsedAtoms[atom_num].AtomicData + (text_tag_style >= UTF8_3GP_Style ? atom_data_pos :  0), unicode_data, total_bytes + 1 );
@@ -2331,12 +2579,32 @@ void APar_Unified_atom_Put(short atom_num, const char* unicode_data, uint8_t tex
 }
 
 /*----------------------
+APar_atom_Binary_Put
+  atom_num - the index into the parsedAtoms array for the atom we are setting (aka AtomicNumber)
+  binary_data - a pointer to a string of binary data
+  bytecount - number of bytes to copy
+  atomic_data_offset - place binary data some bytes offset from the start of AtomicData
+
+    Simple placement of binary data (perhaps containing NULLs) onto AtomicData.
+		TODO: if over MAXDATA_PAYLOAD malloc a new char string
+----------------------*/
+void APar_atom_Binary_Put(short atom_num, const char* binary_data, uint32_t bytecount, uint32_t atomic_data_offset) {
+	if (atomic_data_offset + bytecount + parsedAtoms[atom_num].AtomicLength <= MAXDATA_PAYLOAD) {
+		memcpy(parsedAtoms[atom_num].AtomicData + atomic_data_offset, binary_data, bytecount );
+		parsedAtoms[atom_num].AtomicLength += bytecount;
+	} else {
+		fprintf(stdout, "AtomicParsley warning: some data was longer than the allotted space and was skipped\n");
+	}
+	return;
+}
+
+/*----------------------
 APar_Verify__udta_meta_hdlr__atom
 
     only test if the atom is present for now, it will be created just before writeout time - to insure it only happens once.
 ----------------------*/
 void APar_Verify__udta_meta_hdlr__atom() {
-	if (!verboten_iTunesStyleMetadata) {
+	if (metadata_style == ITUNES_STYLE) {
 		const char* udta_meta_hdlr__atom = "moov.udta.meta.hdlr";
 		AtomicInfo hdlrAtom = APar_FindAtom(udta_meta_hdlr__atom, false, false, false, true);
 		if ( hdlrAtom.AtomicNumber > 0 && hdlrAtom.AtomicNumber < atom_number ) {
@@ -2360,7 +2628,7 @@ APar_MetaData_atomGenre_Set
 		create the new genre atom and put the data manually onto the atom.
 ----------------------*/
 void APar_MetaData_atomGenre_Set(const char* atomPayload) {
-	if (!verboten_iTunesStyleMetadata) {
+	if (metadata_style == ITUNES_STYLE) {
 		const char* standard_genre_atom = "moov.udta.meta.ilst.gnre";
 		const char* std_genre_data_atom = "moov.udta.meta.ilst.gnre.data";
 		const char* custom_genre_atom = "moov.udta.meta.ilst.©gen";
@@ -2408,7 +2676,7 @@ void APar_MetaData_atomGenre_Set(const char* atomPayload) {
 				APar_Unified_atom_Put(genreAtom.AtomicNumber, atomPayload, UTF8_iTunesStyle_256byteLimited, 0, 0);
 			}
 		}
-	} //end if (!verboten_iTunesStyleMetadata)
+	} //end if (metadata_style == ITUNES_STYLE)
 	return;
 }
 
@@ -2444,7 +2712,7 @@ APar_MetaData_atomArtwork_Set
 		features on the image. The path of the file (either original, modified artwork, or both) are returned to use for possible atom creation
 ----------------------*/
 void APar_MetaData_atomArtwork_Set(const char* artworkPath, char* env_PicOptions) {
-	if (!verboten_iTunesStyleMetadata) {
+	if (metadata_style == ITUNES_STYLE) {
 		modified_atoms = true;
 		const char* artwork_atom = "moov.udta.meta.ilst.covr";
 		if (memcmp(artworkPath, "REMOVE_ALL", 10) == 0) {
@@ -2478,8 +2746,100 @@ void APar_MetaData_atomArtwork_Set(const char* artworkPath, char* env_PicOptions
 			APar_MetaData_atomArtwork_Init(desiredAtom.AtomicNumber, artworkPath);
 	#endif
 		}
-	} //end if (!verboten_iTunesStyleMetadata)
+	} ////end if (metadata_style == ITUNES_STYLE)
 	return;
+}
+
+/*----------------------
+APar_3GP_Keyword_atom_Format
+	keywords_globbed - the globbed string of keywords ('foo1,foo2,foo_you')
+	keyword_count - count of keywords in the above globbed string
+	set_UTF16_text - whether to encode as utf16
+	formed_keyword_struct - the char string that will hold the converted keyword struct (manually formatted)
+
+    3gp keywords are a little more complicated. Since they will be entered separated by some form of punctuation, they need to be separated out
+		They also will possibly be converted to utf16 - and they NEED to start with the BOM then. Prefacing each keyword is the 8bit length of the string
+		And each keyword needs to be NULL terminated. Technically it would be possible to even have mixed encodings (not supported here).
+----------------------*/
+uint32_t APar_3GP_Keyword_atom_Format(char* keywords_globbed, uint8_t keyword_count, bool set_UTF16_text, char* &formed_keyword_struct) {
+	uint32_t formed_string_offset = 0;
+	
+	char* a_keyword = strsep(&keywords_globbed,",");
+	uint32_t string_len = strlen(a_keyword);
+	
+	for (uint8_t i=1; i <= keyword_count; i++) {
+		if (set_UTF16_text) {
+
+			uint32_t glyphs_req_bytes = mbstowcs(NULL, a_keyword, string_len+1) * 2; //passing NULL pre-calculates the size of wchar_t needed;
+			
+			formed_keyword_struct[formed_string_offset+1] = 0xFE; //BOM
+			formed_keyword_struct[formed_string_offset+2] = 0xFF; //BOM
+			formed_string_offset+=3; //BOM + keyword length that has yet to be set
+			
+			int bytes_converted = UTF8ToUTF16BE((unsigned char*)(formed_keyword_struct + formed_string_offset), glyphs_req_bytes, (unsigned char*)a_keyword, string_len);
+			
+			if (bytes_converted > 1) {
+				formed_keyword_struct[formed_string_offset-3] = (uint8_t)bytes_converted + 4; //keyword length is NOW set
+				formed_string_offset += bytes_converted + 2; //NULL terminator
+			}			
+			
+		} else {
+			
+#if defined (UTF16_CONSOLE_OUTPUT)
+			//first use windows to convert to utf16 on wchar_t, then back to utf8 before finally copying it onto formed_keyword_struct
+			if (GetConsoleCP() == CP_UTF8) {
+				int charCount = MultiByteToWideChar(CP_ACP, 0, a_keyword, string_len + 1, NULL, 0);  //precalculate the amount of wchar_t's needed
+				wchar_t* utf16_string = (wchar_t*) malloc(sizeof(wchar_t)* (charCount + 2) );
+				wmemset(utf16_string, 0, charCount + 2);
+				charCount = MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED, a_keyword, string_len + 1, utf16_string, charCount); //actually convert it to wchar_t's
+				if (charCount > 0) {
+					//fprintf(stdout, "in length = %i; wchar's = %i\n", strlen(unicode_data), charCount);
+					
+					char* utf8_data = (char*)malloc(sizeof(char)* string_len * 6 );
+					memset(utf8_data, 0, string_len * 6);
+					UTF16LEToUTF8((unsigned char*)utf8_data, string_len * 6, (unsigned char*)utf16_string, charCount * 2 );
+				
+					//charCount = WideCharToMultiByte( CP_UTF8, 0, utf16_string, -1, utf8_data, charCount, 0, 0); //using windows internal calls
+
+					uint32_t utf8_len = strlen(utf8_data);
+					formed_keyword_struct[formed_string_offset] = (uint8_t)utf8_len; //sets keyword length
+					formed_string_offset++;
+					
+					memcpy(formed_keyword_struct + formed_string_offset, utf8_data, utf8_len ); //sets the keyword
+					formed_string_offset+= utf8_len + 1; //sets the terminating NULL
+					//fprintf(stdout, "utf8 string \"%s\"\n", utf8_data);
+					free(utf8_data);
+					utf8_data = NULL;
+				}
+				//wprintf(L"string \"%s\"",utf16_string);
+				//wprintf(L"byte %i\n", utf16_string[0]);
+				free(utf16_string);
+				utf16_string = NULL;
+			} else {
+				//fprintf(stdout, "AP error: codepage was not set to utf8 (try 'chcp 65001') %c\n", '\a'); //give a beep
+				//exit(0);
+				if ( isUTF8(a_keyword) == 8 && !high_bit_warning) {
+					fprintf(stdout, "AP warning: high-bit ascii was detected while not on the UTF8 codepage \nEntering as raw unchecked hex (change to utf8 codepage with 'chcp 65001')\n");
+					high_bit_warning = true;
+				}
+				uint32_t string_len = strlen(a_keyword);
+				formed_keyword_struct[formed_string_offset] = (uint8_t)string_len + 1; //add the terminating NULL
+				formed_string_offset++;
+				memcpy(formed_keyword_struct + formed_string_offset, a_keyword, string_len );
+				formed_string_offset+= (string_len +1);
+			}
+#else
+			uint32_t string_len = strlen(a_keyword);
+			formed_keyword_struct[formed_string_offset] = (uint8_t)string_len + 1; //add the terminating NULL
+			formed_string_offset++;
+			memcpy(formed_keyword_struct + formed_string_offset, a_keyword, string_len );
+			formed_string_offset+= (string_len +1);
+#endif
+			
+		}
+		a_keyword = strsep(&keywords_globbed,",");
+	}
+	return formed_string_offset;
 }
 
 /*----------------------
@@ -2542,6 +2902,14 @@ short APar_uuid_atom_Init(const char* atom_path, char* uuidName, const int dataT
 	return desiredAtom.AtomicNumber;
 }
 
+/*----------------------
+APar_MetaData_atom_QuickInit
+	atom_num - the position in the parsedAtoms array (either found in the file or a newly created sparse atom) so AtomicData can be initialized
+	atomFlags - the AtomicDataClass for the iTunes-style metadata atom
+	supplemental_length - iTunes-style metadata for 'data' atoms is >= 16bytes long; AtomicParsley created uuid atoms will be +4bytes directly on that atom
+
+    Metadata_QuickInit will initialize a pre-found atom to MAXDATA_PAYLOAD so that it can carry info on AtomicData
+----------------------*/
 void APar_MetaData_atom_QuickInit(short atom_num, const int atomFlags, uint32_t supplemental_length) {
 	//this will skip the finding of atoms and just malloc the AtomicData; used by genre & artwork
 
@@ -2554,9 +2922,17 @@ void APar_MetaData_atom_QuickInit(short atom_num, const int atomFlags, uint32_t 
 	return;
 }
 
+/*----------------------
+APar_MetaData_atom_Init
+	atom_path - the hierarchical path to the specific atom carrying iTunes-style metadata that will be found (and created if necessary)
+	MD_Payload - the information to be carried (also used as a test if NULL to remove the atom)
+	atomFlags - the AtomicDataClass for the atom (text, integer or unsigned integer)
+
+    Metadata_Init will search for and create the necessary hierarchy so that the atom can be initialized to carry the payload data on AtomicData
+----------------------*/
 short APar_MetaData_atom_Init(const char* atom_path, const char* MD_Payload, const int atomFlags) {
 	//this will handle the vanilla iTunes-style metadata atoms; genre will be handled elsewehere because it gets carried on 2 different atoms, and artwork gets special treatment because it can have multiple child data atoms
-	if (verboten_iTunesStyleMetadata) {
+	if (metadata_style != ITUNES_STYLE) {
 		return 0;
 	}
 	modified_atoms = true;
@@ -2586,6 +2962,15 @@ short APar_MetaData_atom_Init(const char* atom_path, const char* MD_Payload, con
 	return desiredAtom.AtomicNumber;
 }
 
+/*----------------------
+APar_UserData_atom_Init
+	atom_path - the hierarchical path to the specific 3gp-style(Quicktime-style) asset atom that will be found (and created if necessary)
+	UD_Payload - the information to be carried (also used as a test if NULL to remove the atom)
+
+    UserData_Init will search for and create the necessary hierarchy so that the atom can be initialized to carry the payload data on AtomicData
+		3GP-style assets are different from iTunes-style metadata. 3GP assets are carried directly on the atom (iTunes md is on a child 'data' atom),
+		has a packed language code, and can be in utf8 or utf16 which are NULL terminated (not so in iTunes md). The two implementations are separate
+----------------------*/
 short APar_UserData_atom_Init(const char* atom_path, const char* UD_Payload) {
 	//Perhaps there is something wrong with Apple's implementation of 3gp metadata, or I'm loosing my mind.
 	//the exact same utf8 string that shows up in a 3gp file as ??? - ??? shows up *perfect* in an mp4 or mov container. encoded as utf16 same problem
@@ -2603,7 +2988,7 @@ short APar_UserData_atom_Init(const char* atom_path, const char* UD_Payload) {
 	}
 	
 	if ( !retain_atom ) {
-		APar_RemoveAtom(atom_path, true, true); //find the atom; don't create if it's "" to remove
+		APar_RemoveAtom(atom_path, true, false); //find the atom; don't create if it's "" to remove
 	} else {
 		desiredAtom = APar_FindAtom(atom_path, true, true, false, false);
 		parsedAtoms[desiredAtom.AtomicNumber].AtomicData = (char*)malloc(sizeof(char)* MAXDATA_PAYLOAD ); //puts a hard limit on the length of strings (the spec doesn't)
@@ -2653,6 +3038,36 @@ uint32_t APar_DetermineMediaData_AtomPosition() {
 		thisAtomNumber = parsedAtoms[thisAtomNumber].NextAtomNumber;
 	}
 	return mdat_position;
+}
+
+uint32_t APar_SimpleSumAtoms(short stop_atom) {
+	uint32_t byte_sum = 0;
+	//first, find the first mdat after this initial 'tfhd' atom to get the sum relative to that atom
+	while (true) {
+		if ( strncmp(parsedAtoms[stop_atom].AtomicName, "mdat", 4) == 0) {
+			stop_atom--; //don't include the fragment's mdat, just the atoms prior to it
+			break;
+		} else {
+			if (parsedAtoms[stop_atom].NextAtomNumber != 0) {
+				stop_atom = parsedAtoms[stop_atom].NextAtomNumber;
+			} else {
+				break;
+			}
+		}
+	}
+	byte_sum += 8; //the 'tfhd' points to the byte in mdat where the fragment data is - NOT the atom itself (should always be +8bytes with a fragment)
+	while (true) {
+		if (parsedAtoms[stop_atom].AtomicLevel == 1) {
+			byte_sum+= (parsedAtoms[stop_atom].AtomicLength == 1 ? (uint32_t )parsedAtoms[stop_atom].AtomicLengthExtended : parsedAtoms[stop_atom].AtomicLength);
+			//fprintf(stdout, "%i %s (%u)\n", stop_atom, parsedAtoms[stop_atom].AtomicName, parsedAtoms[stop_atom].AtomicLength);
+		}
+		if (stop_atom == 0) {
+			break;
+		} else {
+			stop_atom = APar_FindPrecedingAtom(stop_atom);
+		}
+	}
+	return byte_sum;
 }
 
 bool APar_Readjust_CO64_atom(uint32_t mdat_position, short co64_number) {
@@ -2707,6 +3122,37 @@ bool APar_Readjust_CO64_atom(uint32_t mdat_position, short co64_number) {
 	co64_entries=NULL;
 	//end readjustment
 	return co64_changed;
+}
+
+bool APar_Readjust_TFHD_fragment_atom(uint32_t mdat_position, short tfhd_number) {
+	static bool tfhd_changed = false;
+	static bool determined_offset = false;
+	static uint64_t base_offset = 0;
+	
+	APar_AtomicRead(tfhd_number);
+	char* tfhd_atomFlags_scrap = (char *)malloc(sizeof(char)*10);
+	memset(tfhd_atomFlags_scrap, 0, 10);
+	parsedAtoms[tfhd_number].AtomicDataClass = APar_read32(tfhd_atomFlags_scrap, source_file, parsedAtoms[tfhd_number].AtomicStart+8);
+ 
+	if (parsedAtoms[tfhd_number].AtomicDataClass & 0x01) { //seems the atomflags suggest bitpacking, but the spec doesn't specify it; if the 1st bit is set...
+		memset(tfhd_atomFlags_scrap, 0, 10);	
+		memcpy(tfhd_atomFlags_scrap, parsedAtoms[tfhd_number].AtomicData, 4);
+		
+		uint32_t track_ID = UInt32FromBigEndian(tfhd_atomFlags_scrap); //unused
+		uint64_t tfhd_offset = UInt64FromBigEndian(parsedAtoms[tfhd_number].AtomicData +4);
+		
+		if (!determined_offset) {
+			determined_offset = true;
+			base_offset = APar_SimpleSumAtoms(tfhd_number) - tfhd_offset;
+			if (base_offset != 0) {
+				tfhd_changed = true;
+			}
+		}
+		
+		tfhd_offset += base_offset;
+		char8TOuint64(tfhd_offset, parsedAtoms[tfhd_number].AtomicData +4);
+	}
+	return tfhd_changed;
 }
 
 bool APar_Readjust_STCO_atom(uint32_t mdat_position, short stco_number) {
@@ -2796,6 +3242,13 @@ void APar_DetermineAtomLengths() {
 	if (!skip_meta_hdlr_creation) {
 		APar_Verify__udta_meta_hdlr__atom();
 	}
+	
+	if (metadata_style >= THIRD_GEN_PARTNER) { //with 3gp files, ***FORCED*** removal of Nero's dain-bread tagging scheme gets the GoLytely
+		AtomicInfo FUBAR_tag_atom = APar_FindAtom("moov.udta.tags", false, false, false, true);
+		if (FUBAR_tag_atom.AtomicNumber != 0) {
+			APar_RemoveAtom("moov.udta.tags", true, false);
+		}
+	}
 
 	if (move_mdat_atoms && APar_Move_mdat_Determination() ) { //from cli flag
 		APar_Move_mdat_Atoms();
@@ -2873,6 +3326,10 @@ void APar_DetermineAtomLengths() {
 			parsedAtoms[rev_atom_loop].AtomicLength = atom_size;
 		}
 		
+		if (_atom_ == 0x75647461 && parsedAtoms[rev_atom_loop].AtomicLevel > parsedAtoms[ parsedAtoms[rev_atom_loop].NextAtomNumber ].AtomicLevel) { //udta with no child atoms; get here by erasing the last asset in a 3gp file, and it won't quite erase because udta thinks its the former AtomicLength
+			parsedAtoms[rev_atom_loop].AtomicLength = 8;
+		}
+		
 		rev_atom_loop = APar_FindPrecedingAtom(parsedAtoms[rev_atom_loop].AtomicNumber);
 		
 	}
@@ -2932,15 +3389,15 @@ void APar_ValidateAtoms() {
 	
 	if (simple_tally > (uint64_t)file_size) {
 #if defined (_MSC_VER) /* seems a uint64_t can't be cast to a double under Windows */
-		percentage_difference = (int)lroundf( (float)file_size/(float)((uint32_t)simple_tally) * 100 );	
+		percentage_difference = (int)lroundf( (float)(file_size-removed_bytes_tally)/(float)((uint32_t)simple_tally) * 100 );	
 	} else {
-		percentage_difference = (int)lroundf( (float)((uint32_t)simple_tally)/(float)file_size * 100 );
+		percentage_difference = (int)lroundf( (float)((uint32_t)simple_tally)/(float)(file_size-removed_bytes_tally) * 100 );
 		
 #else
 
-		percentage_difference = (int)lroundf( (float)file_size/(float)simple_tally * 100 );	
+		percentage_difference = (int)lroundf( (float)(file_size-removed_bytes_tally)/(float)simple_tally * 100 );	
 	} else {
-		percentage_difference = (int)lroundf( (float)simple_tally/(float)file_size * 100 );
+		percentage_difference = (int)lroundf( (float)simple_tally/(float)(file_size-removed_bytes_tally) * 100 );
 #endif
 	}
 	
@@ -3300,7 +3757,9 @@ uint32_t APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file
 			fwrite(conv_buffer, 4, 1, temp_file);
 			bytes_written += 4;
 			
-			if (parsedAtoms[this_atom].AtomicDataClass == AtomicDataClass_Text) {
+			//TODO: reimplement how AtomicData is stored so that any NULLs aren't depedant on the AtomicDataClass, but get put there at the time of creation
+			//because tfhd had to be accommodated here
+			if (parsedAtoms[this_atom].AtomicDataClass == AtomicDataClass_Text && strncmp(parsedAtoms[this_atom].AtomicName, "tfhd", 4) != 0) {
 				char4TOuint32( 0, conv_buffer);
 				fwrite(conv_buffer, 4, 1, temp_file);
 				bytes_written += 4;
@@ -3314,7 +3773,7 @@ uint32_t APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file
 					atom_data_size = 4;
 					
 			} else {
-				if (parsedAtoms[this_atom].AtomicDataClass == AtomicDataClass_Text) {
+				if (parsedAtoms[this_atom].AtomicDataClass == AtomicDataClass_Text && strncmp(parsedAtoms[this_atom].AtomicName, "tfhd", 4) != 0) {
 					atom_data_size = parsedAtoms[this_atom].AtomicLength - 16;
 				} else {
 					atom_data_size = parsedAtoms[this_atom].AtomicLength - 12;
@@ -3398,6 +3857,11 @@ void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_origi
 				bool readjusted_co64 = APar_Readjust_CO64_atom(mdat_position, thisAtomNumber);
 				
 				temp_file_bytes_written += APar_WriteAtomically(source_file, temp_file, !readjusted_co64, file_buffer, data, temp_file_bytes_written, thisAtomNumber);
+				
+			} else if (strncmp(parsedAtoms[thisAtomNumber].AtomicName, "tfhd", 4) == 0) {
+				bool readjusted_tfhd = APar_Readjust_TFHD_fragment_atom(mdat_position, thisAtomNumber);
+				
+				temp_file_bytes_written += APar_WriteAtomically(source_file, temp_file, !readjusted_tfhd, file_buffer, data, temp_file_bytes_written, thisAtomNumber);
 				
 
 			//AtomicDataClass comes into play for a missing "moov.udta.meta" atom, his has a data type class, but no actual data (or conversely, no type with 4 bytes of data
