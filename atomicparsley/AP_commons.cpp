@@ -206,7 +206,7 @@ unsigned char* Convert_multibyteUTF16_to_UTF8(char* input_utf16, size_t glyph_le
 	return utf8_data;
 }
 
-wchar_t* Convert_multibyteUTF8_to_wchar(char* input_utf8) { //TODO: is this like mbstowcs?
+wchar_t* Convert_multibyteUTF8_to_wchar(const char* input_utf8) { //TODO: is this like mbstowcs?
 	size_t string_length = strlen(input_utf8) + 1;  //account for terminating NULL
 	size_t char_glyphs = mbstowcs(NULL, input_utf8, string_length); //passing NULL pre-calculates the size of wchar_t needed
 			

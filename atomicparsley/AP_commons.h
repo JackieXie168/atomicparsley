@@ -71,7 +71,7 @@ char *strsep (char **stringp, const char *delim);
 
 wchar_t* Convert_multibyteUTF16_to_wchar(char* input_unicode, size_t glyph_length, bool skip_BOM);
 unsigned char* Convert_multibyteUTF16_to_UTF8(char* input_utf8, size_t glyph_length, size_t byte_count);
-wchar_t* Convert_multibyteUTF8_to_wchar(char* input_utf8);
+wchar_t* Convert_multibyteUTF8_to_wchar(const char* input_utf8);
 
 uint16_t UInt16FromBigEndian(const char *string);
 uint32_t UInt32FromBigEndian(const char *string);

@@ -295,7 +295,7 @@ static const char* _3gpHelp_text =
 "  See   http://www.w3.org/WAI/ER/IG/ert/iso639.htm   to obtain more codes (codes are *not* checked)\n"
 "\n"
 "  iTunes-style metadata is not supported by the 3GPP TS 26.444 version 6.4.0 Release 6 specification.\n"
-"  3GPP tags are set in a different hierarchy: moov.udta (versus iTunes moov.udta.meta.ilst). Some 3rd\n"
+"  3GPP tags are set in a different hierarchy: moov.udta (versus iTunes moov.udta.meta.ilst). Other 3rd\n"
 "  party utilities may allow setting iTunes-style metadata in 3gp files. When a 3gp file is detected\n"
 "  (file extension doesn't matter), only 3gp spec-compliant metadata will be read & written.\n"
 "\n"
@@ -370,8 +370,24 @@ void find_optional_args(char *argv[], int start_optindargs, uint16_t &packed_lan
 
 //***********************************************
 
-int main( int argc, char *argv[])
-{
+#if defined (_MSC_VER) && defined (UTF16_ENABLED)
+int wmain( int argc, wchar_t *arguments[]) {
+	char *argv[350];
+	//for native Win32 & full unicode support (well, cli arguments anyway), take whatever 16bit unicode windows gives (utf16le), and convert EVERYTHING
+	//that is sends to utf8; use those utf8 strings (mercifully subject to familiar standby's like strlen) to pass around the program like getopt_long
+	//to get cli options; convert from utf8 filenames as required for unicode filename support on Windows using wide file functions. Here, EVERYTHING = 350.
+	for(int z=0; z < argc; z++) {
+		uint32_t wchar_length = wcslen(arguments[z])+1;
+		argv[z] = (char *)malloc(sizeof(char)*8*wchar_length );
+		memset(argv[z], 0, 8*wchar_length);
+		UTF16LEToUTF8((unsigned char*) argv[z], 8*wchar_length, (unsigned char*) arguments[z], wchar_length*2);
+	}
+	argv[argc] = NULL;
+
+#else
+int main( int argc, char *argv[]) {
+#endif
+
 	if (argc == 1) {
 		fprintf (stdout,"%s", longHelp_text); exit(0);
 	} else if (argc == 2 && ((strncmp(argv[1],"-v",2) == 0) || (strncmp(argv[1],"-version",2) == 0)) ) {
@@ -593,15 +609,12 @@ int main( int argc, char *argv[])
 			uint8_t pos_in_total = 0;
 			uint8_t the_total = 0; 
 			if (strrchr(optarg, '/') != NULL) {
-			
-				char* duplicate_info = strdup(optarg); //if optarg isn't strdup-ed, when you strsep the last time, it becomes NULL, and getopt has.... issues
+
+				char* duplicate_info = optarg;
 				char* item_stat = strsep(&duplicate_info,"/");
 				sscanf(item_stat, "%hhu", &pos_in_total); //sscanf into a an unsigned char (uint8_t is typedef'ed to a unsigned char by gcc)
 				item_stat = strsep(&duplicate_info,"/");
 				sscanf(item_stat, "%hhu", &the_total);
-				free(duplicate_info);
-				duplicate_info = NULL;
-				
 			} else {
 				sscanf(optarg, "%hhu", &pos_in_total);
 			}
@@ -626,14 +639,12 @@ int main( int argc, char *argv[])
 			uint8_t pos_in_total = 0;
 			uint8_t the_total = 0;
 			if (strrchr(optarg, '/') != NULL) {
-					
-				char* duplicate_info = strdup(optarg);
+				
+				char* duplicate_info = optarg;
 				char* item_stat = strsep(&duplicate_info,"/");
 				sscanf(item_stat, "%hhu", &pos_in_total); //sscanf into a an unsigned char (uint8_t is typedef'ed to a unsigned char by gcc)
 				item_stat = strsep(&duplicate_info,"/");
 				sscanf(item_stat, "%hhu", &the_total);
-				free(duplicate_info);
-				duplicate_info = NULL;
 			
 			} else {
 				sscanf(optarg, "%hhu", &pos_in_total);
@@ -968,21 +979,20 @@ int main( int argc, char *argv[])
 			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "purchase date") ) {
 				break;
 			}
-			char* purd_time = (char *)malloc(sizeof(char)*255);
+			char* purd_time;
 			if (optarg != NULL) {
 				if (strncmp(optarg, "timestamp", 9) == 0) {
+					purd_time = (char *)malloc(sizeof(char)*255);
 					APar_StandardTime(purd_time);
 				} else {
-					purd_time = strdup(optarg);
+					purd_time = optarg;
 				}
 			} else {
-				purd_time = strdup(optarg);
+				purd_time = optarg;
 			}
 			
 			short globalidData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.purd.data", optarg, AtomicDataClass_Text);
 			APar_Unified_atom_Put(globalidData_atom, purd_time, UTF8_iTunesStyle_256byteLimited, 0, 0);
-			free(purd_time);
-			purd_time=NULL;			
 			break;
 		}
 		
@@ -1149,8 +1159,9 @@ int main( int argc, char *argv[])
 			for (int i= 0; i < 3; i++) { //3 possible arguments for this tag (the first - which doesn't count - is the data for the tag itself)
 				if ( argv[optind + i] && optind + i <= total_args) {
 					if ( memcmp(argv[optind + i], "track=", 6) == 0 ) {
-						strsep(&argv[optind + i],"=");
-						sscanf(argv[optind + i], "%hhu", &tracknum);
+						char* track_num = argv[optind + i];
+						strsep(&track_num,"=");
+						sscanf(track_num, "%hhu", &tracknum);
 						APar_Unified_atom_Put(album_3GP_atom, NULL, UTF8_3GP_Style, (uint32_t)tracknum, 8);
 					}			
 				}
@@ -1185,12 +1196,18 @@ int main( int argc, char *argv[])
 			for (int i= 0; i < 4; i++) { //3 possible arguments for this tag (the first - which doesn't count - is the data for the tag itself)
 				if ( argv[optind + i] && optind + i <= total_args) {
 					if ( memcmp(argv[optind + i], "entity=", 7) == 0 ) {
-						strsep(&argv[optind + i],"=");
-						memcpy(&rating_entity, argv[optind + i], 4);
+						char* entity = argv[optind + i];
+						//strsep(&argv[optind + i],"=");
+						//memcpy(&rating_entity, argv[optind + i], 4);
+						strsep(&entity,"=");
+						memcpy(&rating_entity, entity, 4);
 					}
 					if ( memcmp(argv[optind + i], "criteria=", 9) == 0 ) {
-						strsep(&argv[optind + i],"=");
-						memcpy(&rating_criteria, argv[optind + i], 4);
+						//strsep(&argv[optind + i],"=");
+						//memcpy(&rating_criteria, argv[optind + i], 4);
+						char* criteria = argv[optind + i];
+						strsep(&criteria,"=");
+						memcpy(&rating_criteria, criteria, 4);
 					}
 				}
 			}
@@ -1216,12 +1233,14 @@ int main( int argc, char *argv[])
 			for (int i= 0; i < 4; i++) { //3 possible arguments for this tag (the first - which doesn't count - is the data for the tag itself)
 				if ( argv[optind + i] && optind + i <= total_args) {
 					if ( memcmp(argv[optind + i], "entity=", 7) == 0 ) {
-						strsep(&argv[optind + i],"=");
-						memcpy(&classification_entity, argv[optind + i], 4);
+						char* cls_entity = argv[optind + i];
+						strsep(&cls_entity, "=");
+						memcpy(&classification_entity, cls_entity, 4);
 					}
 					if ( memcmp(argv[optind + i], "index=", 6) == 0 ) {
-						strsep(&argv[optind + i],"=");
-						sscanf(argv[optind + i], "%hu", &classification_index);
+						char* cls_idx = argv[optind + i];
+						strsep(&cls_idx, "=");
+						sscanf(cls_idx, "%hu", &classification_index);
 					}
 				}
 			}
@@ -1243,8 +1262,9 @@ int main( int argc, char *argv[])
 			find_optional_args(argv, optind, packed_lang, set_UTF16_text, 3);
 			
 			if (strrchr(optarg, '=') != NULL) { //must be in the format of:   keywords=foo1,foo2,foo3,foo4
-				char* keywords_globbed = strsep(&optarg,"="); //separate out 'keyword='
-				keywords_globbed = strsep(&optarg,"="); //this is what we want to work on: just the keywords
+				char* arg_keywords = optarg;
+				char* keywords_globbed = strsep(&arg_keywords,"="); //separate out 'keyword='
+				keywords_globbed = strsep(&arg_keywords,"="); //this is what we want to work on: just the keywords
 				char* keyword_ptr = keywords_globbed;
 				uint32_t keyword_strlen = strlen(keywords_globbed);
 				uint8_t keyword_count = 0;
@@ -1302,46 +1322,49 @@ int main( int argc, char *argv[])
 			for (int i= 0; i < 9; i++) { //9 possible arguments for this tag (the first - which doesn't count - is the data for the tag itself)
 				if ( argv[optind + i] && optind + i <= total_args) {
 					if ( memcmp(argv[optind + i], "longitude=", 10) == 0 ) {
-						strsep(&argv[optind + i],"=");
-						sscanf(argv[optind + i], "%lf", &longitude);
-						//fprintf(stdout, "%s %i\n", argv[optind + i], argv[optind + i][strlen(argv[optind + i])-1]);
-						if (argv[optind + i][strlen(argv[optind + i])-1] == 'W') {
+						char* _long = argv[optind + i];
+						strsep(&_long,"=");
+						sscanf(_long, "%lf", &longitude);
+						if (_long[strlen(_long)-1] == 'W') {
 							longitude*=-1;
 						}
 					}
 					if ( memcmp(argv[optind + i], "latitude=", 9) == 0 ) {
-						strsep(&argv[optind + i],"=");
-						sscanf(argv[optind + i], "%lf", &latitude);
-						//fprintf(stdout, "%s %i\n", argv[optind + i], argv[optind + i][strlen(argv[optind + i])-1]);
-						if (argv[optind + i][strlen(argv[optind + i])-1] == 'S') {
+						char* _latt = argv[optind + i];
+						strsep(&_latt,"=");
+						sscanf(_latt, "%lf", &latitude);
+						if (_latt[strlen(_latt)-1] == 'S') {
 							latitude*=-1;
 						}
 					}
 					if ( memcmp(argv[optind + i], "altitude=", 9) == 0 ) {
-						strsep(&argv[optind + i],"=");
-						sscanf(argv[optind + i], "%lf", &altitude);
-						//fprintf(stdout, "%s %i\n", argv[optind + i], argv[optind + i][strlen(argv[optind + i])-1]);
-						if (argv[optind + i][strlen(argv[optind + i])-1] == 'B') {
+						char* _alti = argv[optind + i];
+						strsep(&_alti,"=");
+						sscanf(_alti, "%lf", &altitude);
+						if (_alti[strlen(_alti)-1] == 'B') {
 							altitude*=-1;
 						}
 					}
 					if ( memcmp(argv[optind + i], "role=", 5) == 0 ) {
-						strsep(&argv[optind + i],"=");
-						if (strncmp(argv[optind + i], "shooting location", 17) == 0 || strncmp(argv[optind + i], "shooting", 8) == 0) {
+						char* _role = argv[optind + i];
+						strsep(&_role,"=");
+						if (strncmp(_role, "shooting location", 17) == 0 || strncmp(_role, "shooting", 8) == 0) {
 							role = 0;
-						} else if (strncmp(argv[optind + i], "real location", 13) == 0 || strncmp(argv[optind + i], "real", 4) == 0) {
+						} else if (strncmp(_role, "real location", 13) == 0 || strncmp(_role, "real", 4) == 0) {
 							role = 1;
-						} else if (strncmp(argv[optind + i], "fictional location", 18) == 0 || strncmp(argv[optind + i], "fictional", 9) == 0) {
+						} else if (strncmp(_role, "fictional location", 18) == 0 || strncmp(_role, "fictional", 9) == 0) {
 							role = 2;
 						}
 					}
 					if ( memcmp(argv[optind + i], "body=", 5) == 0 ) {
-						strsep(&argv[optind + i],"=");
-						astronomical_body = argv[optind + i];
+						char* _astrobody = argv[optind + i];
+						strsep(&_astrobody,"=");
+						astronomical_body = _astrobody;
 					}
 					if ( memcmp(argv[optind + i], "notes=", 6) == 0 ) {
-						strsep(&argv[optind + i],"=");
-						additional_notes = argv[optind + i];
+						char* _add_notes = argv[optind + i];
+						strsep(&_add_notes,"=");
+						additional_notes = _add_notes;
 					}
 				}
 			}
@@ -1357,7 +1380,6 @@ int main( int argc, char *argv[])
 				APar_Unified_atom_Put(location_3GP_atom, NULL, false, (uint32_t)role, 8);
 				
 				APar_Unified_atom_Put(location_3GP_atom, NULL, false, float_to_16x16bit_fixed_point(longitude), 32);
-				//fprintf(stdout, "%lf %lf %lf\n", longitude, latitude, altitude);
 				APar_Unified_atom_Put(location_3GP_atom, NULL, false, float_to_16x16bit_fixed_point(latitude), 32);
 				APar_Unified_atom_Put(location_3GP_atom, NULL, false, float_to_16x16bit_fixed_point(altitude), 32);
 				APar_Unified_atom_Put(location_3GP_atom, astronomical_body, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), 0, 0);
@@ -1420,9 +1442,7 @@ int main( int argc, char *argv[])
 		}
 		
 		case OPT_OutputFile : {
-			output_file = (char *)malloc(sizeof(char)* MAXPATHLEN +1);
-			memset(output_file, 0, MAXPATHLEN +1);
-			output_file = strdup(optarg);
+			output_file = optarg;
 			break;
 		}
 		
@@ -1438,10 +1458,14 @@ int main( int argc, char *argv[])
 			//The file was opened orignally as read-only; when it came time to writeback into the original file, that FILE was closed, and a new one opened with write abilities, so to close a FILE that no longer exists would.... be retarded.
 			openSomeFile(m4afile, false);
 		}
-		if (!output_file) {
-			free(output_file);
-			output_file=NULL;
+	}
+#if defined (_MSC_VER) && defined (UTF16_ENABLED)
+	for(int zz=0; zz < argc; zz++) {
+		if (argv[zz] > 0) {
+			free(argv[zz]);
+			argv[zz] = NULL;
 		}
 	}
+#endif
 	return 0;
 }

@@ -34,23 +34,12 @@
 #include <errno.h>
 #include <time.h>
 #include <math.h>
-
 #include <wchar.h>
 
 #include "AP_commons.h"
 #include "AtomicParsley.h"
 #include "AP_iconv.h"
 #include "AtomicParsley_genres.h"
-
-#if defined (_MSC_VER)
-
-/* this next line controls whether the utf8->utf16 method of output is used (at least on winNT and above, not on win98 which doesn't have built-in utf16) */
-#define UTF16_CONSOLE_OUTPUT
-
-#define UNICODE
-
-#include <windows.h>  /* for WriteConsoleW */
-#endif
 
 #if defined (DARWIN_PLATFORM)
 #include "AP_NSImage.h"
@@ -65,7 +54,6 @@ bool modified_atoms = false;
 bool alter_original = false;
 
 bool cvs_build = true; //controls which type of versioning - cvs build-time stamp
-
 //bool cvs_build = false; //controls which type of versioning - release number
 
 FILE* source_file;
@@ -92,10 +80,6 @@ uint32_t new_file_size = 0; //used for the progressbar
 
 bool contains_unsupported_64_bit_atom = false; //reminder that there are some 64-bit files that aren't yet supported (and where that limit is set)
 
-#if defined (_MSC_VER)
-bool high_bit_warning = false;
-#endif
-
 #if defined (WIN32) || defined (__CYGWIN__)
 short max_display_width = 45;
 #else
@@ -114,13 +98,16 @@ EmployedCodecs track_codecs = {false, false, false, false, false, false, false, 
 
 void ShowVersionInfo() {
 
-#if defined (USE_ICONV_CONVERSION)
+#if defined (UTF8_ENABLED)
 #define unicode_enabled	"(utf8)"
 #else
 
-//in the sense that input onto an atom has to be on codepage 65001 for any sense of proper utf8 - output to the console is utf16; redirected output is utf8
-#if defined (UTF16_CONSOLE_OUTPUT)
-#define unicode_enabled	"(utf8 input/utf16 output)"
+#if defined (UTF16_ENABLED)
+#define unicode_enabled	"(utf16)"
+//its utf16 in the sense that any text entering on a modern Win32 system enters as utf16le - but gets converted immediately after AP.exe starts to utf8
+//all arguments, strings, filenames, options are sent around as utf8. For modern Win32 systems, filenames get converted to utf16 for output as needed.
+//Any strings to be set as utf16 in 3gp assets are converted to utf16be as needed (true for all OS implementations).
+//Printing out to the console is a mixed bag of vanilla ascii & utf16le. Redirected output should be utf8. TODO: Win32 output should be uniformly utf16le.
 #else
 #define unicode_enabled	""
 #endif
@@ -129,7 +116,7 @@ void ShowVersionInfo() {
 
 	if (cvs_build) {  //below is the versioning from cvs if used; remember to switch to AtomicParsley_version for a release
 
-		fprintf(stdout, "AtomicParsley cvs version %s %s\n", __DATE__, unicode_enabled);
+		fprintf(stdout, "AtomicParsley from svn built on %s %s\n", __DATE__, unicode_enabled);
 	
 	} else {  //below is the release versioning
 
@@ -143,17 +130,88 @@ void ShowVersionInfo() {
 //                               Generic Functions                                   //
 ///////////////////////////////////////////////////////////////////////////////////////
 
-off_t findFileSize(const char *path) {
-	struct stat fileStats;
-	stat(path, &fileStats);
-	
-	return fileStats.st_size;
+// http://www.flipcode.com/articles/article_advstrings01.shtml
+bool IsUnicodeWinOS() {
+#if defined (_MSC_VER)
+  OSVERSIONINFOW		os;
+  memset(&os, 0, sizeof(OSVERSIONINFOW));
+  os.dwOSVersionInfoSize = sizeof(OSVERSIONINFOW);
+  return (GetVersionExW(&os) != 0);
+#else
+	return false;
+#endif
 }
 
-FILE* openSomeFile(const char* file, bool open) {
+/*----------------------
+findFileSize
+  utf8_filepath - a pointer to a string (possibly utf8) of the full path to the file
+
+    take an ascii/utf8 filepath (which if under a unicode enabled Win32 OS was already converted from utf16le to utf8 at program start) and test if
+		AP is running on a unicode enabled Win32 OS. If it is, convert the utf8 filepath to a utf16 (native-endian) filepath & pass that to a wide stat.
+		Or stat it with a utf8 filepath on Unixen.
+----------------------*/
+off_t findFileSize(const char *utf8_filepath) {
+	if ( IsUnicodeWinOS() ) {
+#if defined (_MSC_VER)
+		wchar_t* utf16_filepath = Convert_multibyteUTF8_to_wchar(utf8_filepath);
+		
+		struct _stat fileStats;
+		_wstat(utf16_filepath, &fileStats);
+		
+		free(utf16_filepath);
+		utf16_filepath = NULL;
+		return fileStats.st_size;
+#endif
+	} else {
+		struct stat fileStats;
+		stat(utf8_filepath, &fileStats);
+		return fileStats.st_size;
+	}
+	return 0; //won't ever get here
+}
+
+/*----------------------
+APar_OpenFile
+  utf8_filepath - a pointer to a string (possibly utf8) of the full path to the file
+	file_flags - 3 bytes max for the flags to open the file with (read, write, binary mode....)
+
+    take an ascii/utf8 filepath (which if under a unicode enabled Win32 OS was already converted from utf16le to utf8 at program start) and test if
+		AP is running on a unicode enabled Win32 OS. If it is, convert the utf8 filepath to a utf16 (native-endian) filepath & pass that to a wide fopen
+		with the 8-bit file flags changed to 16-bit file flags. Or open a utf8 file with vanilla fopen on Unixen.
+----------------------*/
+FILE* APar_OpenFile(const char* utf8_filepath, const char* file_flags) {
+	FILE* aFile = NULL;
+	if ( IsUnicodeWinOS() ) {
+#if defined (_MSC_VER)
+		wchar_t* Lfile_flags = (wchar_t *)malloc(sizeof(wchar_t)*4);
+		memset(Lfile_flags, 0, sizeof(wchar_t)*4);
+		mbstowcs(Lfile_flags, file_flags, strlen(file_flags) );
+		
+		wchar_t* utf16_filepath = Convert_multibyteUTF8_to_wchar(utf8_filepath);
+		
+		aFile = _wfopen(utf16_filepath, Lfile_flags);
+		
+		free(utf16_filepath);
+		utf16_filepath = NULL;
+#endif
+	} else {
+		aFile = fopen(utf8_filepath, file_flags);
+	}
+	return aFile;
+}
+
+/*----------------------
+openSomeFile
+  utf8_filepath - a pointer to a string (possibly utf8) of the full path to the file
+	open - flag to either open or close (function does both)
+
+    take an ascii/utf8 filepath and either open or close it; used for the main ISO Base Media File; store the resulting FILE* in a global source_file
+----------------------*/
+FILE* openSomeFile(const char* utf8file, bool open) {
+	FILE* aFile = NULL;
 	if ( open && !file_opened) {
-		source_file = fopen(file, "rb");
-		if (file != NULL) {
+		source_file = APar_OpenFile(utf8file, "rb");
+		if (source_file != NULL) {
 			file_opened = true;
 		}
 	} else {
@@ -165,7 +223,7 @@ FILE* openSomeFile(const char* file, bool open) {
 
 void TestFileExistence(const char *filePath, bool errorOut) {
 	FILE *a_file = NULL;
-	a_file = fopen(filePath, "rb");
+	a_file = APar_OpenFile(filePath, "rb");
 	if( (a_file == NULL) && errorOut ){
 		fprintf(stderr, "AtomicParsley error: can't open %s for reading: %s\n", filePath, strerror(errno));
 		exit(1);
@@ -200,7 +258,7 @@ void APar_FreeMemory() {
 
 int APar_TestArtworkBinaryData(const char* artworkPath) {
 	int artwork_dataType = 0;
-	FILE *artfile = fopen(artworkPath, "rb");
+	FILE *artfile = APar_OpenFile(artworkPath, "rb");
 	if (artfile != NULL) {
 		char *pic_data=(char *)malloc(sizeof(char)*9 + 1);
 		memset(pic_data, 0, sizeof(char)*9 + 1);
@@ -872,7 +930,7 @@ void APar_unicode_win32Printout(wchar_t* unicode_out) { //based on http://blogs.
 #endif
 
 void APar_fprintf_UTF8_data(char* utf8_encoded_data) {
-#if defined (_MSC_VER) && defined (UTF16_CONSOLE_OUTPUT)
+#if defined (_MSC_VER) && defined (UTF16_ENABLED)
 	if (GetVersion() & 0x80000000) {
 		fprintf(stdout, "%s", utf8_encoded_data); //just printout the raw utf8 bytes (not characters) under pre-NT windows
 	} else {
@@ -974,9 +1032,9 @@ void APar_SimplePrintUnicodeAssest(char* unicode_string, int asset_length, bool 
 
 void APar_PrintUserDataAssests() { //3gp files
 
-#if defined (USE_ICONV_CONVERSION)
+#if defined (UTF8_ENABLED)
 	fprintf(stdout, "\xEF\xBB\xBF"); //Default to output of a UTF-8 BOM (except under win32's WriteConsoleW where it gets transparently eliminated)
-#elif defined (_MSC_VER) && defined (UTF16_CONSOLE_OUTPUT)
+#elif defined (_MSC_VER) && defined (UTF16_ENABLED)
 	APar_unicode_win32Printout(L"\xEF\xBB\xBF");
 #endif
 
@@ -1257,11 +1315,13 @@ void APar_ExtractAAC_Artwork(short this_atom_num, char* pic_output_path, short a
 	
 	strcat(base_outpath, suffix);
 	
-	FILE *outfile = fopen(base_outpath, "wb");
+	FILE *outfile = APar_OpenFile(base_outpath, "wb");
 	if (outfile != NULL) {
 		fwrite(art_payload, (size_t)(parsedAtoms[this_atom_num].AtomicLength-16), 1, outfile);
 		fclose(outfile);
-		fprintf(stdout, "Extracted artwork to file: %s\n", base_outpath);
+		fprintf(stdout, "Extracted artwork to file: ");
+		APar_fprintf_UTF8_data(base_outpath);
+		fprintf(stdout, "\n");
 	}
 	free(base_outpath);
 	free(art_payload);
@@ -1430,9 +1490,9 @@ void APar_ExtractDataAtom(int this_atom_number) {
 
 void APar_PrintDataAtoms(const char *path, bool extract_pix, char* pic_output_path) {
 
-#if defined (USE_ICONV_CONVERSION)
+#if defined (UTF8_ENABLED)
 	fprintf(stdout, "\xEF\xBB\xBF"); //Default to output of a UTF-8 BOM (except under win32's WriteConsoleW where it gets transparently eliminated)
-#elif defined (_MSC_VER) && defined (UTF16_CONSOLE_OUTPUT)
+#elif defined (_MSC_VER) && defined (UTF16_ENABLED)
 	APar_unicode_win32Printout(L"\xEF\xBB\xBF");
 #endif
 
@@ -1474,7 +1534,7 @@ void APar_PrintDataAtoms(const char *path, bool extract_pix, char* pic_output_pa
 					//converts iso8859 © in '©ART' to a 2byte utf8 © glyph; replaces libiconv conversion
 					isolat1ToUTF8((unsigned char*)parent_atom, 10, (unsigned char*)parent_duplicate, 4);
 
-#if defined (_MSC_VER) && defined (UTF16_CONSOLE_OUTPUT)
+#if defined (_MSC_VER) && defined (UTF16_ENABLED)
 					fprintf(stdout, "Atom \"");
 					APar_fprintf_UTF8_data(parent_atom);
 					fprintf(stdout, "\" contains: ");
@@ -1498,7 +1558,7 @@ void APar_PrintDataAtoms(const char *path, bool extract_pix, char* pic_output_pa
 			isolat1ToUTF8((unsigned char*)atom_name, 10, (unsigned char*)uuid_duplicate, 4);
 
 			if (thisAtom.AtomicDataClass == AtomicDataClass_Text && !pic_output_path) {
-#if defined (_MSC_VER) && defined (UTF16_CONSOLE_OUTPUT)
+#if defined (_MSC_VER) && defined (UTF16_ENABLED)
 				fprintf(stdout, "Atom uuid=\"");
 				APar_fprintf_UTF8_data(atom_name);
 				fprintf(stdout, "\" contains: ");
@@ -1594,9 +1654,9 @@ void APar_AtomizeFileInfo(AtomicInfo &thisAtom, uint32_t Astart, uint32_t Alengt
 //this function reflects the atom tree as it stands in memory accurately (so I hope).
 void APar_PrintAtomicTree() {
 
-#if defined (USE_ICONV_CONVERSION)
+#if defined (UTF8_ENABLED)
 	fprintf(stdout, "\xEF\xBB\xBF"); //Default to output of a UTF-8 BOM (except under win32's WriteConsoleW where it gets transparently eliminated)
-#elif defined (_MSC_VER) && defined (UTF16_CONSOLE_OUTPUT)
+#elif defined (_MSC_VER) && defined (UTF16_ENABLED)
 	APar_unicode_win32Printout(L"\xEF\xBB\xBF");
 #endif
 
@@ -1638,7 +1698,7 @@ void APar_PrintAtomicTree() {
 		} else if (thisAtom.uuidAtomType) {
 			fprintf(stdout, "%sAtom uuid=%s @ %u of size: %u, ends @ %u\n", tree_padding, atom_name, thisAtom.AtomicStart, thisAtom.AtomicLength, (thisAtom.AtomicStart + thisAtom.AtomicLength) );
 		} else {
-#if defined (_MSC_VER) && defined (UTF16_CONSOLE_OUTPUT)
+#if defined (_MSC_VER) && defined (UTF16_ENABLED)
 			fprintf(stdout, "%sAtom ", tree_padding);
 			APar_fprintf_UTF8_data(atom_name);
 			fprintf(stdout, " @ %u of size: %u, ends @ %u\n", thisAtom.AtomicStart, thisAtom.AtomicLength, (thisAtom.AtomicStart + thisAtom.AtomicLength) );
@@ -1698,9 +1758,9 @@ void APar_PrintAtomicTree() {
 
 void APar_SimpleAtomPrintout() { //loop through each atom in the struct array (which holds the offset info/data)
 
-#if defined (USE_ICONV_CONVERSION)
+#if defined (UTF8_ENABLED)
 	fprintf(stdout, "\xEF\xBB\xBF"); //Default to output of a UTF-8 BOM (except under win32's WriteConsoleW where it gets transparently eliminated)
-#elif defined (_MSC_VER) && defined (UTF16_CONSOLE_OUTPUT)
+#elif defined (_MSC_VER) && defined (UTF16_ENABLED)
 	APar_unicode_win32Printout(L"\xEF\xBB\xBF");
 #endif
 
@@ -1732,7 +1792,7 @@ short APar_GetCurrentAtomDepth(uint32_t atom_start, uint32_t atom_length) {
 }
 
 bool APar_TestforChildAtom(char *fileData, uint32_t sizeofParentAtom, char* atom) {
-	if ( strncmp(atom, "data", 4) == 0  || strncmp(atom, "mdat", 4) == 0 || strncmp(atom, "tfhd", 4) == 0){
+	if ( strncmp(atom, "data", 4) == 0  || strncmp(atom, "mdat", 4) == 0 || strncmp(atom, "tfhd", 4) == 0) {
 		return false;
 	}
 	
@@ -1975,9 +2035,8 @@ void APar_ScanAtoms(const char *path, bool scan_for_tree_ONLY) {
 	if (!parsedfile) {
 		file_size = findFileSize(path);
 		
-		FILE *file = fopen(path, "rb");
-		if (file != NULL)
-		{
+		FILE *file = APar_OpenFile(path, "rb");
+		if (file != NULL) {
 			char *data = (char *) malloc(12 + 1);
 			memset(data, 0, 12 + 1);
 			
@@ -2419,7 +2478,7 @@ AtomicInfo APar_CreateSparseAtom(const char* present_hierarchy, char* new_atom_n
 APar_Unified_atom_Put
   atom_num - the index into the parsedAtoms array for the atom we are setting (aka AtomicNumber)
   unicode_data - a pointer to a string (possibly utf8 already); may go onto conversion to utf16 prior to the put
-  text_tag_style - flag to denote that unicode_data is utf-16, or the flavors of utf8 (iTunes style, 3gp style...)
+  text_tag_style - flag to denote that unicode_data is to become utf-16, or stay the flavors of utf8 (iTunes style, 3gp style...)
   ancillary_data - a (possibly cast) 32-bit number of any type of supplemental data to be set
 	anc_bit_width - controls the number of bytes to set for ancillary data [0 to skip, 8 (1byte) - 32 (4 bytes)]
 
@@ -2527,54 +2586,12 @@ void APar_Unified_atom_Put(short atom_num, const char* unicode_data, uint8_t tex
 				}
 			}
 			
-			//if we are setting iTunes-style metadata, add 0 to the pointer; for 3gp user data atoms - add in the (length-default bare atom lenth): account for language uint16_t (plus any other crap we will set)
+			//if we are setting iTunes-style metadata, add 0 to the pointer; for 3gp user data atoms - add in the (length-default bare atom lenth): account for language uint16_t (plus any other crap we will set); unicodeWin32 with wchar_t was converted right after program started, so do a direct copy
 
-#if defined (UTF16_CONSOLE_OUTPUT)
-			//what makes no sense here is that we are using Windows to convert unicode (utf16 in basically hex) into the ANSI codepage! ??? It makes no sense, but it does create valid utf8 (at least for the © symbol). It should convert to the CP_UTF8 codepage - but that DOESN'T work.
-			//first use windows to convert to utf16 on wchar_t, then back to utf8 before finally copying it onto AtomicData
-			if (GetConsoleCP() == CP_UTF8) {
-				int charCount = MultiByteToWideChar(CP_ACP, 0, unicode_data, strlen(unicode_data) + 1, NULL, 0);  //precalculate the amount of wchar_t's needed
-				wchar_t* utf16_string = (wchar_t*) malloc(sizeof(wchar_t)* (charCount + 2) );
-				wmemset(utf16_string, 0, charCount + 2);
-				charCount = MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED, unicode_data, strlen(unicode_data) + 1, utf16_string, charCount); //actually convert it to wchar_t's
-				if (charCount > 0) {
-					//fprintf(stdout, "in length = %i; wchar's = %i\n", strlen(unicode_data), charCount);
-					
-					char* utf8_data = (char*)malloc(sizeof(char)* strlen(unicode_data) * 6 );
-					memset(utf8_data, 0, strlen(unicode_data) * 6);
-					UTF16LEToUTF8((unsigned char*)utf8_data, strlen(unicode_data) * 6, (unsigned char*)utf16_string, charCount * 2 );
-				
-					//charCount = WideCharToMultiByte( CP_UTF8, 0, utf16_string, -1, utf8_data, charCount, 0, 0); //using windows internal calls
-
-					memcpy(parsedAtoms[atom_num].AtomicData + (text_tag_style >= UTF8_3GP_Style ? atom_data_pos :  0), utf8_data, strlen(utf8_data) );
-					parsedAtoms[atom_num].AtomicLength += total_bytes; //strlen(utf8_data);
-					//fprintf(stdout, "utf8 string \"%s\"\n", utf8_data);
-					free(utf8_data);
-					utf8_data = NULL;
-				}
-				//wprintf(L"string \"%s\"",utf16_string);
-				//wprintf(L"byte %i\n", utf16_string[0]);
-				free(utf16_string);
-				utf16_string = NULL;
-			} else {
-				//fprintf(stdout, "AP error: codepage was not set to utf8 (try 'chcp 65001') %c\n", '\a'); //give a beep
-				//exit(0);
-				if ( isUTF8(unicode_data) == 8 && !high_bit_warning) {
-					fprintf(stdout, "AP warning: high-bit ascii was detected while not on the UTF8 codepage \nEntering as raw unchecked hex (change to utf8 codepage with 'chcp 65001')\n");
-					high_bit_warning = true;
-				}
-				memcpy(parsedAtoms[atom_num].AtomicData + (text_tag_style >= UTF8_3GP_Style ? atom_data_pos :  0), unicode_data, total_bytes + 1 );
-				parsedAtoms[atom_num].AtomicLength += total_bytes;
-				
-			}
-#else
 			memcpy(parsedAtoms[atom_num].AtomicData + (text_tag_style >= UTF8_3GP_Style ? atom_data_pos :  0), unicode_data, total_bytes + 1 );
 			parsedAtoms[atom_num].AtomicLength += total_bytes;
-#endif
-		}
-	
+		}	
 	}	
-
 	return;
 }
 
@@ -2696,9 +2713,12 @@ void APar_MetaData_atomArtwork_Init(short atom_num, const char* artworkPath) {
 	if (picture_size > 0) {
 		APar_MetaData_atom_QuickInit(atom_num, APar_TestArtworkBinaryData(artworkPath), 0 );
 		parsedAtoms[atom_num].AtomicLength += (uint32_t)picture_size;
-		parsedAtoms[atom_num].AtomicData = strdup(artworkPath);
-	}
-	
+		if (IsUnicodeWinOS() ) {
+			memcpy(parsedAtoms[atom_num].AtomicData, artworkPath, wcslen( (wchar_t*)artworkPath ) * 2);
+		} else {
+			parsedAtoms[atom_num].AtomicData = strdup(artworkPath);
+		}
+	}	
 	return;
 }
 
@@ -2781,61 +2801,14 @@ uint32_t APar_3GP_Keyword_atom_Format(char* keywords_globbed, uint8_t keyword_co
 			if (bytes_converted > 1) {
 				formed_keyword_struct[formed_string_offset-3] = (uint8_t)bytes_converted + 4; //keyword length is NOW set
 				formed_string_offset += bytes_converted + 2; //NULL terminator
-			}			
-			
+			}						
 		} else {
-			
-#if defined (UTF16_CONSOLE_OUTPUT)
-			//first use windows to convert to utf16 on wchar_t, then back to utf8 before finally copying it onto formed_keyword_struct
-			if (GetConsoleCP() == CP_UTF8) {
-				int charCount = MultiByteToWideChar(CP_ACP, 0, a_keyword, string_len + 1, NULL, 0);  //precalculate the amount of wchar_t's needed
-				wchar_t* utf16_string = (wchar_t*) malloc(sizeof(wchar_t)* (charCount + 2) );
-				wmemset(utf16_string, 0, charCount + 2);
-				charCount = MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED, a_keyword, string_len + 1, utf16_string, charCount); //actually convert it to wchar_t's
-				if (charCount > 0) {
-					//fprintf(stdout, "in length = %i; wchar's = %i\n", strlen(unicode_data), charCount);
-					
-					char* utf8_data = (char*)malloc(sizeof(char)* string_len * 6 );
-					memset(utf8_data, 0, string_len * 6);
-					UTF16LEToUTF8((unsigned char*)utf8_data, string_len * 6, (unsigned char*)utf16_string, charCount * 2 );
-				
-					//charCount = WideCharToMultiByte( CP_UTF8, 0, utf16_string, -1, utf8_data, charCount, 0, 0); //using windows internal calls
 
-					uint32_t utf8_len = strlen(utf8_data);
-					formed_keyword_struct[formed_string_offset] = (uint8_t)utf8_len; //sets keyword length
-					formed_string_offset++;
-					
-					memcpy(formed_keyword_struct + formed_string_offset, utf8_data, utf8_len ); //sets the keyword
-					formed_string_offset+= utf8_len + 1; //sets the terminating NULL
-					//fprintf(stdout, "utf8 string \"%s\"\n", utf8_data);
-					free(utf8_data);
-					utf8_data = NULL;
-				}
-				//wprintf(L"string \"%s\"",utf16_string);
-				//wprintf(L"byte %i\n", utf16_string[0]);
-				free(utf16_string);
-				utf16_string = NULL;
-			} else {
-				//fprintf(stdout, "AP error: codepage was not set to utf8 (try 'chcp 65001') %c\n", '\a'); //give a beep
-				//exit(0);
-				if ( isUTF8(a_keyword) == 8 && !high_bit_warning) {
-					fprintf(stdout, "AP warning: high-bit ascii was detected while not on the UTF8 codepage \nEntering as raw unchecked hex (change to utf8 codepage with 'chcp 65001')\n");
-					high_bit_warning = true;
-				}
-				uint32_t string_len = strlen(a_keyword);
-				formed_keyword_struct[formed_string_offset] = (uint8_t)string_len + 1; //add the terminating NULL
-				formed_string_offset++;
-				memcpy(formed_keyword_struct + formed_string_offset, a_keyword, string_len );
-				formed_string_offset+= (string_len +1);
-			}
-#else
 			uint32_t string_len = strlen(a_keyword);
 			formed_keyword_struct[formed_string_offset] = (uint8_t)string_len + 1; //add the terminating NULL
 			formed_string_offset++;
 			memcpy(formed_keyword_struct + formed_string_offset, a_keyword, string_len );
 			formed_string_offset+= (string_len +1);
-#endif
-			
 		}
 		a_keyword = strsep(&keywords_globbed,",");
 	}
@@ -3356,10 +3329,10 @@ void APar_ValidateAtoms() {
 		}
 		
 		//test for atoms that are going to be greater than out current file size; problem is we could be adding a 1MB pix to a 200k 3gp file; only fail for a file > 300k file; otherwise there would have to be more checks (like artwork present, but a zealous tagger could make moov.lengt > filzesize)
-		if (parsedAtoms[iter].AtomicLength > file_size && file_size > 300000) {
+		if (parsedAtoms[iter].AtomicLength > (uint32_t)file_size && file_size > 300000) {
 			if (parsedAtoms[iter].AtomicData == NULL) {
 				fprintf(stderr, "AtomicParsley error: an atom was detected that presents as larger than filesize. Aborting. %c\n", '\a');
-				fprintf(stderr, "atom %s is %u bytes long which is greater than the filesize of %llu\n", parsedAtoms[iter].AtomicName, parsedAtoms[iter].AtomicLength, file_size);
+				fprintf(stderr, "atom %s is %u bytes long which is greater than the filesize of %llu\n", parsedAtoms[iter].AtomicName, parsedAtoms[iter].AtomicLength, (long long unsigned int)file_size);
 				exit(1); //its conceivable to repair such an off length by the surrounding atoms constrained by file_size - just not anytime soon; probly would catch a foobar2000 0.9 tagged file
 			}
 		}
@@ -3486,10 +3459,9 @@ void APar_TestTracksForKind() {
 	}	
 	return;
 }
-
 #endif
 
-void APar_DeriveNewPath(const char *filePath, char* &temp_path, int output_type, const char* file_kind) {
+void APar_DeriveNewPath(const char *filePath, char* temp_path, int output_type, const char* file_kind) {
 	char* suffix = strrchr(filePath, '.');
 	
 	if (strncmp(file_kind, "-dump-", 4) == 0) {
@@ -3499,18 +3471,17 @@ void APar_DeriveNewPath(const char *filePath, char* &temp_path, int output_type,
 	size_t filepath_len = strlen(filePath);
 	size_t base_len = filepath_len-strlen(suffix);
 	strncpy(temp_path, filePath, base_len);
+	memcpy(temp_path, filePath, base_len);
 	
-	for (size_t i=0; i <= 6; i++) {
-		temp_path[base_len+i] = file_kind[i];
-	}
-	
+	memcpy(temp_path + base_len, file_kind, strlen(file_kind));
+
 	char randstring[6];
 	srand((int) time(NULL)); //Seeds rand()
 	int randNum = rand()%100000;
 	sprintf(randstring, "%i", randNum);
-	strcat(temp_path, randstring);
-	
-	strcat(temp_path, suffix);
+
+	memcpy(temp_path + strlen(temp_path), randstring, strlen(randstring));
+	memcpy(temp_path + strlen(temp_path), suffix, strlen(suffix) );
 	return;
 }
 
@@ -3536,7 +3507,7 @@ void APar_MetadataFileDump(const char* m4aFile) {
 		memset(dump_buffer, 0, sizeof(char)* ilst_atom.AtomicLength +1 );
 	
 		APar_DeriveNewPath(m4aFile, dump_file_name, 1, "-dump-");
-		dump_file = fopen(dump_file_name, "wb");
+		dump_file = APar_OpenFile(dump_file_name, "wb");
 		if (dump_file != NULL) {
 			//body of atom writing here
 			
@@ -3574,10 +3545,7 @@ void APar_ShellProgressBar(uint32_t bytes_written) {
 		}
 	}
 	strcat(file_progress_buffer, "|");
-	
-	//char* file_progress=(char*)malloc( sizeof(char)* (strlen(file_progress_buffer) -1) );
-	//strncpy(file_progress, file_progress_buffer, strlen(file_progress_buffer) -1);
-	
+		
 	fprintf(stdout, "%s\r", file_progress_buffer);
 	fflush(stdout);
 	return;
@@ -3635,7 +3603,7 @@ uint32_t APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file
 		parsedAtoms[this_atom].AtomicLength = (uint32_t)file_size - parsedAtoms[this_atom].AtomicLength;
 	} else if (parsedAtoms[this_atom].AtomicLength == 1) {
 		//part of the pseudo 64-bit support
-		parsedAtoms[this_atom].AtomicLength = parsedAtoms[this_atom].AtomicLengthExtended;
+		parsedAtoms[this_atom].AtomicLength = (uint32_t)parsedAtoms[this_atom].AtomicLengthExtended;
 	}
 	
 	//handle jpeg/pngs differently when we are ADDING them: they will be coming from entirely separate files
@@ -3667,7 +3635,7 @@ uint32_t APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file
 		
 		//open the originating file...
 		FILE *pic_file = NULL;
-		pic_file = fopen(parsedAtoms[this_atom].AtomicData, "rb");
+		pic_file = APar_OpenFile(parsedAtoms[this_atom].AtomicData, "rb");
 		if (pic_file != NULL) {
 			//...and the actual transfer of the picture
 			while (bytes_written <= parsedAtoms[this_atom].AtomicLength) {
@@ -3701,10 +3669,23 @@ uint32_t APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file
 		
 		if (myPicturePrefs.removeTempPix && parsedAtoms[this_atom].tempFile ) {
 			//reopen the picture file to delete if this IS a temp file (and the env pref was given)
-			pic_file = fopen(parsedAtoms[this_atom].AtomicData, "wb");
-			remove(parsedAtoms[this_atom].AtomicData);
+			pic_file = APar_OpenFile(parsedAtoms[this_atom].AtomicData, "wb");
+			
+			if ( IsUnicodeWinOS() ) {
+#if defined (_MSC_VER)
+				wchar_t* utf16_pic_path = Convert_multibyteUTF8_to_wchar(parsedAtoms[this_atom].AtomicData);
+		
+				_wremove(utf16_pic_path);
+		
+				free(utf16_pic_path);
+				utf16_pic_path = NULL;
+#endif
+			} else {
+				remove(parsedAtoms[this_atom].AtomicData);
+			}
+			
 			fclose(pic_file);
-		}		
+		}
 				
 	} else if (from_file) {
 		// here we read in the original atom into the buffer. If the length is greater than our buffer length,
@@ -3796,13 +3777,13 @@ uint32_t APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file
 }
 
 void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_original) {
-	char* temp_file_name=(char*)malloc( sizeof(char)* (strlen(m4aFile) +12) );
+	char* temp_file_name=(char*)malloc( sizeof(char)* 3500 );
 	char* file_buffer=(char*)malloc( sizeof(char)* max_buffer + 1 );
 	char* data = (char*)malloc(sizeof(char)*4 + 1);
 	FILE* temp_file;
 	uint32_t temp_file_bytes_written = 0;
 	short thisAtomNumber = 0;
-	memset(temp_file_name, 0, sizeof(char)* (strlen(m4aFile) +12) );
+	memset(temp_file_name, 0, sizeof(char)* 3500 );
 	memset(file_buffer, 0, sizeof(char)* max_buffer + 1 );
 	memset(data, 0, sizeof(char)*4 + 1);
 	
@@ -3812,7 +3793,7 @@ void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_origi
 	
 	if (!outfile) {  //if (outfile == NULL) {  //if (strlen(outfile) == 0) { 
 		APar_DeriveNewPath(m4aFile, temp_file_name, 0, "-temp-");
-		temp_file = fopen(temp_file_name, "wb");
+		temp_file = APar_OpenFile(temp_file_name, "wb");
 		
 #if defined (DARWIN_PLATFORM)
 		APar_SupplySelectiveTypeCreatorCodes(m4aFile, temp_file_name); //provide type/creator codes for ".mp4" for randomly named temp files
@@ -3824,14 +3805,14 @@ void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_origi
 		if (strncmp(m4aFile,outfile,strlen(outfile)) == 0 && (strlen(outfile) == strlen(m4aFile)) ) {
 			//er, nice try but you were trying to ouput to the exactly named file of the original. Y'all ain't so slick
 			APar_DeriveNewPath(m4aFile, temp_file_name, 0, "-temp-");
-			temp_file = fopen(temp_file_name, "wb");
+			temp_file = APar_OpenFile(temp_file_name, "wb");
 			
 #if defined (DARWIN_PLATFORM)
 			APar_SupplySelectiveTypeCreatorCodes(m4aFile, temp_file_name); //provide type/creator codes for ".mp4" for a fall-through randomly named temp files
 #endif
 		
 		} else {
-			temp_file = fopen(outfile, "wb");
+			temp_file = APar_OpenFile(outfile, "wb");
 			
 #if defined (DARWIN_PLATFORM)
 			APar_SupplySelectiveTypeCreatorCodes(m4aFile, outfile); //provide type/creator codes for ".mp4" for a user-defined output file
@@ -3905,10 +3886,35 @@ void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_origi
 		fclose(source_file);
 
 #if defined (_MSC_VER) /* native windows seems to require removing the file first; rename() on Mac OS X does the removing automatically as needed */
-		remove(m4aFile);
+		if ( IsUnicodeWinOS() ) {
+			wchar_t* utf16_filepath = Convert_multibyteUTF8_to_wchar(m4aFile);
+		
+			_wremove(utf16_filepath);
+		
+			free(utf16_filepath);
+			utf16_filepath = NULL;
+		} else {
+			remove(m4aFile);
+		}
 #endif
-
-		int err = rename(temp_file_name, m4aFile);
+		int err = 0;
+		
+		if ( IsUnicodeWinOS() ) {
+#if defined (_MSC_VER)
+			wchar_t* utf16_filepath = Convert_multibyteUTF8_to_wchar(m4aFile);
+			wchar_t* temp_utf16_filepath = Convert_multibyteUTF8_to_wchar(temp_file_name);
+		
+			err = _wrename(temp_utf16_filepath, utf16_filepath);
+		
+			free(utf16_filepath);
+			free(temp_utf16_filepath);
+			utf16_filepath = NULL;
+			temp_utf16_filepath = NULL;
+#endif
+		} else {
+			err = rename(temp_file_name, m4aFile);
+		}
+		
 		if (err != 0) {
 			switch (errno) {
 				
