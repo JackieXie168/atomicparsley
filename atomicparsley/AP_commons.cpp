@@ -16,6 +16,12 @@
     Suite 330, Boston, MA 02111-1307, USA.  Or www.fsf.org
 
     Copyright ©2006 puck_lock
+		
+		----------------------
+    Code Contributions by:
+		
+    * SLarew - prevent writing past array in Convert_multibyteUTF16_to_wchar bugfix
+		
 																																		*/
 //==================================================================//
 
@@ -188,7 +194,7 @@ wchar_t* Convert_multibyteUTF16_to_wchar(char* input_unicode, size_t glyph_lengt
 	wchar_t* utf16_data = (wchar_t*)malloc( sizeof(wchar_t)* glyph_length ); //just to be sure there will be a trailing NULL
 	wmemset(utf16_data, 0, glyph_length);
 						
-	for(size_t i = 0; i <= glyph_length; i++) {
+	for(size_t i = 0; i < glyph_length; i++) {
 #if defined (__ppc__) || defined (__ppc64__)
 		utf16_data[i] = (input_unicode[2*i + BOM_mark_bytes] & 0x00ff) << 8 | (input_unicode[2*i + 1 + BOM_mark_bytes]) << 0; //+2 & +3 to skip over the BOM
 #else

@@ -16,6 +16,11 @@
     Suite 330, Boston, MA 02111-1307, USA.  Or www.fsf.org
 
     Copyright ©2005-2006 puck_lock
+		
+		----------------------
+    Code Contributions by:
+		
+    * Mellow_Flow - fix genre matching/verify genre limits
                                                                    */
 //==================================================================//
 
@@ -47,11 +52,7 @@ static const char* ID3v1GenreList[] = {
 		"Cabaret", "New Wave", "Psychadelic", "Rave", "Showtunes",
 		"Trailer", "Lo-Fi", "Tribal", "Acid Punk", "Acid Jazz",
 		"Polka", "Retro", "Musical", "Rock & Roll", "Hard Rock",
-		"Folk", "Folk/Rock", "National Folk", "Swing",
-}; //apparently the other winamp id3v1 extensions aren't valid
-		
-		/*
-		"Fast-Fusion",
+		"Folk", "Folk/Rock", "National Folk", "Swing", "Fast Fusion",
 		"Bebob", "Latin", "Revival", "Celtic", "Bluegrass",
 		"Avantgarde", "Gothic Rock", "Progressive Rock", "Psychedelic Rock", "Symphonic Rock",
 		"Slow Rock", "Big Band", "Chorus", "Easy Listening", "Acoustic", 
@@ -60,12 +61,14 @@ static const char* ID3v1GenreList[] = {
 		"Satire", "Slow Jam", "Club", "Tango", "Samba", 
 		"Folklore", "Ballad", "Power Ballad", "Rhythmic Soul", "Freestyle", 
 		"Duet", "Punk Rock", "Drum Solo", "A capella", "Euro-House",
-		"Dance Hall", "Goa", "Drum & Bass", "Club House", "Hardcore", 
+		"Dance Hall" };
+		/*
+		"Goa", "Drum & Bass", "Club House", "Hardcore", 
 		"Terror", "Indie", "BritPop", "NegerPunk", "Polsk Punk", 
 		"Beat", "Christian Gangsta", "Heavy Metal", "Black Metal", "Crossover", 
 		"Contemporary C", "Christian Rock", "Merengue", "Salsa", "Thrash Metal", 
 		"Anime", "JPop", "SynthPop",
-}; */
+}; */  //apparently the other winamp id3v1 extensions aren't valid
 
 int GenreIntToString(char** genre_string, int genre) {
   if (genre > 0 &&  genre <= (int)(sizeof(ID3v1GenreList)/sizeof(*ID3v1GenreList))) {
@@ -82,18 +85,17 @@ int GenreIntToString(char** genre_string, int genre) {
 
 uint8_t StringGenreToInt(const char* genre_string) {
 	uint8_t return_genre = 0;
+	uint8_t total_genres = (uint8_t)(sizeof(ID3v1GenreList)/sizeof(*ID3v1GenreList));
+	uint8_t genre_length = strlen(genre_string);
 
-	for(uint8_t i = 0; i < (uint8_t)(sizeof(ID3v1GenreList)/sizeof(*ID3v1GenreList))+1; i++) {
-		if (strncmp(genre_string, ID3v1GenreList[i], (int)strlen(ID3v1GenreList[i])) == 0) {
-			return_genre = i+1;
-			//fprintf(stdout, "Genre %s is %i\n", ID3v1GenreList[return_genre-1], return_genre);
-			break;
-		}
-		if (i == 83 ) {
+	for(uint8_t i = 0; i < total_genres; i++) {
+		if (memcmp(genre_string, ID3v1GenreList[i], genre_length) == 0) {
+			return_genre = i+1; //the list starts at 0; the embedded genres start at 1
+			//fprintf(stdout, "Genre %s is %i\n", ID3v1GenreList[i], return_genre);
 			break;
 		}
 	}
-	if ( return_genre > (uint8_t)(sizeof(ID3v1GenreList)/sizeof(*ID3v1GenreList)) ) {
+	if ( return_genre > total_genres ) {
 		return_genre = 0;
 	}
 	return return_genre;
