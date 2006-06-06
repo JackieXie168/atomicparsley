@@ -95,18 +95,18 @@
 
 #define OPT_OverWrite            'W'
 
-#define _3GP_Title               '1'
-#define _3GP_Author              '2'
-#define _3GP_Performer           '3'
-#define _3GP_Genre               '4'
-#define _3GP_Description         '5'
-#define _3GP_Copyright           '6'
-#define _3GP_Album               '7'
-#define _3GP_Year                '8'
-#define _3GP_Rating              '9'
-#define _3GP_Classification      '0'
-#define _3GP_Keyword             '+'
-#define _3GP_Location            '_'
+#define _3GP_Title               0xAB
+#define _3GP_Author              0xAC
+#define _3GP_Performer           0xAD
+#define _3GP_Genre               0xAE
+#define _3GP_Description         0xAF
+#define _3GP_Copyright           0xB0
+#define _3GP_Album               0xB1
+#define _3GP_Year                0xB2
+#define _3GP_Rating              0xB3
+#define _3GP_Classification      0xB4
+#define _3GP_Keyword             0xB5
+#define _3GP_Location            0xB6
 
 /*
 http://developer.apple.com/documentation/QuickTime/APIREF/UserDataIdentifiers.htm#//apple_ref/doc/constant_group/User_Data_Identifiers
@@ -489,8 +489,7 @@ int main( int argc, char *argv[]) {
 	int c = -1;
 	int option_index = 0; 
 	
-	c = getopt_long(argc, argv, "hTtEe:a:c:d:f:g:i:l:n:o:pq::u:w:y:z:G:k:A:B:C:D:F:H:I:J:K:L:MN:QR:S:U:WXV:ZP1:2:3:4:5:6:7:8:9:0:",
-	                long_options, &option_index);
+	c = getopt_long(argc, argv, "hTtEe:a:c:d:f:g:i:l:n:o:pq::u:w:y:z:G:k:A:B:C:D:F:H:I:J:K:L:MN:QR:S:U:WXV:ZP 0xAB: 0xAC: 0xAD: 0xAE: 0xAF: 0xB0: 0xB1: 0xB2: 0xB3: 0xB4: 0xB5: 0xB6:", long_options, &option_index);
 	
 	if (c == -1) {
 		if (argc < 3 && argc > 2) {
