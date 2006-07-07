@@ -30,8 +30,8 @@
 #include <string.h>
 #include <stdlib.h>
 
-//just so win32/msvc can get uint8_t defined
-#include "AP_commons.h"
+#include "AP_commons.h"     //just so win32/msvc can get uint8_t defined
+#include "AtomicParsley.h"  //for stik
 
 //////////////
 
@@ -70,26 +70,31 @@ static const char* ID3v1GenreList[] = {
 		"Anime", "JPop", "SynthPop",
 }; */  //apparently the other winamp id3v1 extensions aren't valid
 
-int GenreIntToString(char** genre_string, int genre) {
+stiks stikArray[] = {
+	{ "Movie", 0 },
+	{ "Normal", 1 },
+	{ "Audiobook", 2 },
+	{ "Whacked Bookmark", 5 },
+	{ "Music Video", 6 },
+	{ "Short Film", 9 },
+	{ "TV Show", 10 }
+};
+
+char* GenreIntToString(int genre) {
+	char* return_string = NULL;
   if (genre > 0 &&  genre <= (int)(sizeof(ID3v1GenreList)/sizeof(*ID3v1GenreList))) {
-			*genre_string = (char*)malloc((strlen(ID3v1GenreList[genre-1])+1)*sizeof(char));
-			memset(*genre_string, 0, (strlen(ID3v1GenreList[genre-1])+1)*sizeof(char));
-			strcpy(*genre_string, ID3v1GenreList[genre-1]);
-        return 0;
-    } else {
-			*genre_string = (char*)malloc(2*sizeof(char));
-			memset(*genre_string, 0, 2*sizeof(char));
-			return 1;
-    }
+		return_string = (char*)ID3v1GenreList[genre-1];
+	}
+	return return_string;
 }
 
 uint8_t StringGenreToInt(const char* genre_string) {
 	uint8_t return_genre = 0;
 	uint8_t total_genres = (uint8_t)(sizeof(ID3v1GenreList)/sizeof(*ID3v1GenreList));
-	uint8_t genre_length = strlen(genre_string);
+	uint8_t genre_length = strlen(genre_string)+1;
 
 	for(uint8_t i = 0; i < total_genres; i++) {
-		if (memcmp(genre_string, ID3v1GenreList[i], genre_length) == 0) {
+		if ( memcmp(genre_string, ID3v1GenreList[i], strlen(ID3v1GenreList[i])+1 > genre_length ? strlen(ID3v1GenreList[i])+1 : genre_length ) == 0) {
 			return_genre = i+1; //the list starts at 0; the embedded genres start at 1
 			//fprintf(stdout, "Genre %s is %i\n", ID3v1GenreList[i], return_genre);
 			break;
@@ -99,4 +104,52 @@ uint8_t StringGenreToInt(const char* genre_string) {
 		return_genre = 0;
 	}
 	return return_genre;
+}
+
+void ListGenresValues() {
+	uint8_t total_genres = (uint8_t)(sizeof(ID3v1GenreList)/sizeof(*ID3v1GenreList));
+	fprintf(stdout, "\tAvailable standard genres - case sensitive.\n");
+
+	for (uint8_t i = 0; i < total_genres; i++) {
+		fprintf(stdout, "(%i.)  %s\n", i+1, ID3v1GenreList[i]);
+	}
+	return;
+}
+
+stiks* MatchStikString(const char* in_stik_string) {
+	stiks* matching_stik = NULL;
+	uint8_t total_known_stiks = (uint32_t)(sizeof(stikArray)/sizeof(*stikArray));
+	uint8_t stik_str_length = strlen(in_stik_string) +1;
+	
+	for (uint8_t i = 0; i < total_known_stiks; i++) {
+		if ( memcmp(in_stik_string, stikArray[i].stik_string, 
+		                         strlen(stikArray[i].stik_string)+1 > stik_str_length ? strlen(stikArray[i].stik_string)+1 : stik_str_length ) == 0) {
+			matching_stik = &stikArray[i];
+			break;
+		}
+	}
+	return matching_stik;
+}
+
+stiks* MatchStikNumber(uint8_t in_stik_num) {
+	stiks* matching_stik = NULL;
+	uint8_t total_known_stiks = (uint32_t)(sizeof(stikArray)/sizeof(*stikArray));
+	
+	for (uint8_t i = 0; i < total_known_stiks; i++) {
+		if ( stikArray[i].stik_number == in_stik_num ) {
+			matching_stik = &stikArray[i];
+			break;
+		}
+	}
+	return matching_stik;
+}
+
+void ListStikValues() {
+	uint8_t total_known_stiks = (uint32_t)(sizeof(stikArray)/sizeof(*stikArray));
+	fprintf(stdout, "\tAvailable stik settings - case sensitive  (number in parens shows the stik value).\n");
+
+	for (uint8_t i = 0; i < total_known_stiks; i++) {
+		fprintf(stdout, "(%u)  %s\n", stikArray[i].stik_number, stikArray[i].stik_string);
+	}
+	return;
 }

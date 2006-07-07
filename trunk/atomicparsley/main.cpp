@@ -40,7 +40,8 @@
 #include "AP_commons.h"
 #include "AtomicParsley.h"
 #include "AP_AtomExtracts.h"
-#include "AP_iconv.h" /* for xmlInitEndianDetection used in endian utf16 conversion */
+#include "AP_iconv.h"                 /* for xmlInitEndianDetection used in endian utf16 conversion */
+#include "AtomicParsley_genres.h"     //for stik comparison function
 
 // define one-letter cli options for
 #define OPT_HELP                 'h'
@@ -185,6 +186,7 @@ static const char* longHelp_text =
 "  --extractPixToPath ,  -e  (/path/basename)   Extract to specific path (numbers added to basename).\n"
 "                                                 example: --e ~/Desktop/SomeText\n"
 "                                                 gives: SomeText_artwork_1.jpg  SomeText_artwork_2.png\n"
+"                                               Note: extension comes from embedded image file format\n"
 "\n"
 "------------------------------------------------------------------------------------------------\n"
 " Tag setting options:\n"
@@ -193,6 +195,7 @@ static const char* longHelp_text =
 "  --title            ,  -s   (str)    Set the title tag: \"moov.udta.meta.ilst.\302©nam.data\"\n"
 "  --album            ,  -b   (str)    Set the album tag: \"moov.udta.meta.ilst.\302©alb.data\"\n"
 "  --genre            ,  -g   (str)    Set the genre tag: \"\302©gen\" (custom) or \"gnre\" (standard).\n"
+"                                          see the standard list with \"AtomicParsley --genre-list\"\n"
 "  --tracknum         ,  -k   (num)[/tot]  Set the track number (or track number & total tracks).\n"
 "  --disk             ,  -d   (num)[/tot]  Set the disk number (or disk number & total disks).\n"
 "  --comment          ,  -c   (str)    Set the comment tag: \"moov.udta.meta.ilst.\302©cmt.data\"\n"
@@ -206,9 +209,10 @@ static const char* longHelp_text =
 "  --albumArtist      ,  -A   (str)    Set the album artist tag: \"moov.udta.meta.ilst.aART.data\"\n"
 "  --compilation      ,  -C   (bool)   Sets the \"cpil\" atom (true or false to delete the atom)\n"
 "  --advisory         ,  -y   (1of3)   Sets the iTunes lyrics advisory ('remove', 'clean', 'explicit') \n"
-"  --stik             ,  -S   (1of6)   Sets the iTunes \"stik\" atom (options below + \"remove\") \n"
-"                                                \"Movie\", \"Normal\", \"Whacked Bookmark\", \n"
-"                                                \"Music Video\", \"Short Film\", \"TV Show\" \n"
+"  --stik             ,  -S   (1of7)   Sets the iTunes \"stik\" atom (--stik \"remove\" to delete) \n"
+"                                           \"Movie\", \"Normal\", \"TV Show\" .... others: \n"
+"                                           see the full list with \"AtomicParsley --stik-list\"\n"
+"                                           or set in an integer value with --stik value=(num)\n"
 "  --description      ,  -p   (str)    Sets the description on the \"desc\" atom\n"
 "  --TVNetwork        ,  -n   (str)    Sets the TV Network name on the \"tvnn\" atom\n"
 "  --TVShowName       ,  -H   (str)    Sets the TV Show name on the \"tvsh\" atom\n"
@@ -245,13 +249,57 @@ static const char* longHelp_text =
 "  --metaEnema        ,  -P            Douches away every atom under \"moov.udta.meta.ilst\" \n"
 "  --foobar2000Enema  ,  -2            Eliminates foobar2000's non-compliant so-out-o-spec tagging scheme\n"
 "  --mdatLock         ,  -M            Prevents moving mdat atoms to the end (poss. useful for PSP files)\n"
-"  --freefree         ,  -F   ?(num)?  Remove \"free\" atoms which only act as padding in the file\n"
-"                                          (optional: numerical argument - delete 'free' up to desired level)\n"
+"  --freefree         ,  -F   ?(num)?  Remove \"free\" atoms which only act as filler in the file\n"
+"                                      ?(num)? - optional integer argument to delete 'free's to desired level\n"
+"\n"
+"                                      NOTE 1: levels begin at level 1 aka file level.\n"
+"                                      NOTE 2: Level 0 (which doesn't exist) deletes level 1 atoms that pre-\n"
+"                                              cede 'moov' & don't serve as padding. Typically, such atoms\n"
+"                                              are created by libmp4ff or libmp4v2 as a byproduct of tagging.\n"
+"                                      NOTE 3: When padding falls below MIN_PAD (typically zero), a default\n"
+"                                              amount of padding (typically 2048 bytes) will be added. To\n"
+"                                              achieve absolutely 0 bytes 'free' space with --freefree, set\n"
+"                                              DEFAULT_PAD to 0.\n"
+"  --metaDump         ,  -Q            Dumps out all metadata out to a new file next to original\n"
 "  --metaDump         ,  -Q            Dumps out all metadata out to a new file next to original\n"
 "                                          (for diagnostic purposes, please remove artwork before sending)\n"
 "  --output           ,  -o            Specify the filename of tempfile (voids overWrite)\n"
 "  --overWrite        ,  -W            Writes to temp file; deletes original, renames temp to original\n"
 
+"------------------------------------------------------------------------------------------------\n"
+" Padding & 'free' atoms:\n"
+"\n"
+"  A special type of atom called a 'free' atom is used for padding (all 'free' atoms contain empty NULL space.\n"
+"  When changes to a file need to occur, this 'free' atom is used. It grows or shinks, but the relative locations\n"
+"  of certain other atoms (stco/mdat) remain the same. If there is no 'free' space, a full rewrite will occur.\n"
+"  The locations of 'free' atom(s) that AP can use as padding must be follow 'moov.udta' and come before 'mdat'.\n"
+"  A 'free' preceding 'moov' or following 'mdat' won't be used as padding for example. \n"
+"\n"
+"  Set the shell variable AP_PADDING with these values, separated by colons to alter padding behavior:\n"
+"\n"
+"  DEFAULT_PADDING=  -  the amount of padding added if the minimum padding is non-existant in the file\n"
+"                       default = 2048\n"
+"  MIN_PAD=          -  the minimum padding present before more padding will be added\n"
+"                       default = 0\n"
+"  MAX_PAD=          -  the maximum allowable padding; excess padding will be eliminated\n"
+"                       default = 5000\n"
+"\n"
+"  If you use --freefree to eliminate 'free' atoms from the file, the DEFAULT_PADDING amount will still be\n"
+"  added to any newly written files. Set DEFAULT_PADDING=0 to prevent any 'free' padding added at rewrite.\n"
+"  You can set MIN_PAD to be assured that at least that amount of padding will be present - similarly,\n"
+"  MAX_PAD limits any excessive amount of padding. All 3 options will in all likelyhood produce a full\n"
+"  rewrite of the original file. Another case where a full rewrite will occur is when the original file\n"
+"  is not optimized and has 'mdat' preceding 'moov'.\n"
+"\n"
+#if defined (_MSC_VER)
+"  Examples:\n"
+"     c:> SET AP_PADDING=\"DEFAULT_PAD=0\"      or    c:> SET AP_PADDING=\"DEFAULT_PAD=3128\"\n"
+"     c:> SET AP_PADDING=\"DEFAULT_PAD=5128:MIN_PAD=200:MAX_PAD=6049\"\n"
+#else
+"  Examples (bash style):\n"
+"     $ export AP_PADDING=\"DEFAULT_PAD=0\"      or    $ export AP_PADDING=\"DEFAULT_PAD=3128\"\n"
+"     $ export AP_PADDING=\"DEFAULT_PAD=5128:MIN_PAD=200:MAX_PAD=6049\"\n"
+#endif
 "------------------------------------------------------------------------------------------------\n"
 
 #if defined (DARWIN_PLATFORM)
@@ -289,24 +337,31 @@ static const char* _3gpHelp_text =
 "example: Atomicparsley /path/to.3gp --3gp-location 'Bethesda Terrace' latitude=40.77 longitude=73.98W \n"
 "                                                    altitude=4.3B role='real' body=Earth notes='Underground'\n"
 "\n"
+"example: Atomicparsley /path/to.3gp --3gp-title \"I see London.\" --3gp-title \"Veo Madrid.\" lang=spa \n"
+"                                    --3gp-title \"Widze Warsawa.\" lang=pol\n"
+"\n"
 "----------------------------------------------------------------------------------------------------\n"
 "  3GPP text tags can be encoded in either UTF-8 (default input encoding) or UTF-16 (converted from UTF-8)\n"
 "  Many 3GPP text tags can be set for a desired language by a 3-letter-lowercase code (default is \"eng\")\n"
-"  See   http://www.w3.org/WAI/ER/IG/ert/iso639.htm   to obtain more codes (codes are *not* checked)\n"
+"  See   http://www.w3.org/WAI/ER/IG/ert/iso639.htm   to obtain more codes (codes are *not* checked). For\n"
+"  tags that support the language attribute (all except year), more than one tag of the same name (3 titles\n"
+"  for example) differing in the language code is supported.\n"
 "\n"
 "  iTunes-style metadata is not supported by the 3GPP TS 26.444 version 6.4.0 Release 6 specification.\n"
 "  3GPP tags are set in a different hierarchy: moov.udta (versus iTunes moov.udta.meta.ilst). Other 3rd\n"
 "  party utilities may allow setting iTunes-style metadata in 3gp files. When a 3gp file is detected\n"
 "  (file extension doesn't matter), only 3gp spec-compliant metadata will be read & written.\n"
 "\n"
-"  Note: support for each kind of tag with more than 1 language is *not* implemented but allowed for.\n"
-"        For each kind of tag, only 1 language is supported.\n"
-"\n"
-"  Note2: there are a number of different 'brands' that 3GPP files come marked as. Some will not be \n"
+"  Note1: there are a number of different 'brands' that 3GPP files come marked as. Some will not be \n"
 "         supported by AtomicParsley due simply to them being unknown and untested. You can compile your\n"
 "         own AtomicParsley to evaluate it by adding the hex code into the source of APar_IdentifyBrand.\n"
 "\n"
-"  Note3: There are slight accuracy discrepancies in location's fixed point decimals set and retrieved.\n"
+"  Note2: There are slight accuracy discrepancies in location's fixed point decimals set and retrieved.\n"
+"\n"
+"  Note3: QuickTime Player can see a limited subset of these tags, but only in 1 language & there seems to\n"
+"         be an issue with not all unicode text displaying properly. This is an issue withing QuickTime -\n"
+"         the exact same text (in utf8) displays properly in an MPEG-4 file. Some languages can also display\n"
+"         more glyphs than others.\n"
 "\n"
 "----------------------------------------------------------------------------------------------------\n"
 " Tag setting options (default lang is 'eng'; default encoding is UTF8):\n"
@@ -335,6 +390,34 @@ static const char* _3gpHelp_text =
 "                                         a negative value in coordinates will be seen as a cli flag\n"
 "                                         append 'S', 'W' or 'B': lat=55S, long=90.23W, alt=90.25B\n"
 "\n";
+
+void ExtractPaddingPrefs(char* env_padding_prefs) {
+	pad_prefs.default_padding_size = DEFAULT_PADDING_LENGTH;
+	pad_prefs.minimum_required_padding_size = MINIMUM_REQUIRED_PADDING_LENGTH;
+	pad_prefs.maximum_present_padding_size = MAXIMUM_REQUIRED_PADDING_LENGTH;
+	
+	char* env_pad_prefs_ptr = env_padding_prefs;
+	
+	while (env_pad_prefs_ptr != NULL) {
+		env_pad_prefs_ptr = strsep(&env_padding_prefs,":");
+		//fprintf(stdout, "%s\n", env_pad_prefs_ptr);
+		if (env_pad_prefs_ptr == NULL) break;
+		if (memcmp(env_pad_prefs_ptr, "DEFAULT_PAD=", 12) == 0) {
+			strsep(&env_pad_prefs_ptr,"=");
+			sscanf(env_pad_prefs_ptr, "%u", &pad_prefs.default_padding_size);
+		}
+		if (memcmp(env_pad_prefs_ptr, "MIN_PAD=", 8) == 0) {
+			strsep(&env_pad_prefs_ptr,"=");
+			sscanf(env_pad_prefs_ptr, "%u", &pad_prefs.minimum_required_padding_size);
+		}
+		if (memcmp(env_pad_prefs_ptr, "MAX_PAD=", 8) == 0) {
+			strsep(&env_pad_prefs_ptr,"=");
+			sscanf(env_pad_prefs_ptr, "%u", &pad_prefs.maximum_present_padding_size);
+		}
+	}
+	//fprintf(stdout, "Def %u; Min %u; Max %u\n", pad_prefs.default_padding_size, pad_prefs.minimum_required_padding_size, pad_prefs.maximum_present_padding_size);
+	return;
+}
 
 void GetBasePath(const char *filepath, char* &basepath) {
 	//with a myriad of m4a, m4p, mp4, whatever else comes up... it might just be easiest to strip off the end.
@@ -401,14 +484,25 @@ int main( int argc, char *argv[]) {
 			fprintf (stdout,"%s", longHelp_text); exit(0);
 		} else if ( (strncmp(argv[1],"--3gp-help", 10) == 0) || (strncmp(argv[1],"-3gp-help", 9) == 0) || (strncmp(argv[1],"--3gp-h", 7) == 0) ) {
 			fprintf (stdout,"%s", _3gpHelp_text); exit(0);
+		} else if ( memcmp(argv[1], "--genre-list", 12) == 0 ) {
+			ListGenresValues(); exit(0);
+		} else if ( memcmp(argv[1], "--stik-list", 11) == 0 ) {
+			ListStikValues(); exit(0);
 		}
 	}
+	
+	if ( argc == 3 && memcmp(argv[2], "--brands", 8) == 0 ) {
+			APar_ExtractBrands(argv[1]); exit(0);
+		}
 	
 	total_args = argc;
 	char *m4afile = argv[1];
 	
 	TestFileExistence(m4afile, true);
 	xmlInitEndianDetection();
+	
+	char* padding_options = getenv("AP_PADDING");
+	ExtractPaddingPrefs(padding_options);
 	
 	//it would probably be better to test output_file if provided & if --overWrite was provided.... probably only of use on Windows - and I'm not on it.
 	if (strlen(m4afile) + 11 > MAXPATHLEN) {
@@ -489,7 +583,7 @@ int main( int argc, char *argv[]) {
 	int c = -1;
 	int option_index = 0; 
 	
-	c = getopt_long(argc, argv, "hTtEe:a:c:d:f:g:i:l:n:o:pq::u:w:y:z:G:k:A:B:C:D:F:H:I:J:K:L:MN:QR:S:U:WXV:ZP 0xAB: 0xAC: 0xAD: 0xAE: 0xAF: 0xB0: 0xB1: 0xB2: 0xB3: 0xB4: 0xB5: 0xB6:", long_options, &option_index);
+	c = getopt_long(argc, argv, "hTtEe:a:b:c:d:f:g:i:k:l:n:o:pq::u:w:y:z:G:k:A:B:C:D:F:H:I:J:K:L:MN:QR:S:U:WXV:ZP 0xAB: 0xAC: 0xAD: 0xAE: 0xAF: 0xB0: 0xB1: 0xB2: 0xB3: 0xB4: 0xB5: 0xB6:", long_options, &option_index);
 	
 	if (c == -1) {
 		if (argc < 3 && argc > 2) {
@@ -561,7 +655,6 @@ int main( int argc, char *argv[]) {
 			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "artist") ) {
 				break;
 			}
-			
 			short artistData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©ART.data", optarg, AtomicDataClass_Text);
 			APar_Unified_atom_Put(artistData_atom, optarg, UTF8_iTunesStyle_256byteLimited, 0, 0);
 			break;
@@ -732,7 +825,7 @@ int main( int argc, char *argv[]) {
 			}
 			
 			if (strncmp(optarg, "false", 5) == 0 || strlen(optarg) == 0) {
-				APar_RemoveAtom("moov.udta.meta.ilst.cpil", false, false);
+				APar_RemoveAtom("moov.udta.meta.ilst.cpil.data", false, SIMPLE_ATOM, 0);
 			} else {
 				//compilation: [0, 0, 0, 0,   boolean_value]; BUT that first uint32_t is already accounted for in APar_MetaData_atom_Init
 				short compilationData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.cpil.data", optarg, AtomicDataClass_UInt8_Binary);
@@ -748,7 +841,7 @@ int main( int argc, char *argv[]) {
 			}
 			
 			if (strncmp(optarg, "0", 1) == 0 || strlen(optarg) == 0) {
-				APar_RemoveAtom("moov.udta.meta.ilst.tmpo", false, false);
+				APar_RemoveAtom("moov.udta.meta.ilst.tmpo.data", false, SIMPLE_ATOM, 0);
 			} else {
 				uint8_t bpm_value = 0;
 				sscanf(optarg, "%hhu", &bpm_value );
@@ -767,7 +860,7 @@ int main( int argc, char *argv[]) {
 			}
 			
 			if (strncmp(optarg, "remove", 6) == 0 || strlen(optarg) == 0) {
-				APar_RemoveAtom("moov.udta.meta.ilst.rtng", false, false);
+				APar_RemoveAtom("moov.udta.meta.ilst.rtng.data", false, SIMPLE_ATOM, 0);
 			} else {
 				uint8_t rating_value = 0;
 				if (strncmp(optarg, "clean", 5) == 0) {
@@ -800,21 +893,19 @@ int main( int argc, char *argv[]) {
 			}
 			
 			if (strncmp(optarg, "remove", 6) == 0 || strlen(optarg) == 0) {
-				APar_RemoveAtom("moov.udta.meta.ilst.stik", false, false);
+				APar_RemoveAtom("moov.udta.meta.ilst.stik.data", false, SIMPLE_ATOM, 0);
 			} else {
 				uint8_t stik_value = 0;
-				if (strncmp(optarg, "Movie", 7) == 0) {
-					stik_value = 0; //for a vid to show up in podcasts, it needs pcst, stik & purl set as well
-				} else if (strncmp(optarg, "Normal", 6) == 0) {
-					stik_value = 1; 
-				} else if (strncmp(optarg, "Whacked Bookmark", 16) == 0) {
-					stik_value = 5;
-				} else if (strncmp(optarg, "Music Video", 11) == 0) {
-					stik_value = 6;
-				} else if (strncmp(optarg, "Short Film", 10) == 0) {
-					stik_value = 9;
-					} else if (strncmp(optarg, "TV Show", 6) == 0) {
-					stik_value = 10; //0x0A
+				
+				if (memcmp(optarg, "value=", 6) == 0) {
+					char* stik_val_str_ptr = optarg;
+					strsep(&stik_val_str_ptr,"=");
+					sscanf(stik_val_str_ptr, "%hhu", &stik_value);
+				} else {
+					stiks* return_stik = MatchStikString(optarg);
+					if (return_stik != NULL) {
+						stik_value = return_stik->stik_number;
+					}
 				}
 				//stik is [0, 0, 0, 0,   stik_value]; BUT that first uint32_t is already accounted for in APar_MetaData_atom_Init
 				short stikData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.stik.data", optarg, AtomicDataClass_UInt8_Binary);
@@ -919,7 +1010,7 @@ int main( int argc, char *argv[]) {
 			}
 			
 			if (strncmp(optarg, "false", 5) == 0) {
-				APar_RemoveAtom("moov.udta.meta.ilst.pcst", false, false);
+				APar_RemoveAtom("moov.udta.meta.ilst.pcst.data", false, SIMPLE_ATOM, 0);
 			} else {
 				//podcastflag: [0, 0, 0, 0,   boolean_value]; BUT that first uint32_t is already accounted for in APar_MetaData_atom_Init
 				short podcastFlagData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.pcst.data", optarg, AtomicDataClass_UInt8_Binary);
@@ -1051,7 +1142,15 @@ int main( int argc, char *argv[]) {
 			memset(compliant_name, 0, strlen(optarg) +1);
 			UTF8Toisolat1((unsigned char*)compliant_name, strlen(optarg), (unsigned char*)optarg, strlen(optarg) );
 			
-			APar_RemoveAtom(compliant_name, false, false);
+			if (strstr(optarg, "uuid=") != NULL) {
+				APar_RemoveAtom(compliant_name, true, EXTENDED_ATOM, 0);
+			} else if (memcmp(compliant_name + (strlen(compliant_name) - 4), "data", 4) == 0) {
+				APar_RemoveAtom(compliant_name, false, SIMPLE_ATOM, 0);
+			} else {
+				APar_RemoveAtom(compliant_name, true, SIMPLE_ATOM, 0);
+			}
+			free(compliant_name);
+			compliant_name = NULL;
 			break;
 		}
 		
@@ -1066,7 +1165,7 @@ int main( int argc, char *argv[]) {
 			uint16_t packed_lang = 0;
 			find_optional_args(argv, optind, packed_lang, set_UTF16_text, 2);
 			
-			short title_3GP_atom = APar_UserData_atom_Init("moov.udta.titl", optarg);
+			short title_3GP_atom = APar_UserData_atom_Init("moov.udta.titl", optarg, packed_lang);
 			APar_Unified_atom_Put(title_3GP_atom, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
 			break;
 		}
@@ -1080,7 +1179,7 @@ int main( int argc, char *argv[]) {
 			uint16_t packed_lang = 0;
 			find_optional_args(argv, optind, packed_lang, set_UTF16_text, 2);
 			
-			short author_3GP_atom = APar_UserData_atom_Init("moov.udta.auth", optarg);
+			short author_3GP_atom = APar_UserData_atom_Init("moov.udta.auth", optarg, packed_lang);
 			APar_Unified_atom_Put(author_3GP_atom, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
 			break;
 		}
@@ -1094,7 +1193,7 @@ int main( int argc, char *argv[]) {
 			uint16_t packed_lang = 0;
 			find_optional_args(argv, optind, packed_lang, set_UTF16_text, 2);
 			
-			short performer_3GP_atom = APar_UserData_atom_Init("moov.udta.perf", optarg);
+			short performer_3GP_atom = APar_UserData_atom_Init("moov.udta.perf", optarg, packed_lang);
 			APar_Unified_atom_Put(performer_3GP_atom, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
 			break;
 		}
@@ -1108,7 +1207,7 @@ int main( int argc, char *argv[]) {
 			uint16_t packed_lang = 0;
 			find_optional_args(argv, optind, packed_lang, set_UTF16_text, 2);
 			
-			short genre_3GP_atom = APar_UserData_atom_Init("moov.udta.gnre", optarg);
+			short genre_3GP_atom = APar_UserData_atom_Init("moov.udta.gnre", optarg, packed_lang);
 			APar_Unified_atom_Put(genre_3GP_atom, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
 			break;
 		}
@@ -1122,7 +1221,7 @@ int main( int argc, char *argv[]) {
 			uint16_t packed_lang = 0;
 			find_optional_args(argv, optind, packed_lang, set_UTF16_text, 2);
 			
-			short description_3GP_atom = APar_UserData_atom_Init("moov.udta.dscp", optarg);
+			short description_3GP_atom = APar_UserData_atom_Init("moov.udta.dscp", optarg, packed_lang);
 			APar_Unified_atom_Put(description_3GP_atom, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
 			break;
 		}
@@ -1136,7 +1235,7 @@ int main( int argc, char *argv[]) {
 			uint16_t packed_lang = 0;
 			find_optional_args(argv, optind, packed_lang, set_UTF16_text, 2);
 			
-			short copyright_3GP_atom = APar_UserData_atom_Init("moov.udta.cprt", optarg);
+			short copyright_3GP_atom = APar_UserData_atom_Init("moov.udta.cprt", optarg, packed_lang);
 			APar_Unified_atom_Put(copyright_3GP_atom, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
 			break;
 		}
@@ -1151,7 +1250,7 @@ int main( int argc, char *argv[]) {
 			find_optional_args(argv, optind, packed_lang, set_UTF16_text, 3);
 			uint8_t tracknum = 0;
 			
-			short album_3GP_atom = APar_UserData_atom_Init("moov.udta.albm", optarg);
+			short album_3GP_atom = APar_UserData_atom_Init("moov.udta.albm", optarg, packed_lang);
 			APar_Unified_atom_Put(album_3GP_atom, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
 			
 			//cygle through the remaining independant arguments (before the next --cli_flag) and figure out if any are useful to us; already have lang & utf16
@@ -1176,7 +1275,7 @@ int main( int argc, char *argv[]) {
 			uint16_t year_tag = 0;
 			sscanf(optarg, "%hu", &year_tag);
 			
-			short rec_year_3GP_atom = APar_UserData_atom_Init("moov.udta.yrrc", optarg);
+			short rec_year_3GP_atom = APar_UserData_atom_Init("moov.udta.yrrc", optarg, 0);
 			APar_Unified_atom_Put(rec_year_3GP_atom, NULL, UTF8_3GP_Style, (uint32_t)year_tag, 16);
 			break;	
 		}
@@ -1196,21 +1295,17 @@ int main( int argc, char *argv[]) {
 				if ( argv[optind + i] && optind + i <= total_args) {
 					if ( memcmp(argv[optind + i], "entity=", 7) == 0 ) {
 						char* entity = argv[optind + i];
-						//strsep(&argv[optind + i],"=");
-						//memcpy(&rating_entity, argv[optind + i], 4);
 						strsep(&entity,"=");
 						memcpy(&rating_entity, entity, 4);
 					}
 					if ( memcmp(argv[optind + i], "criteria=", 9) == 0 ) {
-						//strsep(&argv[optind + i],"=");
-						//memcpy(&rating_criteria, argv[optind + i], 4);
 						char* criteria = argv[optind + i];
 						strsep(&criteria,"=");
 						memcpy(&rating_criteria, criteria, 4);
 					}
 				}
 			}
-			short rating_3GP_atom = APar_UserData_atom_Init("moov.udta.rtng", optarg);
+			short rating_3GP_atom = APar_UserData_atom_Init("moov.udta.rtng", optarg, packed_lang);
 			
 			APar_Unified_atom_Put(rating_3GP_atom, NULL, UTF8_3GP_Style, UInt32FromBigEndian(rating_entity), 32);
 			APar_Unified_atom_Put(rating_3GP_atom, NULL, UTF8_3GP_Style, UInt32FromBigEndian(rating_criteria), 32);
@@ -1243,7 +1338,7 @@ int main( int argc, char *argv[]) {
 					}
 				}
 			}
-			short classification_3GP_atom = APar_UserData_atom_Init("moov.udta.clsf", optarg);
+			short classification_3GP_atom = APar_UserData_atom_Init("moov.udta.clsf", optarg, packed_lang);
 			
 			APar_Unified_atom_Put(classification_3GP_atom, NULL, UTF8_3GP_Style, UInt32FromBigEndian(classification_entity), 32);
 			APar_Unified_atom_Put(classification_3GP_atom, NULL, UTF8_3GP_Style, classification_index, 16);
@@ -1284,11 +1379,11 @@ int main( int argc, char *argv[]) {
 					}
 				}
 
-				short keyword_3GP_atom = APar_UserData_atom_Init("moov.udta.kywd", keyword_strlen ? "temporary" : ""); //just a "temporary" valid string to satisfy a test there
+				short keyword_3GP_atom = APar_UserData_atom_Init("moov.udta.kywd", keyword_strlen ? "temporary" : "", packed_lang); //just a "temporary" valid string to satisfy a test there
 				if (keyword_strlen > 0) {
 					APar_Unified_atom_Put(keyword_3GP_atom, NULL, UTF8_3GP_Style, (uint32_t)packed_lang, 16);
 					APar_Unified_atom_Put(keyword_3GP_atom, NULL, UTF8_3GP_Style, keyword_count, 8);
-					char* formed_keyword_struct = (char*)malloc(sizeof(char)* set_UTF16_text ? keyword_strlen * 4 : keyword_strlen * 2); //*4 should carry utf16's BOM & TERM
+					char* formed_keyword_struct = (char*)malloc(sizeof(char)* set_UTF16_text ? keyword_strlen * 4 : keyword_strlen * 2); // *4 should carry utf16's BOM & TERM
 					memset(formed_keyword_struct, 0, set_UTF16_text ? keyword_strlen * 4 : keyword_strlen * 2 );
 					uint32_t keyword_struct_bytes = APar_3GP_Keyword_atom_Format(keywords_globbed, keyword_count, set_UTF16_text, formed_keyword_struct);
 					APar_atom_Binary_Put(keyword_3GP_atom, formed_keyword_struct, keyword_struct_bytes, 3);
@@ -1296,7 +1391,7 @@ int main( int argc, char *argv[]) {
 					formed_keyword_struct = NULL;
 				}
 			} else {
-				APar_UserData_atom_Init("moov.udta.kywd", "");
+				APar_UserData_atom_Init("moov.udta.kywd", "", packed_lang);
 			}
 			break;	
 		}
@@ -1374,7 +1469,7 @@ int main( int argc, char *argv[]) {
 				fprintf(stdout, "AtomicParsley warning: longitude or latitude was invalid; skipping setting location\n");
 			} else {
 			
-				short location_3GP_atom = APar_UserData_atom_Init("moov.udta.loci", optarg);
+				short location_3GP_atom = APar_UserData_atom_Init("moov.udta.loci", optarg, packed_lang);
 				APar_Unified_atom_Put(location_3GP_atom, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
 				APar_Unified_atom_Put(location_3GP_atom, NULL, false, (uint32_t)role, 8);
 				
@@ -1391,30 +1486,30 @@ int main( int argc, char *argv[]) {
 		
 		case Metadata_Purge : {
 			APar_ScanAtoms(m4afile);
-			APar_RemoveAtom("moov.udta.meta.ilst", true, false);
+			APar_RemoveAtom("moov.udta.meta.ilst", true, SIMPLE_ATOM, 0);
 			
 			break;
 		}
 		
 		case UserData_Purge : {
 			APar_ScanAtoms(m4afile);
-			APar_RemoveAtom("moov.udta", true, false);
+			APar_RemoveAtom("moov.udta", true, SIMPLE_ATOM, 0);
 			
 			break;
 		}
 		
 		case foobar_purge : {
 			APar_ScanAtoms(m4afile);
-			APar_RemoveAtom("moov.udta.tags", true, false);
+			APar_RemoveAtom("moov.udta.tags", true, SIMPLE_ATOM, 0);
 			
 			break;
 		}
 		
 		case Opt_FreeFree : {
 			APar_ScanAtoms(m4afile);
-			uint8_t free_level = 0;
+			int free_level = -1;
 			if (argv[optind]) {
-				sscanf(argv[optind], "%hhu", &free_level);
+				sscanf(argv[optind], "%i", &free_level);
 			}
 			APar_freefree(free_level);
 			
@@ -1422,7 +1517,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case Opt_Keep_mdat_pos : {
-			move_mdat_atoms = false;
+			move_moov_atom = false;
 			break;
 		}
 		

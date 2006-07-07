@@ -352,3 +352,47 @@ void APar_ExtractDetails(FILE* m4afile) {
 
 	return;
 }
+
+//provided as a convenience function so that 3rd party utilities can know beforehand
+void APar_ExtractBrands(char* filepath) {
+	FILE* _file = openSomeFile(filepath, true);
+	char* buffer = (char *)malloc(sizeof(char)*5);;
+	memset(buffer, 0, 5);
+	uint32_t atom_length = 0;
+	
+	fseek(_file, 4, SEEK_SET);
+	fread(buffer, 1, 4, _file);
+	if (memcmp(buffer, "ftyp", 4) == 0) {
+		atom_length = APar_read32(buffer, _file, 0);
+		APar_readX(buffer, _file, 8, 4);
+		fprintf(stdout, "Major Brand: %s\n", buffer);
+		APar_IdentifyBrand(buffer);
+		fprintf(stdout, "Minor Brands:");
+		for (uint32_t i = 16; i < atom_length; i+=4) {
+			APar_readX(buffer, _file, i, 4);
+			if (UInt32FromBigEndian(buffer) != 0) {
+				fprintf(stdout, " %s", buffer);
+			}
+		}
+		fprintf(stdout, "\n");
+	}
+	
+	switch(metadata_style) {
+		case ITUNES_STYLE: {
+			fprintf(stdout, "iTunes-style metadata allowed.\n");
+			break;
+		}
+		case THIRD_GEN_PARTNER: {
+			fprintf(stdout, "3GP-style asset metadata allowed - except 'albm' album tag.\n");
+			break;
+		}
+		case THIRD_GEN_PARTNER_VER1_REL6:
+		case THIRD_GEN_PARTNER_VER2: {
+			fprintf(stdout, "3GP-style asset metadata allowed.\n");
+			break;
+		}
+	}
+	
+	return;
+}
+
