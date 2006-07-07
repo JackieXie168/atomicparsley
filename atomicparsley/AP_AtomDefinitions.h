@@ -129,6 +129,7 @@ atomDefinition KnownAtoms[] = {
 	{"schi",	{"sinf", "srpp"},		DUAL_STATE_ATOM,	OPTIONAL_ONE,					SIMPLE_ATOM },
 	{"skcr",	{"sinf"},						CHILD_ATOM,				OPTIONAL_ONE,					VERSIONED_ATOM },
 	
+	{"user",	{"schi"},						CHILD_ATOM,				OPTIONAL_ONE,					SIMPLE_ATOM },
 	{"key ",	{"schi"},						CHILD_ATOM,				OPTIONAL_ONE,					VERSIONED_ATOM },    //could be required in 'drms'/'drmi'
 	{"iviv",	{"schi"},						CHILD_ATOM,				OPTIONAL_ONE,					SIMPLE_ATOM },
 	{"righ",	{"schi"},						CHILD_ATOM,				OPTIONAL_ONE,					SIMPLE_ATOM },
@@ -214,20 +215,20 @@ atomDefinition KnownAtoms[] = {
 	{"m4ds",	{"avc1"},						CHILD_ATOM,				OPTIONAL_ONE,					SIMPLE_ATOM },        //?possible versioned?
 	{"ftab",	{"tx3g"},						CHILD_ATOM,				OPTIONAL_ONE,					SIMPLE_ATOM },
 
-	{"cprt",	{"udta"},						CHILD_ATOM,				OPTIONAL_MANY,				VERSIONED_ATOM },     //the only ISO defined metadata tag; also a 3gp asset
-	{"titl",	{"udta"},						CHILD_ATOM,				OPTIONAL_MANY,				VERSIONED_ATOM },     //3gp assets
-	{"auth",	{"udta"},						CHILD_ATOM,				OPTIONAL_MANY,				VERSIONED_ATOM },
-	{"perf",	{"udta"},						CHILD_ATOM,				OPTIONAL_MANY,				VERSIONED_ATOM },
-	{"gnre",	{"udta"},						CHILD_ATOM,				OPTIONAL_MANY,				VERSIONED_ATOM },
-	{"dcsp",	{"udta"},						CHILD_ATOM,				OPTIONAL_MANY,				VERSIONED_ATOM },
-	{"albm",	{"udta"},						CHILD_ATOM,				OPTIONAL_MANY,				VERSIONED_ATOM },
+	{"cprt",	{"udta"},						CHILD_ATOM,				OPTIONAL_MANY,				PACKED_LANG_ATOM },     //the only ISO defined metadata tag; also a 3gp asset
+	{"titl",	{"udta"},						CHILD_ATOM,				OPTIONAL_MANY,				PACKED_LANG_ATOM },     //3gp assets
+	{"auth",	{"udta"},						CHILD_ATOM,				OPTIONAL_MANY,				PACKED_LANG_ATOM },
+	{"perf",	{"udta"},						CHILD_ATOM,				OPTIONAL_MANY,				PACKED_LANG_ATOM },
+	{"gnre",	{"udta"},						CHILD_ATOM,				OPTIONAL_MANY,				PACKED_LANG_ATOM },
+	{"dscp",	{"udta"},						CHILD_ATOM,				OPTIONAL_MANY,				PACKED_LANG_ATOM },
+	{"albm",	{"udta"},						CHILD_ATOM,				OPTIONAL_MANY,				PACKED_LANG_ATOM },
 	{"yrrc",	{"udta"},						CHILD_ATOM,				OPTIONAL_MANY,				VERSIONED_ATOM },
-	{"rtng",	{"udta"},						CHILD_ATOM,				OPTIONAL_MANY,				VERSIONED_ATOM },
-	{"clsf",	{"udta"},						CHILD_ATOM,				OPTIONAL_MANY,				VERSIONED_ATOM },
-	{"kywd",	{"udta"},						CHILD_ATOM,				OPTIONAL_MANY,				VERSIONED_ATOM },
-	{"loci",	{"udta"},						CHILD_ATOM,				OPTIONAL_MANY,				VERSIONED_ATOM },
+	{"rtng",	{"udta"},						CHILD_ATOM,				OPTIONAL_MANY,				PACKED_LANG_ATOM },
+	{"clsf",	{"udta"},						CHILD_ATOM,				OPTIONAL_MANY,				PACKED_LANG_ATOM },
+	{"kywd",	{"udta"},						CHILD_ATOM,				OPTIONAL_MANY,				PACKED_LANG_ATOM },
+	{"loci",	{"udta"},						CHILD_ATOM,				OPTIONAL_MANY,				PACKED_LANG_ATOM },
 	
-	{"ID32",	{"meta"},						CHILD_ATOM,				OPTIONAL_MANY,				VERSIONED_ATOM },     //id3v2 tag
+	{"ID32",	{"meta"},						CHILD_ATOM,				OPTIONAL_MANY,				PACKED_LANG_ATOM },     //id3v2 tag
 
 	//{"chpl",	{"udta"},						CHILD_ATOM,				OPTIONAL_ONCE,				VERSIONED_ATOM },		//Nero - seems to be versioned
 	//{"ndrm",	{"udta"},						CHILD_ATOM,				OPTIONAL_ONCE,				VERSIONED_ATOM },		//Nero - seems to be versioned

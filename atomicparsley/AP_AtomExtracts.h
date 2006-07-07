@@ -20,3 +20,4 @@
 //==================================================================//
 
 void APar_ExtractDetails(FILE* m4afile);
+void APar_ExtractBrands(char* filepath);

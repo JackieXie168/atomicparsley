@@ -19,5 +19,10 @@
                                                                    */
 //==================================================================//
 
-int GenreIntToString(char** genre_string, int genre);
+char* GenreIntToString(int genre);
 uint8_t StringGenreToInt(const char* genre_string);
+void ListGenresValues();
+
+stiks* MatchStikString(const char* stik_string);
+stiks* MatchStikNumber(uint8_t in_stik_num);
+void ListStikValues();
