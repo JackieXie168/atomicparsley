@@ -622,7 +622,9 @@ AtomicInfo* APar_FindAtom(const char* atom_name, bool createMissing, uint8_t ato
 		
 			if (directFind && strncmp(parsedAtoms[iter].AtomicName, search_atom_name, 4) == 0) {
 				if (atom_hierarchy == NULL) {
-					thisAtom = &parsedAtoms[iter];
+					if ( (atom_type == PACKED_LANG_ATOM && parsedAtoms[iter].AtomicLanguage == atom_lang) || atom_type != PACKED_LANG_ATOM) {
+						thisAtom = &parsedAtoms[iter];
+					}
 				}
 				search_atom_start_num=iter;
 				if (thisAtom != NULL) {
@@ -640,8 +642,8 @@ AtomicInfo* APar_FindAtom(const char* atom_name, bool createMissing, uint8_t ato
 				}
 					
 				if (atom_hierarchy == NULL) {
-					//fprintf(stdout, "%s <> %s | %u %u | %u = %u = %u\n", parsedAtoms[iter].AtomicName, search_atom_name, atom_lang, parsedAtoms[iter].AtomicLangauge, atom_type, parsedAtoms[iter].AtomicClassification, PACKED_LANG_ATOM);
-					if (atom_type == PACKED_LANG_ATOM && parsedAtoms[iter].AtomicLangauge == atom_lang && 
+					//fprintf(stdout, "%s <> %s | %u %u | %u = %u = %u\n", parsedAtoms[iter].AtomicName, search_atom_name, atom_lang, parsedAtoms[iter].AtomicLanguage, atom_type, parsedAtoms[iter].AtomicClassification, PACKED_LANG_ATOM);
+					if (atom_type == PACKED_LANG_ATOM && parsedAtoms[iter].AtomicLanguage == atom_lang && 
 							memcmp(parsedAtoms[iter].AtomicName, search_atom_name, 4) == 0 && parsedAtoms[iter].AtomicClassification == PACKED_LANG_ATOM ) {
 						thisAtom = &parsedAtoms[iter];
 						break;
@@ -688,7 +690,7 @@ AtomicInfo* APar_FindAtom(const char* atom_name, bool createMissing, uint8_t ato
 									break; //we've gone UP past our level in the hierarchy
 								}
 								if ( strncmp(parsedAtoms[test_atom_num].AtomicName, search_atom_name, 4) == 0 ) {
-									if (atom_lang == 0 || (atom_type == PACKED_LANG_ATOM && parsedAtoms[test_atom_num].AtomicLangauge == atom_lang) ) {
+									if (atom_lang == 0 || (atom_type == PACKED_LANG_ATOM && parsedAtoms[test_atom_num].AtomicLanguage == atom_lang) ) {
 										thisAtom = &parsedAtoms[test_atom_num]; //this is IT!!!
 										search_atom_start_num=thisAtom->AtomicNumber;
 										break;
@@ -912,7 +914,7 @@ AtomicInfo* APar_LocateAtomInsertionPoint(const char* the_hierarchy, bool findLa
 					}
 				}
 			} else {
-				if (atom_hierarchy == NULL && (atom_lang == 0 || thisAtom->AtomicLangauge == atom_lang) ) {
+				if (atom_hierarchy == NULL && (atom_lang == 0 || thisAtom->AtomicLanguage == atom_lang) ) {
 						InsertionPointAtom = thisAtom;
 				}
 			}
@@ -1662,6 +1664,7 @@ void APar_PrintAtomicTree() {
 			fprintf(stdout, "%sAtom %s @ %u of size: %llu (^), ends @ %llu\n", tree_padding, twenty_byte_buffer, thisAtom->AtomicStart, thisAtom->AtomicLengthExtended, (thisAtom->AtomicStart + thisAtom->AtomicLengthExtended) );
 			fprintf(stdout, "\t\t\t (^)denotes a 64-bit atom length\n");
 			
+		//uuid atoms of any sort
 		} else if (thisAtom->AtomicClassification == EXTENDED_ATOM) {
 
 #if defined (_MSC_VER) && defined (UTF16_ENABLED)
@@ -1672,8 +1675,22 @@ void APar_PrintAtomicTree() {
 			fprintf(stdout, "%sAtom uuid=%s @ %u of size: %u, ends @ %u\n", tree_padding, twenty_byte_buffer, thisAtom->AtomicStart, thisAtom->AtomicLength, (thisAtom->AtomicStart + thisAtom->AtomicLength) );
 #endif
 
-		} else {
+		//3gp assets (most of them anyway)
+		} else if (thisAtom->AtomicClassification == PACKED_LANG_ATOM) {
+			unsigned char unpacked_lang[3];
+			APar_UnpackLanguage(unpacked_lang, thisAtom->AtomicLanguage);
 
+#if defined (_MSC_VER) && defined (UTF16_ENABLED)
+			fprintf(stdout, "%sAtom ", tree_padding);
+			APar_fprintf_UTF8_data(twenty_byte_buffer);
+			fprintf(stdout, " [%s] @ %u of size: %u, ends @ %u\n", unpacked_lang, thisAtom->AtomicStart, thisAtom->AtomicLength, (thisAtom->AtomicStart + thisAtom->AtomicLength) );
+#else
+			fprintf(stdout, "%sAtom %s [%s] @ %u of size: %u, ends @ %u\n", tree_padding, twenty_byte_buffer, unpacked_lang, thisAtom->AtomicStart, thisAtom->AtomicLength, (thisAtom->AtomicStart + thisAtom->AtomicLength) );
+#endif
+
+		//all other atoms (the bulk of them will fall here)
+		} else {
+		
 #if defined (_MSC_VER) && defined (UTF16_ENABLED)
 			fprintf(stdout, "%sAtom ", tree_padding);
 			APar_fprintf_UTF8_data(twenty_byte_buffer);
@@ -1725,8 +1742,11 @@ void APar_PrintAtomicTree() {
 	fprintf(stdout, "Total free atom space: %u bytes; %2.3f%% waste.", freeSpace, (float)freeSpace/(float)file_size * 100 );
 	if (freeSpace) {
 		udta_dynamics.dynamic_updating = false;
-		APar_DetermineDynamicUpdate(true);
-		fprintf(stdout, " Padding available: %u bytes.", udta_dynamics.max_usable_free_space);
+		APar_DetermineDynamicUpdate(true); //gets the size of the padding
+		APar_Optimize(true); //just to know if 'free' atoms can be considered padding, or (in the case of say a faac file) it's *just* 'free'
+		if (!moov_atom_was_mooved) {
+			fprintf(stdout, " Padding available: %u bytes.", udta_dynamics.max_usable_free_space);
+		}
 	}
 	fprintf(stdout, "\n------------------------------------------------------\n");
 	
@@ -1774,7 +1794,7 @@ void APar_AtomizeFileInfo(uint32_t Astart, uint32_t Alength, uint64_t Aextendedl
 	thisAtom->AtomicContainerState = Acon_state;
 	thisAtom->AtomicClassification = Aclass;
 	thisAtom->AtomicVerFlags = Averflags;
-	thisAtom->AtomicLangauge = Alang;
+	thisAtom->AtomicLanguage = Alang;
 	
 	thisAtom->stsd_codec = 0;
 	
@@ -1819,15 +1839,18 @@ void APar_IdentifyBrand(char* file_brand ) {
 			exit(2);
 			break;
 			
-		//3gp-style metadata; what about 'kddi' EZMovie crap?
+		//3gp-style metadata
 		
 		case 0x33673261 : //'3g2a' 3GPP2 release 0
 		case 0x33673262 : //'3g2b' 3GPP2 release A
+		case 0x6B646469 : //'kddi' 3GPP2 EZmovie (optionally restricted) media
 			metadata_style = THIRD_GEN_PARTNER_VER2;
 			break;
 			
 		case 0x33677034 : //'3gp4'
 		case 0x33677035 : //'3gp5' //'albm' album tag was added in Release6, so it shouldn't be added to a 3gp5 or 3gp4 branded file.
+		case 0x6D6D7034 : //'mmp4' probably does not support album; minor brands only go up to 3gp5, so.... I'm guessing not
+
 			metadata_style = THIRD_GEN_PARTNER;
 			break;
 		
@@ -1838,8 +1861,6 @@ void APar_IdentifyBrand(char* file_brand ) {
 		case 0x33676536 : //'3ge6' extended presentations (jpeg images)
 		case 0x33676736 : //'3gg6' general (not yet suitable; superset)
 		
-		case 0x6D6D7034 : //'mmp4' - not sure if it supports album or not
-
 			metadata_style = THIRD_GEN_PARTNER_VER1_REL6;
 			break;
 			
@@ -2126,8 +2147,12 @@ void APar_ScanAtoms(const char *path, bool scan_for_tree_ONLY) {
 								atom_language = APar_read16(bitpacked_lang, file, jump + 12);
 								break;
 							}
-							case 0x72746E67 : //'rtng'
 							case 0x636C7366 : //'clsf'
+							{
+								atom_language = APar_read16(bitpacked_lang, file, jump + 18);
+								break;
+							}
+							case 0x72746E67 : //'rtng'
 							{
 								atom_language = APar_read16(bitpacked_lang, file, jump + 20);
 								break;
@@ -2291,7 +2316,7 @@ void APar_EliminateAtom(short this_atom_number, int resume_atom_number) {
 
 void APar_RemoveAtom(const char* atom_path, bool direct_find, uint8_t atom_type, uint16_t UD_lang) {
 	if (initial_optimize_pass) {
-		APar_Optimize();
+		APar_Optimize(false);
 	}
 	modified_atoms = true;
 	AtomicInfo* desiredAtom = APar_FindAtom(atom_path, false, atom_type, false, direct_find, UD_lang);
@@ -2301,8 +2326,12 @@ void APar_RemoveAtom(const char* atom_path, bool direct_find, uint8_t atom_type,
 	if (desiredAtom->AtomicNumber == 0) return; //we got the default atom, ftyp - and since that can't be removed, it must not exist (or it was missed)
 	
 	if (direct_find && atom_type != EXTENDED_ATOM) {
-		AtomicInfo* tailAtom = APar_LocateAtomInsertionPoint(atom_path, true, UD_lang);
-		APar_EliminateAtom(desiredAtom->AtomicNumber, tailAtom->NextAtomNumber >= 0 ? tailAtom->NextAtomNumber : 0 );
+		if (atom_type == PACKED_LANG_ATOM) {
+			APar_EliminateAtom(desiredAtom->AtomicNumber, desiredAtom->NextAtomNumber);
+		} else {
+			AtomicInfo* tailAtom = APar_LocateAtomInsertionPoint(atom_path, true, UD_lang);
+			APar_EliminateAtom(desiredAtom->AtomicNumber, tailAtom->NextAtomNumber >= 0 ? tailAtom->NextAtomNumber : 0 );
+		}
 		return;
 	//this will only work for AtomicParsley created uuid atoms that don't have children, but since all uuid atoms are treaded as non-parent atoms... no problems
 	} else if (direct_find && atom_type == EXTENDED_ATOM) {
@@ -2549,7 +2578,7 @@ short APar_InterjectNewAtom(char* atom_name, uint8_t cntr_state, uint8_t atom_cl
 	new_atom->AtomicVerFlags = atom_verflags;
 	new_atom->AtomicLevel = atom_level;
 	new_atom->AtomicLength = atom_length;
-	new_atom->AtomicLangauge = packed_lang;
+	new_atom->AtomicLanguage = packed_lang;
 	
 	new_atom->AtomicData = (char*)malloc(sizeof(char)* atom_length ); //puts a hard limit on the length of strings (the spec doesn't)
 	memset(new_atom->AtomicData, 0, sizeof(char)* atom_length );
@@ -2620,7 +2649,7 @@ AtomicInfo* APar_CreateSparseAtom(const char* present_hierarchy, char* new_atom_
 			new_atom->AtomicClassification = KnownAtoms[known_atom].box_type;
 		}
 		new_atom->AtomicVerFlags = 0;
-		new_atom->AtomicLangauge = atom_lang;
+		new_atom->AtomicLanguage = atom_lang;
 		new_atom->AtomicLevel = atom_level;
 		
 		if (!atom_shunted) {
@@ -3180,6 +3209,7 @@ short APar_UserData_atom_Init(const char* atom_path, const char* UD_Payload, uin
 	
 	if ( !retain_atom ) {
 		APar_RemoveAtom(atom_path, true, atom_type, UD_lang); //find the atom; don't create if it's "" to remove
+		return -1;
 	} else {
 		desiredAtom = APar_FindAtom(atom_path, true, atom_type, true, false, UD_lang);
 		parsedAtoms[desiredAtom->AtomicNumber].AtomicData = (char*)malloc(sizeof(char)* MAXDATA_PAYLOAD ); //puts a hard limit on the length of strings (the spec doesn't)
@@ -3189,7 +3219,7 @@ short APar_UserData_atom_Init(const char* atom_path, const char* UD_Payload, uin
 		parsedAtoms[desiredAtom->AtomicNumber].AtomicVerFlags = 0;
 		parsedAtoms[desiredAtom->AtomicNumber].AtomicContainerState = CHILD_ATOM;
 		parsedAtoms[desiredAtom->AtomicNumber].AtomicClassification = atom_type;
-		parsedAtoms[desiredAtom->AtomicNumber].AtomicLangauge = UD_lang;
+		parsedAtoms[desiredAtom->AtomicNumber].AtomicLanguage = UD_lang;
 	}
 	return desiredAtom->AtomicNumber;
 }
@@ -3567,7 +3597,8 @@ void APar_DetermineDynamicUpdate(bool initial_pass) {
 		//fprintf(stdout, "Dynamically update status: change = %i, free = %i\n", userdata_difference , udta_dynamics.max_usable_free_space);
 		//+8 so that 'free' can be accommodated; can't write a 'free' atom of length = 5 - min is 8; OR it disappears entirely
 		if ( (int)udta_dynamics.max_usable_free_space >= userdata_difference + 8 || 
-		       userdata_difference < 0 ||
+		       userdata_difference <= -8 ||
+					 ( (int)udta_dynamics.max_usable_free_space >= 8 && -8 < userdata_difference < 0 ) || 
 					 (int)udta_dynamics.max_usable_free_space == userdata_difference) { 
 			//fprintf(stdout, "Dynamically update possible: change = %i, free = %i\n", userdata_difference , udta_dynamics.max_usable_free_space);
 			if (!moov_atom_was_mooved) { //only allow dynamic updating when moov precedes any mdat atoms...
@@ -3603,11 +3634,12 @@ void APar_DetermineDynamicUpdate(bool initial_pass) {
 			if (udta_dynamics.max_usable_free_space <= pad_prefs.minimum_required_padding_size) {
 				if (psp_brand) {
 					udta_dynamics.dynamic_updating = true;
-					fprintf(stdout, "i am here at psp\n");
 				} else {
 					APar_InterjectNewAtom("free", CHILD_ATOM, SIMPLE_ATOM, pad_prefs.default_padding_size, 0, 0, 1, APar_FindLastChild_of_ParentAtom(udta_dynamics.moov_atom) );
 					new_file_size += pad_prefs.default_padding_size; //used in shell progress bar; easier to just outright add it than go through the whole tree
 				}
+			} else if (!udta_dynamics.dynamic_updating && udta_dynamics.max_usable_free_space < pad_prefs.default_padding_size) {
+				APar_ConsilidatePadding(pad_prefs.default_padding_size);
 			}
 		}
 	} else {
@@ -3622,13 +3654,15 @@ void APar_DetermineDynamicUpdate(bool initial_pass) {
 /*----------------------
 APar_Optimize
 
+	mdat_test_only - the only info desired (if true, when printing the tree) is to know whether mdat precedes moov (and nullifing the concept of padding)
+
     Try to rearrange the atoms so that moov comes before mdat(s) & to reorder moov's children atoms so that 'udta' is the last child of moov. Top level atoms
 		are sequentially fetched and names are tested. Special accommodation is made for top level 'free' atoms that follow 'moov' but before any other significant
 		atoms - these 'free' atoms are tracked in padding_atoms and their atomic levels are temporarily shifted to make them a child of moov so that these 'free'
 		atoms follow 'moov' at is is being shuffled around so as to preserve the functionality of padding. Prevent rearranging on fragmented files; the moov atom
 		discovered first goes onto to have its children sequentially tested to ensure that 'udta' comes last in moov's hieararchy (excepting 'free' only).
 ----------------------*/
-void APar_Optimize() {
+void APar_Optimize(bool mdat_test_only) {
 	short total_file_level_atoms = APar_ReturnChildrenAtoms (0, 0);
 	short eval_atom = 0;
 
@@ -3674,14 +3708,19 @@ void APar_Optimize() {
 	
 	//for each padding 'free' atom after moov (but before anything else significant), increase the AtomicLevel so that it becomes a child to moov (so it follows moov when it gets rearranged)
 	if (move_moov_atom && first_mdat_atom > 0 && moov_atom > 0 && moov_atom > first_mdat_atom) {
-		for(uint8_t jj = 1; jj <= padding_atoms[0]; jj++) {
-			parsedAtoms[ padding_atoms[jj] ].AtomicLevel++;
-		}
-		APar_MoveAtom(moov_atom, first_mdat_atom);  //move 'moov' in front of 'mdat'
-		moov_atom_was_mooved = true;
-		//reinstate the padding atoms as level 1 'free' atoms now that moov is rearranged.
-		for(uint8_t kk = 1; kk <= padding_atoms[0]; kk++) {
-			parsedAtoms[ padding_atoms[kk] ].AtomicLevel--;
+		if (mdat_test_only) {
+			moov_atom_was_mooved = true; //this is all the interesting info required (during APar_PrintAtomicTree)
+			return;
+		} else {
+			for(uint8_t jj = 1; jj <= padding_atoms[0]; jj++) {
+				parsedAtoms[ padding_atoms[jj] ].AtomicLevel++;
+			}
+			APar_MoveAtom(moov_atom, first_mdat_atom);  //move 'moov' in front of 'mdat'
+			moov_atom_was_mooved = true;
+			//reinstate the padding atoms as level 1 'free' atoms now that moov is rearranged.
+			for(uint8_t kk = 1; kk <= padding_atoms[0]; kk++) {
+				parsedAtoms[ padding_atoms[kk] ].AtomicLevel--;
+			}
 		}
 	}
 
@@ -3746,7 +3785,7 @@ void APar_DetermineAtomLengths() {
 	}
 	
 	if (!udta_dynamics.dynamic_updating && !psp_brand && initial_optimize_pass) {
-		APar_Optimize();
+		APar_Optimize(false);
 	} else {
 		//'moov' & the last child of 'udta' are discovered in APar_Optimize and must be known to do dynamic updating (for PSP files)
 		udta_dynamics.moov_atom = APar_FindAtom("moov",false, SIMPLE_ATOM, false, true, 0)->AtomicNumber;
@@ -3851,6 +3890,11 @@ void APar_ValidateAtoms() {
 	short iter = 0;
 	short next_atom = 0;
 	uint64_t simple_tally = 0;
+	
+	if (atom_number > MAX_ATOMS) {
+		fprintf(stderr, "AtomicParsley error: amount of atoms exceeds internal limit. Aborting.\n");
+		exit(1);
+	}
 	
 	while (true) {
 		// there are valid atom names that are 0x00000001 - but I haven't seen them in MPEG-4 files, but they could show up, so this isn't a hard error

@@ -100,27 +100,26 @@ void APar_UnpackLanguage(unsigned char lang_code[], uint16_t packed_language) {
 	return;
 }
 
-uint16_t PackLanguage(const char* language_code) { //?? is there a problem here? und does't work http://www.w3.org/WAI/ER/IG/ert/iso639.htm
+uint16_t PackLanguage(const char* language_code, uint8_t lang_offset) { //?? is there a problem here? und does't work http://www.w3.org/WAI/ER/IG/ert/iso639.htm
 	//I think Apple's 3gp asses decoder is a little off. First, it doesn't support a lot of those 3 letter language codes above on that page. for example 'zul' blocks *all* metadata from showing up. 'fre' is a no-no, but 'fra' is fine.
 	//then, the spec calls for all strings to be null terminated. So then why does a '© 2005' (with a NULL at the end) show up as '© 2005' in 'pol', but '© 2005 ?' in 'fas' Farsi? Must be Apple's implementation, because the files are identical except for the uint16_t lang setting.
 	
 	uint16_t packed_language = 0;
 	
-	//fprintf(stdout, "%i, %i, %i\n", language_code[5], language_code[6], language_code[7]);
+	//fprintf(stdout, "%i, %i, %i\n", language_code[0+lang_offset], language_code[1+lang_offset], language_code[2+lang_offset]);
 	
-	if (language_code[5] < 97 || language_code[5] > 122 ||
-			language_code[6] < 97 || language_code[6] > 122 ||
-			language_code[7] < 97 || language_code[7] > 122) {
+	if (language_code[0+lang_offset] < 97 || language_code[0+lang_offset] > 122 ||
+			language_code[1+lang_offset] < 97 || language_code[1+lang_offset] > 122 ||
+			language_code[2+lang_offset] < 97 || language_code[2+lang_offset] > 122) {
 			
 		return packed_language;
 	}
 	
-	packed_language = (((language_code[5] - 0x60) & 0x1F) << 10 ) | 
-	                   ((language_code[6] - 0x60) & 0x1F) << 5  | 
-										  (language_code[7] - 0x60) & 0x1F;
+	packed_language = (((language_code[0+lang_offset] - 0x60) & 0x1F) << 10 ) | 
+	                   ((language_code[1+lang_offset] - 0x60) & 0x1F) << 5  | 
+										  (language_code[2+lang_offset] - 0x60) & 0x1F;
 	return packed_language;
 }
-
 
 ///////////////////////////////////////////////////////////////////////////////////////
 //                                platform specifics                                 //
