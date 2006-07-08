@@ -299,6 +299,15 @@ void APar_ExtractDetails(FILE* m4afile) {
 			four_bytes = APar_read32(uint32_buffer, m4afile, parsedAtoms[track_level_atom].AtomicStart + 20);
 			char4TOuint32(four_bytes, uint32_buffer);
 			fprintf(stdout, "    Kind/Codec: %s", uint32_buffer);
+
+			if (memcmp(uint32_buffer, "drm", 3) == 0) {
+				short frma_atom = 0;
+				APar_TrackLevelInfo(total_tracks, track_num, frma_atom, "frma");
+				memset(uint32_buffer, 0, 5);
+				four_bytes = APar_read32(uint32_buffer, m4afile, parsedAtoms[frma_atom].AtomicStart + 8);
+				char4TOuint32(four_bytes, uint32_buffer);
+				fprintf (stdout, " (protected %s)", uint32_buffer);
+			}
 			
 			//number of channels
 			
@@ -383,7 +392,7 @@ void APar_ExtractBrands(char* filepath) {
 			break;
 		}
 		case THIRD_GEN_PARTNER: {
-			fprintf(stdout, "3GP-style asset metadata allowed - except 'albm' album tag.\n");
+			fprintf(stdout, "3GP-style asset metadata allowed - except 'albm' album tag. 3gp6 or later major brand required.\n");
 			break;
 		}
 		case THIRD_GEN_PARTNER_VER1_REL6:

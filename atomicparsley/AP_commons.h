@@ -59,7 +59,7 @@ void APar_readX(char* &buffer, FILE* m4afile, uint32_t pos, uint32_t length);
 uint32_t APar_FindValueInAtom(char* &uint32_buffer, FILE* m4afile, short an_atom, uint32_t start_position, uint32_t eval_number);
 
 void APar_UnpackLanguage(unsigned char lang_code[], uint16_t packed_language);
-uint16_t PackLanguage(const char* language_code);
+uint16_t PackLanguage(const char* language_code, uint8_t lang_offset);
 
 #if defined (_MSC_VER)
 int lroundf(float a);

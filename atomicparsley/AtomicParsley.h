@@ -71,7 +71,7 @@ struct AtomicInfo  {
 	uint8_t   AtomicContainerState;
 	uint8_t   AtomicClassification;
 	uint32_t	AtomicVerFlags;
-	uint16_t  AtomicLangauge;
+	uint16_t  AtomicLanguage;
 	uint8_t   AtomicLevel;
 	char*     AtomicData;
 	int       NextAtomNumber; //our first atom is numbered 0; the last points back to it - so watch it!
@@ -250,7 +250,7 @@ void APar_freefree(int purge_level);
 void APar_MetadataFileDump(const char* m4aFile);
 
 void APar_DetermineDynamicUpdate(bool initial_pass);
-void APar_Optimize();
+void APar_Optimize(bool mdat_test_only);
 void APar_DetermineAtomLengths();
 void APar_TestTracksForKind(); //needed for AP_NSFileUtils
 void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_original);

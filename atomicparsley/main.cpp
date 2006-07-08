@@ -79,6 +79,7 @@
 #define Meta_podcast_URL         'L'
 #define Meta_podcast_GUID        'J'
 #define Meta_PurchaseDate        'D'
+#define Meta_EncodingTool        0xB7
 
 #define Meta_StandardDate        'Z'
 #define Meta_URL                 'u'
@@ -231,7 +232,12 @@ static const char* longHelp_text =
 " To delete a single atom, set the tag to null (except artwork):\n"
 "  --artist \"\" --lyrics \"\"\n"
 "  --artwork REMOVE_ALL \n"
-"  --manualAtomRemove 'moov.udta.meta.ist.hymn' (only works on iTunes-style metadata)\n"
+"  --manualAtomRemove \"some.atom.path\" where some.atom.path can be:\n"
+"                             \"moov.udta.ATOM\" for an child or parent atom in 'udta' (but not 3gp assets)\n"
+"                             \"moov.udta.ATOM:[eng]\" for a 3gp asset of a specific language\n"
+"                             \"moov.udta.meta.ilst.ATOM\" or\n"
+"                             \"moov.udta.meta.ilst.ATOM.data\" for iTunes-style metadata\n"
+"\n"
 "------------------------------------------------------------------------------------------------\n"
 " Setting user-defined 'uuid' tags (all will appear in \"moov.udta.meta\"):\n"
 "\n"
@@ -441,7 +447,7 @@ void find_optional_args(char *argv[], int start_optindargs, uint16_t &packed_lan
 	for (int i= 0; i <= max_optargs-1; i++) {
 		if ( argv[start_optindargs + i] && start_optindargs + i <= total_args ) {
 			if ( memcmp(argv[start_optindargs + i], "lang=", 5) == 0 ) {
-				packed_lang = PackLanguage(argv[start_optindargs +i]);
+				packed_lang = PackLanguage(argv[start_optindargs +i], 5);
 			
 			} else if ( memcmp(argv[start_optindargs + i], "UTF16", 5) == 0 ) {
 				asUTF16 = true;
@@ -547,6 +553,7 @@ int main( int argc, char *argv[]) {
 		{ "podcastURL",       required_argument,  NULL,           Meta_podcast_URL },
 		{ "podcastGUID",      required_argument,  NULL,           Meta_podcast_GUID },
 		{ "purchaseDate",     required_argument,  NULL,           Meta_PurchaseDate },
+		{ "encodingTool",     required_argument,  NULL,           Meta_EncodingTool },
 		
 		{ "tagtime",          0,                  NULL,						Meta_StandardDate },
 		{ "information",      required_argument,  NULL,           Meta_Information },
@@ -583,7 +590,7 @@ int main( int argc, char *argv[]) {
 	int c = -1;
 	int option_index = 0; 
 	
-	c = getopt_long(argc, argv, "hTtEe:a:b:c:d:f:g:i:k:l:n:o:pq::u:w:y:z:G:k:A:B:C:D:F:H:I:J:K:L:MN:QR:S:U:WXV:ZP 0xAB: 0xAC: 0xAD: 0xAE: 0xAF: 0xB0: 0xB1: 0xB2: 0xB3: 0xB4: 0xB5: 0xB6:", long_options, &option_index);
+	c = getopt_long(argc, argv, "hTtEe:a:b:c:d:f:g:i:k:l:n:o:pq::u:w:y:z:A:B:C:D:F:G:H:I:J:K:L:MN:QR:S:U:WXV:ZP 0xAB: 0xAC: 0xAD: 0xAE: 0xAF: 0xB0: 0xB1: 0xB2: 0xB3: 0xB4: 0xB5: 0xB6:", long_options, &option_index);
 	
 	if (c == -1) {
 		if (argc < 3 && argc > 2) {
@@ -914,6 +921,17 @@ int main( int argc, char *argv[]) {
 			break;
 		}
 		
+		case Meta_EncodingTool : {
+			APar_ScanAtoms(m4afile);
+			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "encoding tool") ) {
+				break;
+			}
+			
+			short encodingtoolData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©too.data", optarg, AtomicDataClass_Text);
+			APar_Unified_atom_Put(encodingtoolData_atom, optarg, UTF8_iTunesStyle_256byteLimited, 0, 0);
+			break;
+		}
+		
 		case Meta_description : {
 			APar_ScanAtoms(m4afile);
 			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "description") ) {
@@ -1147,7 +1165,14 @@ int main( int argc, char *argv[]) {
 			} else if (memcmp(compliant_name + (strlen(compliant_name) - 4), "data", 4) == 0) {
 				APar_RemoveAtom(compliant_name, false, SIMPLE_ATOM, 0);
 			} else {
-				APar_RemoveAtom(compliant_name, true, SIMPLE_ATOM, 0);
+				size_t string_len = strlen(compliant_name);
+				if (memcmp(compliant_name + string_len - 6, ":[", 2) == 0 && memcmp(compliant_name + string_len-1, "]", 1) == 0 ) {
+					uint16_t packed_lang = PackLanguage(compliant_name + string_len - 4, 0);
+					memset(compliant_name + string_len - 6, 0, 1);
+					APar_RemoveAtom(compliant_name, true, PACKED_LANG_ATOM, packed_lang);
+				} else {
+					APar_RemoveAtom(compliant_name, true, SIMPLE_ATOM, 0);
+				}
 			}
 			free(compliant_name);
 			compliant_name = NULL;
