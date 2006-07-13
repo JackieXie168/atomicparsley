@@ -66,10 +66,9 @@ uint8_t generalAtomicLevel = 1;
 
 bool file_opened = false;
 bool parsedfile = false;
-bool Create__udta_meta_hdlr__atom = false;
 bool move_moov_atom = true;
 bool moov_atom_was_mooved = false;
-bool skip_meta_hdlr_creation = true;
+AtomicInfo* hdlr_atom = NULL;
 bool complete_free_space_erasure = false;
 bool initial_optimize_pass = true;
 bool psp_brand = false;
@@ -83,6 +82,7 @@ uint64_t mdat_supplemental_offset = 0;
 uint32_t removed_bytes_tally = 0;
 uint32_t new_file_size = 0; //used for the progressbar
 //uint32_t default_padding_size = 2048;
+uint32_t brand = 0;
 
 struct udta_stats udta_dynamics;
 struct padding_preferences pad_prefs;
@@ -259,6 +259,10 @@ void APar_FreeMemory() {
 		if (parsedAtoms[iter].AtomicData != NULL) {
 			free(parsedAtoms[iter].AtomicData);
 			parsedAtoms[iter].AtomicData = NULL;
+		}
+		if (parsedAtoms[iter].ReverseDNSname != NULL) {
+			free(parsedAtoms[iter].ReverseDNSname);
+			parsedAtoms[iter].ReverseDNSname = NULL;
 		}
 	}
 	free(twenty_byte_buffer);
@@ -439,17 +443,6 @@ void APar_TrackInfo(uint8_t &total_tracks, uint8_t &track_num, short &codec_atom
 //                            Locating/Finding Atoms                                 //
 ///////////////////////////////////////////////////////////////////////////////////////
 
-short APar_FindParentAtom(int order_in_tree, uint8_t this_atom_level) {
-	short thisAtom = 0;
-	for(short iter=order_in_tree-1; iter >= 0; iter--) {
-		if (parsedAtoms[iter].AtomicLevel == this_atom_level-1) {
-			thisAtom = iter;
-			break;
-		}
-	}
-	return thisAtom;
-}
-
 short APar_FindPrecedingAtom(short an_atom_num) {
 	short precedingAtom = 0;
 	short iter = 0;
@@ -462,6 +455,19 @@ short APar_FindPrecedingAtom(short an_atom_num) {
 		}
 	}
 	return precedingAtom;
+}
+
+short APar_FindParentAtom(int order_in_tree, uint8_t this_atom_level) {
+	short thisAtom = 0;
+	short iter = order_in_tree;
+	while (parsedAtoms[iter].AtomicNumber != 0) {
+		iter = APar_FindPrecedingAtom(iter);
+		if (parsedAtoms[iter].AtomicLevel == this_atom_level-1) {
+			thisAtom = iter;
+			break;
+		}
+	}
+	return thisAtom;
 }
 
 /*----------------------
@@ -506,10 +512,10 @@ void APar_ProvideAtomPath(short this_atom, char* &atom_path, bool fromFile) {
 					memcpy(atom_path + str_offset +4, ".", 1);
 				}
 				
-				preceding_atom--;
+				preceding_atom = APar_FindPrecedingAtom(preceding_atom); //preceding_atom--;
 
 			} else {
-				preceding_atom--;
+				preceding_atom = APar_FindPrecedingAtom(preceding_atom); //preceding_atom--;
 			}
 		} else {
 			if (parsedAtoms[preceding_atom].AtomicLevel < current_atomic_level) {
@@ -520,9 +526,9 @@ void APar_ProvideAtomPath(short this_atom, char* &atom_path, bool fromFile) {
 				}
 				
 				current_atomic_level = parsedAtoms[preceding_atom].AtomicLevel;
-				preceding_atom--;
+				preceding_atom = APar_FindPrecedingAtom(preceding_atom); //preceding_atom--;
 			} else {
-				preceding_atom--;
+				preceding_atom = APar_FindPrecedingAtom(preceding_atom); //preceding_atom--;
 			}
 		}
 		if (preceding_atom == 0 || str_offset < 0) {
@@ -592,352 +598,278 @@ short APar_FindLastChild_of_ParentAtom(short thisAtom) {
 	return last_atom;
 }
 
-AtomicInfo* APar_FindAtom(const char* atom_name, bool createMissing, uint8_t atom_type, bool findChild, bool directFind, uint16_t atom_lang) {
-	AtomicInfo* thisAtom = NULL;
-	uint8_t present_atom_level = 1; //from where our generalAtomicLevel starts
-	char* atom_hierarchy = strdup(atom_name);
-	char* found_hierarchy = (char *)malloc(sizeof(char)*400); //that should hold it
-	memset(found_hierarchy, 0, sizeof(char)*400);
-	bool is_uuid_atom = false;
-	char* uuid_name = (char *)malloc(sizeof(char)*5);
-	memset(uuid_name, 0, sizeof(char)*5);
-	char* parent_name = parsedAtoms[0].AtomicName; //doesn't matter, level 1 atoms don't have parents tested
-	
-	char *search_atom_name = strsep(&atom_hierarchy,".");
-	char* dup_search_atom_name;
-	int search_atom_start_num = 0;
-	
-	while (search_atom_name != NULL) {
-		
-		uuid_name = strstr(search_atom_name, "uuid=");
-		if (atom_type == EXTENDED_ATOM && (uuid_name != NULL) ) {
-			dup_search_atom_name = strdup(search_atom_name);
-			uuid_name = strsep(&dup_search_atom_name,"="); //search_atom_name will still retain a "uuid=ATOM" if needed for APar_CreateSparseAtom
-			is_uuid_atom = true;
-		} else {
-			is_uuid_atom = false;
- 		}
-		
-		for(int iter=search_atom_start_num; iter < atom_number; iter++) {
-		
-			if (directFind && strncmp(parsedAtoms[iter].AtomicName, search_atom_name, 4) == 0) {
-				if (atom_hierarchy == NULL) {
-					if ( (atom_type == PACKED_LANG_ATOM && parsedAtoms[iter].AtomicLanguage == atom_lang) || atom_type != PACKED_LANG_ATOM) {
-						thisAtom = &parsedAtoms[iter];
-					}
-				}
-				search_atom_start_num=iter;
-				if (thisAtom != NULL) {
-					if (present_atom_level == thisAtom->AtomicLevel) {
-						break;
-					}
-				}
-			}
-			if ( ((strncmp(parsedAtoms[iter].AtomicName, search_atom_name, 4) == 0) && (parsedAtoms[iter].AtomicLevel == present_atom_level)) ||
-				     (atom_type == EXTENDED_ATOM && is_uuid_atom && (strncmp(parsedAtoms[iter].AtomicName, dup_search_atom_name, 4) == 0) && parsedAtoms[iter].AtomicClassification == EXTENDED_ATOM) ) {
-					
-				if (atom_type == EXTENDED_ATOM && is_uuid_atom && (strncmp(parsedAtoms[iter].AtomicName, dup_search_atom_name, 4) == 0) && parsedAtoms[iter].AtomicClassification == EXTENDED_ATOM) {
-					thisAtom = &parsedAtoms[iter];
-					break;
-				}
-					
-				if (atom_hierarchy == NULL) {
-					//fprintf(stdout, "%s <> %s | %u %u | %u = %u = %u\n", parsedAtoms[iter].AtomicName, search_atom_name, atom_lang, parsedAtoms[iter].AtomicLanguage, atom_type, parsedAtoms[iter].AtomicClassification, PACKED_LANG_ATOM);
-					if (atom_type == PACKED_LANG_ATOM && parsedAtoms[iter].AtomicLanguage == atom_lang && 
-							memcmp(parsedAtoms[iter].AtomicName, search_atom_name, 4) == 0 && parsedAtoms[iter].AtomicClassification == PACKED_LANG_ATOM ) {
-						thisAtom = &parsedAtoms[iter];
-						break;
-					}
-				
-					//we have found the proper hierarchy we want
-					AtomicInfo* parent_atom = &parsedAtoms[ APar_FindParentAtom(parsedAtoms[iter].AtomicNumber, parsedAtoms[iter].AtomicLevel) ];
+/*----------------------
+APar_ReturnChildrenAtoms
+  this_atom - the parent atom that contains any number of children atoms (that are currenly unknown)
+  atom_index - the index of the desired child. Passing 0 will return a count of the *total* number of children atoms under this_atom
 
-					if (parent_atom->AtomicLevel > 1 && !directFind && atom_type != PACKED_LANG_ATOM) {
-						if ( strncmp(parent_atom->AtomicName, parent_name, 4) == 0) {
-							thisAtom = &parsedAtoms[iter];
-							break;
-							
-						} else {
-							int next_atom = parent_atom->NextAtomNumber; //int next_atom = parsedAtoms[iter].NextAtomNumber;
-							while (true) {
-
-								if ( strncmp(parsedAtoms[next_atom].AtomicName, parent_name, 4) == 0 ) {
-									if (findChild) { //this won't find a covr atoms's last child (which isn't necessarily the next one), but who cares: APar_CreateSparseAtom will
-										next_atom = parsedAtoms[next_atom].NextAtomNumber;
-										thisAtom = &parsedAtoms[next_atom]; //this is IT!!!
-									} else {
-										thisAtom = &parsedAtoms[next_atom]; //this is IT!!!
-									}
-									break;
-									
-								}
-								next_atom = parsedAtoms[next_atom].NextAtomNumber;
-								if (next_atom == 0) {
-									break;
-								}
-							}
-							break;
-						}
-
-					} else {
-						//we've come to the right level, & hieararchy, now strncmp through the atoms in this level
-						if (directFind) {
-							//directFind doesn't use parent atoms to search - iTunes metadata 'data' atoms are DEFINED by their parent atoms, so parent_atoms are essential for them, but little use for a 'moov.udta.meta.hdlr' atom
-							int test_atom_num = iter; //int test_atom_num = parsedAtoms[iter].NextAtomNumber;
-							while (true) {
-								//fprintf(stdout, "eval %s\n", parsedAtoms[test_atom_num].AtomicName);
-								if ( (present_atom_level > parsedAtoms[test_atom_num].NextAtomNumber) || (test_atom_num == 0) ) {
-									break; //we've gone UP past our level in the hierarchy
-								}
-								if ( strncmp(parsedAtoms[test_atom_num].AtomicName, search_atom_name, 4) == 0 ) {
-									if (atom_lang == 0 || (atom_type == PACKED_LANG_ATOM && parsedAtoms[test_atom_num].AtomicLanguage == atom_lang) ) {
-										thisAtom = &parsedAtoms[test_atom_num]; //this is IT!!!
-										search_atom_start_num=thisAtom->AtomicNumber;
-										break;
-									}
-								}
-								test_atom_num = parsedAtoms[test_atom_num].NextAtomNumber;
-							}
-
-							break; //break out of the entire for loop now that we've exited the while loop							
-						}
-					}
-				}
-				if (atom_hierarchy != NULL) {
-					present_atom_level++;
-					search_atom_start_num=iter; //this keeps advancing the starting point for the searches in the hierarchy.
-
-					break;
-				}
-			}	
-			if (iter+1 == atom_number) {
-				//fprintf(stdout, "Atoms that need creation: \"%s\" - %s\n", search_atom_name, found_hierarchy);
-				if (atom_hierarchy == NULL) {
-					if (createMissing) {
-						thisAtom = APar_CreateSparseAtom(found_hierarchy, search_atom_name, atom_hierarchy, present_atom_level, true, atom_lang);
-					}
-				} else {
-					while (atom_hierarchy != NULL) {
-						if (createMissing) {
-							thisAtom = APar_CreateSparseAtom(found_hierarchy, search_atom_name, atom_hierarchy, present_atom_level, true, atom_lang);
-						}
-						search_atom_name = strsep(&atom_hierarchy,".");
-						present_atom_level++;
-					}
-				}
-				break;
-			}
-		}
-		if (present_atom_level > 2) {
-			//free(parent_name); //<-----NEWNEWNEW verified leak fix
-			//parent_name=NULL; //<-----NEWNEWNEW verified leak fix
-			parent_name= strdup(search_atom_name);
-			parent_name = search_atom_name;
-			strcat(found_hierarchy, ".");
-		}
-		
-		strcat(found_hierarchy, search_atom_name);
-		search_atom_name = strsep(&atom_hierarchy,".");
-	}
-	free(atom_hierarchy);
-	free(found_hierarchy);
-	//free(parent_name);
-	free(uuid_name);
-	atom_hierarchy = NULL;
-	found_hierarchy = NULL;
-	parent_name = NULL; //<-----NEWNEWNEW verified leak fix
-	uuid_name = NULL;
-
-  return thisAtom;
-}
-
-short APar_LocateParentHierarchy(const char* the_hierarchy) { //This only gets used when we are adding atoms at the end of the hierarchy
-	short last_atom = 0;
-	char* atom_hierarchy = strdup(the_hierarchy);
-	char* search_atom_name = strsep(&atom_hierarchy,".");
-	char* found_hierarchy = (char *)malloc(sizeof(char)*400); //change the allocation to better detect leaks
-	memset(found_hierarchy, 0, sizeof(char)*400);
-	
-	strcat(found_hierarchy, search_atom_name);
-	
-	while (atom_hierarchy != NULL) { //test that the atom doesn't end with data; we want the parent to data; and then locate the parent of THAT atom and return the last atom in parent to the metadata (typically ilst's last child or meta's last child for hdlr)
-		search_atom_name = strsep(&atom_hierarchy,".");
-		if (atom_hierarchy != NULL) {
-			if (strncmp(atom_hierarchy, "data", 4) == 0) {
-				break; // found_hierarchy will now contain the path to the parent to this "data" atom; search_atom_name will = "ilst" then
-			}
-		}
-		strcat(found_hierarchy, ".");
-		strcat(found_hierarchy, search_atom_name);
-	}
-	
-	//AtomicInfo* parent_atom = APar_FindAtom(found_hierarchy, false, false, true, false);
-	AtomicInfo* parent_atom = APar_FindAtom(found_hierarchy, false, SIMPLE_ATOM, true, false, 0);
-	
-	if (parent_atom == NULL) {
-		return (atom_number-1); 
-	}
-	
-	short this_atom_num = parent_atom->NextAtomNumber;
-
-	if ( (this_atom_num > atom_number) || (this_atom_num < 1) ) {
-		last_atom = APar_FindEndingAtom();
-		
-		free(found_hierarchy);
-		free(atom_hierarchy);
-		found_hierarchy = NULL;
-		atom_hierarchy = NULL;
-	
-		return (atom_number-1); 
-	}		
-
-	last_atom = this_atom_num;
+    Working off of AtomicLevel, test the atoms that follow this_atom to see if they are immediately below this_atom. Increment total_children if is - if
+		total_children should match our index, return that desired child at index atom.
+----------------------*/
+short APar_ReturnChildrenAtoms(short this_atom, uint8_t atom_index) {
+	short child_atom = 0;
+	uint8_t total_children = 0;
+	short iter = parsedAtoms[this_atom].NextAtomNumber;
 	
 	while (true) {
-		if (parsedAtoms[this_atom_num].AtomicLevel > parent_atom->AtomicLevel) {
-			last_atom = this_atom_num;
-			this_atom_num = parsedAtoms[this_atom_num].NextAtomNumber;
+		if ( (parsedAtoms[iter].AtomicLevel == parsedAtoms[this_atom].AtomicLevel + 1  && this_atom > 0) || 
+				 (this_atom == 0 && parsedAtoms[iter].AtomicLevel == 1) ) {
+			total_children++;
 			
-			if (strncmp(parsedAtoms[last_atom].AtomicName, search_atom_name, 4) == 0) {
-				if (parsedAtoms[last_atom].AtomicLevel > parsedAtoms[this_atom_num].AtomicLevel) {
+			if (atom_index == total_children) {
+				child_atom = iter;
+				break;
+			}
+		}
+		if (parsedAtoms[iter].AtomicLevel <= parsedAtoms[this_atom].AtomicLevel && this_atom != 0) {
+			break;
+		} else {
+			iter = parsedAtoms[iter].NextAtomNumber;
+		}
+		if (iter == 0) {
+			break;
+		}
+	}
+	if (atom_index == 0) {
+		child_atom = (short)total_children;
+	}
+	return child_atom;
+}
+
+/*----------------------
+APar_AtomicComparison
+	proto_atom - the temporary atom structure to run the tests on
+	test_atom - the exising atom to compare the proto_atom against
+
+    Test if proto_atom matches a single atom (test_atom) by name, level & classification (packed_lang_atom, extended atom...); for certain types of data 
+		(like packed_lang & reverseDNS 'moov.udta.meta.ilst.----.name:[iTunNORM] atoms currently) add finer grained tests. The return result will be NULL
+		if not matched, or returns the atom it matches.
+----------------------*/
+AtomicInfo* APar_AtomicComparison(AtomicInfo* proto_atom, short test_atom) {
+	AtomicInfo* return_atom = NULL;
+
+	//can't do AtomicVerFlags because lots of utilities don't write the proper iTunes flags for iTunes metadata
+	if ( memcmp(proto_atom->AtomicName, parsedAtoms[test_atom].AtomicName, 4) == 0 &&
+				proto_atom->AtomicLevel == parsedAtoms[test_atom].AtomicLevel && 
+				(proto_atom->AtomicClassification == parsedAtoms[test_atom].AtomicClassification || proto_atom->AtomicClassification == UNKNOWN_ATOM) ) {
+				
+		if (proto_atom->AtomicClassification == PACKED_LANG_ATOM) {
+			//0x05D9 = 'any' and will be used (internally) to match on name,class,container state alone, disregarding AtomicLanguage
+			if (proto_atom->AtomicLanguage == parsedAtoms[test_atom].AtomicLanguage || proto_atom->AtomicLanguage == 0x05D9) {
+				return_atom = &parsedAtoms[test_atom];
+			}
+			
+		} else if (proto_atom->ReverseDNSname != NULL && parsedAtoms[test_atom].ReverseDNSname != NULL) {
+			//match on moov.udta.meta.ilst.----.name:[something] (reverse DNS atom)
+			size_t proto_rdns_len = strlen(proto_atom->ReverseDNSname) + 1;
+			size_t test_rdns_len = strlen(parsedAtoms[test_atom].ReverseDNSname) + 1;
+			size_t rdns_strlen = (proto_rdns_len > test_rdns_len? proto_rdns_len : test_rdns_len);
+			if (memcmp(proto_atom->ReverseDNSname, parsedAtoms[test_atom].ReverseDNSname, rdns_strlen) == 0) {
+				return_atom = &parsedAtoms[test_atom];
+			}
+		} else {
+			return_atom = &parsedAtoms[test_atom];
+		}
+	}
+	return return_atom;
+}
+
+/*----------------------
+APar_FindLastLikeNamedAtom
+	atom_name - the name of the atom to search for; the string itself may have more than 4 bytes
+	containing_hierarchy - the parent hierarchy that is expected to carry multiply named atoms differing (in language for example)
+
+    Follow through the atom tree; if a test atom is matches by name, and is a child to the container atom, remember that atom. If nothing matches, the index
+		of the container atom is returned; otherwise the last like named atom is returned.
+----------------------*/
+short APar_FindLastLikeNamedAtom(char* atom_name, short containing_hierarchy) {
+	//short last_identically_named_atom = containing_hierarchy;
+	short last_identically_named_atom = APar_FindLastChild_of_ParentAtom(containing_hierarchy); //defaultreturns the last atom in the parent, not the parent
+	short eval_atom = parsedAtoms[containing_hierarchy].NextAtomNumber;
+	
+	while (true) {
+		if (parsedAtoms[eval_atom].AtomicLevel < parsedAtoms[containing_hierarchy].AtomicLevel + 1 || eval_atom == 0) {
+			break;
+		} else {
+			if (memcmp(parsedAtoms[eval_atom].AtomicName, atom_name, 4) == 0 && 
+			     parsedAtoms[eval_atom].AtomicLevel == parsedAtoms[containing_hierarchy].AtomicLevel + 1) {
+				last_identically_named_atom = eval_atom;
+			}
+			eval_atom = parsedAtoms[eval_atom].NextAtomNumber;
+		}
+	}
+	return last_identically_named_atom;
+}
+
+void APar_FreeSurrogateAtom(AtomicInfo* surrogate_atom) {
+	if (surrogate_atom->ReverseDNSname != NULL) {
+		free(surrogate_atom->ReverseDNSname);
+		surrogate_atom->ReverseDNSname = NULL;
+	}
+	return;
+}
+
+/*----------------------
+APar_CreateSurrogateAtom
+
+    Make a temporary AtomicInfo structure to run comparisons against; currently comparisons are done on name, level, classification (versioned...), langauge
+		(3gp assets), and iTunes-style reverse dns 'name' carrying a string describing the purpose of the data (iTunNORM). This atom exists outside of a file's
+		atom hieararchy that resides in the parsedAtoms[] array.
+----------------------*/
+void APar_CreateSurrogateAtom(AtomicInfo* surrogate_atom, const char* atom_name, uint8_t atom_level, uint8_t atom_class, uint16_t atom_lang,
+                               char* revdns_name, uint8_t revdns_name_len) {
+	surrogate_atom->AtomicName = (char*)atom_name;
+	surrogate_atom->AtomicLevel = atom_level;
+	
+	if (revdns_name != NULL && revdns_name_len) {
+		surrogate_atom->ReverseDNSname = (char *)malloc(sizeof(char)*revdns_name_len > 8 ? revdns_name_len+1 : 9);
+		memset(surrogate_atom->ReverseDNSname, 0, sizeof(char)*revdns_name_len > 8 ? revdns_name_len+1 : 9);
+		memcpy(surrogate_atom->ReverseDNSname, revdns_name, revdns_name_len);
+		
+	} else {
+		APar_FreeSurrogateAtom(surrogate_atom);
+	}
+	surrogate_atom->AtomicClassification = atom_class;
+	surrogate_atom->AtomicLanguage = atom_lang;
+	return;
+}
+
+/*----------------------
+APar_FindAtom
+	atom_name - the full path describing the hiearchy the desired atom can be found in
+	createMissing - either create the missing interim atoms as required, or return a NULL if not found
+	atom_type - the classification of the last atom (packed language, uuid extended atom...)
+	atom_lang - the language of the 3gp asset used when atom_type is packed language type
+
+    Follow through the atom tree starting with the atom following 'ftyp'. Testing occurs on an atom level basis; a stand-in temporary skeletal atom is created
+		to evaluate. If they atoms are deemed matching, atom_name is advanced forward (it still contains the full path, but only 4bytes are typically used at a time)
+		and testing occurs until either the desired atom is found, or the last containing hiearchy with an exising atom is exhausted without making new atoms.
+		
+		NOTE: atom_name can come in these forms:
+			classic/vanilla/ordinary atoms:		moov.udta.meta.ilst.cprt.data
+			iTunes reverseDNS atoms:          moov.udta.meta.ilst.----.name:[iTunNORM]
+			uuid user-extension atoms:        moov.udta.meta.uuid=tdtg
+			index-based atoms:                moov.trak[2].mdia.minf
+			
+		NOTE: On my computer it takes about .04 second to scan the file, .1 second to add about 2 dozen tags, and 1.0 second to copy a file. Updating a file
+		from start to finish takes 0.21 seconds. As many loops as this new APar_FindAtom eliminates, it is only marginally faster than the old code.
+----------------------*/
+AtomicInfo* APar_FindAtom(const char* atom_name, bool createMissing, uint8_t atom_type, uint16_t atom_lang) {
+	AtomicInfo* thisAtom = NULL;
+	char* search_atom_name = (char*)atom_name;
+	char* reverse_dns_name = NULL;
+	uint8_t revdns_name_len = 0;
+	uint8_t atom_index = 0; // if there are atoms mutliple identically named at the same level, this is where to store the count as it occurs
+	uint8_t desired_index = 1;
+	uint8_t search_atom_type = UNKNOWN_ATOM;
+	int known_atom = -1;
+	short search_atom_start_num = parsedAtoms[0].NextAtomNumber; //don't test 'ftyp'; its atom_number[0] & will be used to know when we have hit the end of the tree; can't hardcode it to '1' because ftyp's following atom can change; only ftype as parsedAtoms[0] is guaranteed.
+	uint8_t present_atomic_level = 1;
+	AtomicInfo* last_known_present_parent = NULL;
+	AtomicInfo atom_surrogate = { 0 };
+	
+	while (search_atom_name != NULL) {
+		desired_index = 1; //reset the index
+		
+		if (atom_type == EXTENDED_ATOM && memcmp(search_atom_name, "uuid=", 5) == 0 ) {
+			search_atom_name+=5;
+			search_atom_type = atom_type;
+ 		}
+		
+		size_t portion_len = strlen(search_atom_name);
+		if (memcmp(search_atom_name+4, ":[", 2) == 0 && memcmp(search_atom_name + portion_len -1, "]", 1) == 0) {
+			reverse_dns_name = search_atom_name + 4+2; //4bytes atom name 2bytes ":["
+			revdns_name_len = portion_len-7; //4bytes atom name, 2 bytes ":[", 1 byte "]"
+			search_atom_type = atom_type;
+			
+		} else if (memcmp(search_atom_name+4, "[", 1) == 0) {
+			sscanf(search_atom_name+5, "%hhu", &desired_index);
+		}
+		
+		if (strlen(search_atom_name) == 4) {
+			if (atom_type == UNKNOWN_ATOM) {
+				known_atom = APar_MatchToKnownAtom(search_atom_name, last_known_present_parent->AtomicName, false);
+				search_atom_type = KnownAtoms[known_atom].box_type;
+			} else {
+				search_atom_type = atom_type;
+			}
+		}
+		
+		APar_CreateSurrogateAtom(&atom_surrogate, search_atom_name, present_atomic_level, search_atom_type, atom_lang, reverse_dns_name, revdns_name_len);
+		atom_index = 0;
+		
+		short iter = search_atom_start_num;
+		while (true) {
+			AtomicInfo* result = NULL;
+			
+			//if iter == 0, that means test against 'ftyp' - and since its always 0, don't test it; its to know that the end of the tree is reached
+			if (iter != 0 && (parsedAtoms[iter].AtomicLevel == present_atomic_level || reverse_dns_name != NULL) ) {
+				result = APar_AtomicComparison(&atom_surrogate, iter);
+			}
+			
+			if (result != NULL) { //something matched
+				atom_index++;
+				if (search_atom_type != UNKNOWN_ATOM || (search_atom_type == UNKNOWN_ATOM && known_atom != -1) ) {
+					thisAtom = result;
+				} else {
+					last_known_present_parent = result;   //if not, then it isn't the last atom, and must be some form of parent
+				}
+				if (desired_index == atom_index) {
+					search_atom_start_num = parsedAtoms[iter].NextAtomNumber;
 					break;
 				}
 			}
 			
-			if (this_atom_num == 0) { //and the end of the line it is....
-				break;
+			if (parsedAtoms[iter].AtomicLevel < present_atomic_level && reverse_dns_name == NULL) {
+				iter = 0; //force the ending determination of whether to make new atoms or not;
 			}
-		} else {
-				break;
-		}
-	}
-	free(found_hierarchy);
-	free(atom_hierarchy);
-	found_hierarchy = NULL;
-	atom_hierarchy = NULL;
-		
-	return last_atom;
-}
-
-AtomicInfo* APar_LocateAtomInsertionPoint(const char* the_hierarchy, bool findLastChild, uint16_t atom_lang) {
-	//fprintf(stdout, "Searching for this path %s\n", the_hierarchy);
-	AtomicInfo* InsertionPointAtom = NULL;
-	uint8_t present_atom_level = 1;
-	int nextAtom = 0;
-	int pre_parent_atom = 0;
-	char* atom_hierarchy = strdup(the_hierarchy);
-	char *search_atom_name = strsep(&atom_hierarchy,".");
-	bool is_uuid_atom = false;
-	char* uuid_name = (char *)malloc(sizeof(char)*5);
-	memset(uuid_name, 0, sizeof(char)*5);
-	
-	while (search_atom_name != NULL) {
-		AtomicInfo* thisAtom = NULL;
-		
-		uuid_name = strstr(search_atom_name, "uuid=");
-		if (uuid_name != NULL) {
-			search_atom_name = strsep(&search_atom_name,"="); //we can strsep directly into search_atom_name because search_atom_name isn't passed anywhere
-			is_uuid_atom = true;
-		} else {
-			is_uuid_atom = false;
-		}
-		
-		if ( (atom_hierarchy == NULL) && (present_atom_level == 1) ) {
 			
-			for (int i=0; i < atom_number; i++) {
-				if (is_uuid_atom) {
-					//this would probably be a PSP-style uuid atom which isn't supported for writing (it isn't text), but this is where it would be determined
-					if ( parsedAtoms[i].AtomicLevel > 1 ) {//this will add a Level1 atom just before any hierarchy forms
-						InsertionPointAtom = &parsedAtoms[pre_parent_atom]; //returns the atom just before 'moov'; either 'ftyp' or the last uuid='ATOM' atom
-						break;
-					}
-				}
-				if (findLastChild) {
+			if (iter == 0 && createMissing) {
+				//create that atom
+				if (last_known_present_parent != NULL) {					
+					short last_hierarchical_atom = 0;
 					
-					if ( strncmp(search_atom_name, parsedAtoms[i].AtomicName, 4) == 0 ) { //this essentially searches for 'moov' atom children
-						int child_atom_num = parsedAtoms[i].NextAtomNumber;
-						while (parsedAtoms[child_atom_num].AtomicLevel > parsedAtoms[i].AtomicLevel) {
-							if (parsedAtoms[i].AtomicLevel == parsedAtoms[parsedAtoms[child_atom_num].NextAtomNumber].AtomicLevel) {
-								break; //we found the last child (in all likelyhood of a "moov" atom)
-							}
-						child_atom_num = parsedAtoms[child_atom_num].NextAtomNumber;
-						}
-						InsertionPointAtom = &parsedAtoms[child_atom_num];
-						break;
-						
-					//this will add a Level1 atom at the end of all atoms (nowhere else, just the end)
-					} else if ( parsedAtoms[i].NextAtomNumber == 0 ) {
-						InsertionPointAtom = &parsedAtoms[i];
-						break;
+					if (search_atom_type == PACKED_LANG_ATOM) {
+						last_hierarchical_atom = APar_FindLastLikeNamedAtom(atom_surrogate.AtomicName, last_known_present_parent->AtomicNumber);
+					} else {
+						last_hierarchical_atom = APar_FindLastChild_of_ParentAtom(last_known_present_parent->AtomicNumber);
 					}
-				} else { //this will add a Level1 atom just before any hierarchy forms
-					if ( parsedAtoms[i].AtomicLevel > 1 ) {
-						InsertionPointAtom = &parsedAtoms[pre_parent_atom];
-						break;
+					thisAtom = APar_CreateSparseAtom(&atom_surrogate, last_known_present_parent, last_hierarchical_atom);
+					search_atom_start_num = thisAtom->AtomicNumber;
+					if (strlen(search_atom_name) >= 4) {
+						last_known_present_parent = thisAtom;
 					}
 				}
-				pre_parent_atom = nextAtom;
-				nextAtom =i;
-			}
-			break;
-		}
-		
-		thisAtom = &parsedAtoms[nextAtom]; //follow the (possibly modified) atom tree hierarcy
-		//fprintf(stdout, "Try to find atom \"%s\", found %s (found level: %u, current search level %u)\n", search_atom_name, thisAtom->AtomicName, thisAtom->AtomicLevel, present_atom_level);
-		if ( memcmp(thisAtom->AtomicName, search_atom_name, 4) == 0 && thisAtom->AtomicLevel == present_atom_level ) {
-			
-			if (findLastChild) {
+				break;
 				
-				if (atom_hierarchy == NULL ) {
-					while (nextAtom != 0) {
-						//fprintf(stdout, "Testing atom \"%s\", level %u(%u)\n", parsedAtoms[nextAtom].AtomicName, parsedAtoms[nextAtom].AtomicLevel, present_atom_level);
-						if (parsedAtoms[nextAtom].AtomicLevel >= present_atom_level) {
-							if ( (parsedAtoms[nextAtom].AtomicLevel == present_atom_level) && (pre_parent_atom != 0) ) {
-								//we've already hit an atom on the same level we want; the last child came just before this then
-								InsertionPointAtom = &parsedAtoms[pre_parent_atom];
-								break;
-							}
-							pre_parent_atom = nextAtom;
-							nextAtom = parsedAtoms[nextAtom].NextAtomNumber;
-							if ( (parsedAtoms[nextAtom].AtomicLevel < present_atom_level) && (pre_parent_atom != 0) ) {
-								InsertionPointAtom = &parsedAtoms[pre_parent_atom];
-								break;
-							} else if ( parsedAtoms[nextAtom].NextAtomNumber == 0) {
-								//end o' the line
-								InsertionPointAtom = &parsedAtoms[nextAtom];
-								break;
-							}
-						} else {
-							InsertionPointAtom = &parsedAtoms[pre_parent_atom];
-							break;
-						}
-					}
-				}
-			} else {
-				if (atom_hierarchy == NULL && (atom_lang == 0 || thisAtom->AtomicLanguage == atom_lang) ) {
-						InsertionPointAtom = thisAtom;
+			} else if (iter == 0 && !createMissing) {
+					search_atom_name = NULL; //force the break;
+					break;
+			}
+			//fprintf(stdout, "while loop %s %u %u\n", parsedAtoms[iter].AtomicName, atom_index, desired_index);
+			iter = parsedAtoms[iter].NextAtomNumber;
+		}
+		
+		if (iter == 0 && search_atom_name == NULL) {
+			break;
+		} else {
+			while (true) { // search_atom_name = strsep(&atom_name,".") equivalent
+				if (search_atom_name[0] == 0) {
+					search_atom_name = NULL;
+					break;
+				} else if (memcmp(search_atom_name, ".", 1) == 0 ) {
+					search_atom_name++;
+					break;
+				} else {
+					search_atom_name++;
 				}
 			}
-			search_atom_name = strsep(&atom_hierarchy,".");
-			present_atom_level++;
+			present_atomic_level++;
 		}
-		nextAtom = thisAtom->NextAtomNumber;
-		
-		if (thisAtom->NextAtomNumber == 0 ) {
-			break;
-		}
-
-	}		
-	free(atom_hierarchy);	// A "Deallocation of a pointer not malloced" occured for a screwed up m4a file (for gnre & ©grp ONLY oddly) & for APar_Find atom that returns short
-	free(uuid_name);
-	atom_hierarchy = NULL;
-	uuid_name = NULL;
-	
-	if (InsertionPointAtom->NextAtomNumber == 0) {
-		InsertionPointAtom = &parsedAtoms[APar_LocateParentHierarchy(the_hierarchy)];
 	}
-	
-	return InsertionPointAtom;
+	//APar_PrintAtomicTree(); //because PrintAtomicTree calls DetermineDynamicUpdate (which calls this FindAtom function) to print out padding space, an infinite loop occurs
+	APar_FreeSurrogateAtom(&atom_surrogate);
+	return thisAtom;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////
@@ -1093,18 +1025,16 @@ void APar_PrintUserDataAssests() { //3gp files
 #elif defined (_MSC_VER) && defined (UTF16_ENABLED)
 	APar_unicode_win32Printout(L"\xEF\xBB\xBF");
 #endif
-
-	AtomicInfo* udtaAtom = APar_FindAtom("moov.udta", false, SIMPLE_ATOM, false, true, 0);
+	
+	AtomicInfo* udtaAtom = APar_FindAtom("moov.udta", false, SIMPLE_ATOM, 0);
 	
 	if (udtaAtom == NULL) return;
 
 	for (int i=udtaAtom->NextAtomNumber; i < atom_number; i++) {
 		if ( parsedAtoms[i].AtomicLevel <= udtaAtom->AtomicLevel ) { //we've gone too far
-			//fprintf(stdout, "User data \"%s\" ", parsedAtoms[i].AtomicName);
 			break;
 		}
 		if (parsedAtoms[i].AtomicLevel == udtaAtom->AtomicLevel + 1) {
-			//fprintf(stdout, "User data \"%s\" ", parsedAtoms[i].AtomicName);
 			
 			uint32_t box = UInt32FromBigEndian(parsedAtoms[i].AtomicName);
 			
@@ -1525,7 +1455,6 @@ void APar_ExtractDataAtom(int this_atom_number) {
 							fprintf(stdout,"\n");
 						}
 					}
-						
 				}
 					
 				free(primary_number_data);
@@ -1560,12 +1489,7 @@ void APar_PrintDataAtoms(const char *path, bool extract_pix, char* pic_output_pa
             thisAtom->AtomicVerFlags == (uint32_t)AtomicDataClass_UInt8_Binary) && !extract_pix ) {
 				if (strncmp(parent->AtomicName, "----", 4) == 0) {
 					if (memcmp(parsedAtoms[i-1].AtomicName, "name", 4) == 0) {
-						memset(twenty_byte_buffer, 0, sizeof(char)*20);
-					
-						fseek(source_file, parsedAtoms[parent->AtomicNumber + 2].AtomicStart + 12, SEEK_SET); //'name' atom is the 2nd child
-						fread(twenty_byte_buffer, 1, parsedAtoms[parent->AtomicNumber + 2].AtomicLength - 12, source_file);
-					
-						fprintf(stdout, "Atom \"%s\" [%s] contains: ", parent->AtomicName, twenty_byte_buffer);
+						fprintf(stdout, "Atom \"%s\" [%s] contains: ", parent->AtomicName, parsedAtoms[i-1].ReverseDNSname);
 						APar_ExtractDataAtom(i);
 					}
 				
@@ -1831,7 +1755,7 @@ uint8_t APar_GetCurrentAtomDepth(uint32_t atom_start, uint32_t atom_length) {
 }
 
 void APar_IdentifyBrand(char* file_brand ) {
-	uint32_t brand = UInt32FromBigEndian(file_brand);
+	brand = UInt32FromBigEndian(file_brand);
 	switch (brand) {
 		//what ISN'T supported
 		case 0x71742020 : //'qt  '
@@ -1952,7 +1876,7 @@ int APar_MatchToKnownAtom(const char* atom_name, const char* atom_container, boo
 		
 		APar_ProvideAtomPath(parsedAtoms[atom_number-1].AtomicNumber, fullpath, fromFile);
 		
-		//fprintf(stdout, "%s\n", fullpath);
+		//fprintf(stdout, "APar_ProvideAtomPath gives %s\n", fullpath);
 		if (memcmp(fullpath, "moov.udta.meta.ilst.", 20) == 0) {
 			return_known_atom = total_known_atoms-1; //last KnowAtoms is a generic placeholder iTunes-data atom
 			//fprintf(stdout, "found iTunes data child\n");
@@ -2102,7 +2026,6 @@ void APar_ScanAtoms(const char *path, bool scan_for_tree_ONLY) {
 					
 					APar_Manually_Determine_Parent(jump, dataSize, container);
 					int filtered_known_atom = APar_MatchToKnownAtom(atom, container, true);
-					//fprintf(stdout, "   ::container for %s found to be %s (KA - %s, %i)\n", atom, container, KnownAtoms[filtered_known_atom].known_atom_name, KnownAtoms[filtered_known_atom].box_type);
 					
 					uint32_t atom_verflags = 0;
 					uint16_t atom_language = 0;
@@ -2175,6 +2098,18 @@ void APar_ScanAtoms(const char *path, bool scan_for_tree_ONLY) {
 						
 					} else {
 						APar_AtomizeFileInfo(jump, dataSize, 0, atom, generalAtomicLevel, KnownAtoms[filtered_known_atom].container_state, KnownAtoms[filtered_known_atom].box_type, atom_verflags, atom_language );
+					}
+					
+					//read in the name of an iTunes-style internal reverseDNS directly into parsedAtoms
+					if (memcmp(atom, "name", 4) == 0 && 
+					    memcmp(parsedAtoms[atom_number-2].AtomicName, "mean", 4) == 0 &&
+							memcmp(parsedAtoms[atom_number-3].AtomicName, "----", 4) == 0) {
+							
+							parsedAtoms[atom_number-1].ReverseDNSname = (char *)malloc(sizeof(char) * dataSize);
+							memset(parsedAtoms[atom_number-1].ReverseDNSname, 0, sizeof(char) * dataSize);
+							
+							fseek(file, jump + 12, SEEK_SET); //'name' atom is the 2nd child
+							fread(parsedAtoms[atom_number-1].ReverseDNSname, 1, dataSize - 12, file);
 					}
 					
 					if (dataSize == 0) { // length = 0 means it reaches to EOF
@@ -2314,79 +2249,45 @@ void APar_EliminateAtom(short this_atom_number, int resume_atom_number) {
 	return;
 }
 
-void APar_RemoveAtom(const char* atom_path, bool direct_find, uint8_t atom_type, uint16_t UD_lang) {
+void APar_RemoveAtom(const char* atom_path, uint8_t atom_type, uint16_t UD_lang) {
 	if (initial_optimize_pass) {
 		APar_Optimize(false);
 	}
-	modified_atoms = true;
-	AtomicInfo* desiredAtom = APar_FindAtom(atom_path, false, atom_type, false, direct_find, UD_lang);
+	
+	AtomicInfo* desiredAtom = APar_FindAtom(atom_path, false, atom_type, UD_lang);
 	
 	if (desiredAtom == NULL) return; //the atom didn't exist or wasn't found
-		
 	if (desiredAtom->AtomicNumber == 0) return; //we got the default atom, ftyp - and since that can't be removed, it must not exist (or it was missed)
 	
-	if (direct_find && atom_type != EXTENDED_ATOM) {
-		if (atom_type == PACKED_LANG_ATOM) {
+	modified_atoms = true;
+	if (atom_type != EXTENDED_ATOM) {
+		if (atom_type == PACKED_LANG_ATOM || desiredAtom->AtomicClassification == UNKNOWN_ATOM) {
 			APar_EliminateAtom(desiredAtom->AtomicNumber, desiredAtom->NextAtomNumber);
-		} else {
-			AtomicInfo* tailAtom = APar_LocateAtomInsertionPoint(atom_path, true, UD_lang);
-			APar_EliminateAtom(desiredAtom->AtomicNumber, tailAtom->NextAtomNumber >= 0 ? tailAtom->NextAtomNumber : 0 );
-		}
-		return;
-	//this will only work for AtomicParsley created uuid atoms that don't have children, but since all uuid atoms are treaded as non-parent atoms... no problems
-	} else if (direct_find && atom_type == EXTENDED_ATOM) {
-		APar_EliminateAtom(desiredAtom->AtomicNumber, desiredAtom->NextAtomNumber);
-		return;
-	}
-	
-	char* atom_hierarchy = strdup(atom_path);
-	char *search_atom_name = strsep(&atom_hierarchy,".");
-	char *parent_name = strdup(search_atom_name);
-	while (atom_hierarchy != NULL) {
-		parent_name= strdup(search_atom_name);
-		search_atom_name = strsep(&atom_hierarchy,".");
-	}
-	
-  if ( (desiredAtom->AtomicName != NULL) && (search_atom_name != NULL) ) {
-    char* uuid_name = (char *)malloc(sizeof(char)*5);
-		memset(uuid_name, 0, sizeof(char)*5);
-		
-    uuid_name = strstr(search_atom_name, "uuid=");
-    if (uuid_name != NULL) {
-      search_atom_name = strsep(&uuid_name,"=");
-    }
-
-    if ( (strncmp(search_atom_name, desiredAtom->AtomicName, 4) == 0) ||
-				 (strncmp(search_atom_name, "data", 4) == 0 && strncmp(parent_name, desiredAtom->AtomicName, 4) == 0) ) { //only remove an atom we have a matching name for	
-      short parent_atom_pos;
-			AtomicInfo* endingAtom;
 			
-			if (strncmp(search_atom_name, "covr", 4) == 0) {
-				parent_atom_pos = desiredAtom->AtomicNumber;
-				short covr_last_child_atom = desiredAtom->NextAtomNumber;
-				while (true) {
-					if (parsedAtoms[parsedAtoms[covr_last_child_atom].NextAtomNumber].AtomicLevel == desiredAtom->AtomicLevel +1) {
-						covr_last_child_atom = parsedAtoms[covr_last_child_atom].NextAtomNumber;
-					} else {
-						endingAtom = &parsedAtoms[covr_last_child_atom];
-						break;
-					}
-					if (covr_last_child_atom == 0) {
-						endingAtom = &parsedAtoms[atom_number-1];
-						break; //this shouldn't happen
-					}
-				}
-				
-			} else {
-				parent_atom_pos = APar_FindPrecedingAtom(desiredAtom->AtomicNumber);
-				endingAtom = APar_LocateAtomInsertionPoint(atom_path, true, UD_lang);
-
-			}
-			APar_EliminateAtom(parent_atom_pos, endingAtom->NextAtomNumber);
-    }
-    free(atom_hierarchy);
-		atom_hierarchy=NULL;
-  }
+		//reverseDNS atom
+		} else if (desiredAtom->ReverseDNSname != NULL) {
+			short parent_atom = APar_FindParentAtom(desiredAtom->AtomicNumber, desiredAtom->AtomicLevel);
+			short last_elim_atom = APar_FindLastChild_of_ParentAtom(parent_atom);
+			APar_EliminateAtom( parent_atom, parsedAtoms[last_elim_atom].NextAtomNumber );
+			
+		} else if (memcmp(desiredAtom->AtomicName, "data", 4) == 0 && desiredAtom->AtomicLevel == 6){
+			short parent_atom = APar_FindParentAtom(desiredAtom->AtomicNumber, desiredAtom->AtomicLevel);
+			short last_elim_atom = APar_FindLastChild_of_ParentAtom(parent_atom);
+			APar_EliminateAtom( parent_atom, parsedAtoms[last_elim_atom].NextAtomNumber );
+			
+		} else if (desiredAtom->AtomicContainerState <= DUAL_STATE_ATOM) {
+			short last_elim_atom = APar_FindLastChild_of_ParentAtom(desiredAtom->AtomicNumber);
+			APar_EliminateAtom( desiredAtom->AtomicNumber, parsedAtoms[last_elim_atom].NextAtomNumber );
+		
+		} else {
+			short last_elim_atom = APar_FindLastChild_of_ParentAtom(desiredAtom->AtomicNumber);
+			APar_EliminateAtom(desiredAtom->AtomicNumber, last_elim_atom );
+		}
+		
+	//this will only work for AtomicParsley created uuid atoms that don't have children, but since all uuid atoms are treaded as non-parent atoms... no problems
+	} else if (atom_type == EXTENDED_ATOM) {
+		APar_EliminateAtom(desiredAtom->AtomicNumber, desiredAtom->NextAtomNumber);
+	}
 	return;
 }
 
@@ -2508,44 +2409,6 @@ void APar_MoveAtom(short this_atom_number, short new_position) {
 	return;
 }
 
-/*----------------------
-APar_ReturnChildrenAtoms
-  this_atom - the parent atom that contains any number of children atoms (that are currenly unknown)
-  atom_index - the index of the desired child. Passing 0 will return a count of the *total* number of children atoms under this_atom
-
-    Working off of AtomicLevel, test the atoms that follow this_atom to see if they are immediately below this_atom. Increment total_children if is - if
-		total_children should match our index, return that desired child at index atom.
-----------------------*/
-short APar_ReturnChildrenAtoms(short this_atom, uint8_t atom_index) {
-	short child_atom = 0;
-	uint8_t total_children = 0;
-	short iter = parsedAtoms[this_atom].NextAtomNumber;
-	
-	while (true) {
-		if ( (parsedAtoms[iter].AtomicLevel == parsedAtoms[this_atom].AtomicLevel + 1  && this_atom > 0) || 
-				 (this_atom == 0 && parsedAtoms[iter].AtomicLevel == 1) ) {
-			total_children++;
-			
-			if (atom_index == total_children) {
-				child_atom = iter;
-				break;
-			}
-		}
-		if (parsedAtoms[iter].AtomicLevel <= parsedAtoms[this_atom].AtomicLevel && this_atom != 0) {
-			break;
-		} else {
-			iter = parsedAtoms[iter].NextAtomNumber;
-		}
-		if (iter == 0) {
-			break;
-		}
-	}
-	if (atom_index == 0) {
-		child_atom = (short)total_children;
-	}
-	return child_atom;
-}
-
 ///////////////////////////////////////////////////////////////////////////////////////
 //                          Atom Creation Functions                                  //
 ///////////////////////////////////////////////////////////////////////////////////////
@@ -2559,13 +2422,13 @@ APar_InterjectNewAtom
 	atom_verflags - the 1 byte atom version & 3 bytes atom flags for the atom if versioned
 	packed_lang - the 2 byte packed language for the atom if versioned with packed language type
 	atom_level - the level of this atom (1 denotes file level, anything else denotes a child of the last preceding parent or dual state atom)
-	follow_this_atom - the atom that precedes this newly created interjected atom
+	preceding_atom - the atom that precedes this newly created interjected atom
 
-    Creates an atom (carrying NULLed data) that comes after stationary_atom, and resuming with the original NextAtomNumber atom of follow_this_atom
+    Creates a single new atom (carrying NULLed data) inserted after preceding_atom
 ----------------------*/
 short APar_InterjectNewAtom(char* atom_name, uint8_t cntr_state, uint8_t atom_class, uint32_t atom_length, 
 														uint32_t atom_verflags, uint16_t packed_lang, uint8_t atom_level,
-														short follow_this_atom) {
+														short preceding_atom) {
 
 	AtomicInfo* new_atom = &parsedAtoms[atom_number];
 	new_atom->AtomicNumber = atom_number;
@@ -2583,8 +2446,8 @@ short APar_InterjectNewAtom(char* atom_name, uint8_t cntr_state, uint8_t atom_cl
 	new_atom->AtomicData = (char*)malloc(sizeof(char)* atom_length ); //puts a hard limit on the length of strings (the spec doesn't)
 	memset(new_atom->AtomicData, 0, sizeof(char)* atom_length );
 
-	new_atom->NextAtomNumber = parsedAtoms[ follow_this_atom ].NextAtomNumber;
-	parsedAtoms[ follow_this_atom ].NextAtomNumber = atom_number;
+	new_atom->NextAtomNumber = parsedAtoms[ preceding_atom ].NextAtomNumber;
+	parsedAtoms[ preceding_atom ].NextAtomNumber = atom_number;
 
 	atom_number++;
 	return new_atom->AtomicNumber;
@@ -2593,104 +2456,45 @@ short APar_InterjectNewAtom(char* atom_name, uint8_t cntr_state, uint8_t atom_cl
 /*----------------------
 APar_CreateSparseAtom
 	
-	present_hierarchy - an already existing atom.path hierarchy that will be used to find where to create a new atom
-	new_atom_name - the name of the newly created atom
-	remaining_hierarchy - non-existing hiearchy that needs to be created prior to the creation of new_atom_name
-	atom_level - the level of the atom
-	asLastChild - create this atom as either the first child of the parent atom, or as the last child
-	atom_lang - used only when creating a 3gp tags with mutliple languages, this is the language setting itself
+	surrogate_atom - an skeletal template of the atom to be created; currently name, level, lang, (if uuid/extended: container & class) are copied; other
+	                 stats should be filled in routines that called for their creation and know things like flags & if is to carry an data (this doesn't malloc)
+	parent_atom - the stats for the parent atom (used to match through the KnownAtoms array and get things like container & class (for most atoms)
+	preceding_atom - the new atom will follow this atom
 
-    Create a new atom (not carrying any data) from a atom.path delimited atom hiearchy including possibly a non-existing hiearchy (for example 'moov'
-		exists, but "moov.udta.meta.ilst.aART" doesn't). 
+    Create a single new atom (not carrying any data) copied from a template to follow preceding_atom 
 ----------------------*/
-AtomicInfo* APar_CreateSparseAtom(const char* present_hierarchy, char* new_atom_name, char* remaining_hierarchy, 
-                                   uint8_t atom_level, bool asLastChild, uint16_t atom_lang) {
-	//the end boolean value below tells the function to locate where that atom (and its children) end
-	AtomicInfo* KeyInsertionAtom = APar_LocateAtomInsertionPoint(present_hierarchy, asLastChild, atom_lang);
-	bool atom_shunted = false; //only shunt the NextAtomNumber once (for the first atom that is missing.
-	int continuation_atom_number = 0;
-	char* uuid_name = (char *)malloc(sizeof(char)*5);
-	memset(uuid_name, 0, sizeof(char)*5);
-	memset(twenty_byte_buffer, 0, sizeof(char)*20); //will hold the last known container atom
+AtomicInfo* APar_CreateSparseAtom(AtomicInfo* surrogate_atom, AtomicInfo* parent_atom, short preceding_atom) {
+	AtomicInfo* new_atom = &parsedAtoms[atom_number];
+	new_atom->AtomicNumber = atom_number;
+	new_atom->AtomicStart = 0;
+	int known_atom = 0;
 	
-	memcpy(twenty_byte_buffer, present_hierarchy + (strlen(present_hierarchy) - 4), 4);
+	new_atom->AtomicName = (char*)malloc(sizeof(char)*6);
+	memset(new_atom->AtomicName, 0, sizeof(char)*6);
+	memcpy(new_atom->AtomicName, surrogate_atom->AtomicName, 4);
+	new_atom->AtomicLevel = surrogate_atom->AtomicLevel;
+	new_atom->AtomicLanguage = surrogate_atom->AtomicLanguage;
 	
-	AtomicInfo* new_atom = NULL;
-	//fprintf(stdout, "Our KEY insertion atom is \"%s\" for: %s(%s)\n", KeyInsertionAtom->AtomicName, present_hierarchy, remaining_hierarchy);
-	continuation_atom_number = KeyInsertionAtom->NextAtomNumber;
-	
-	while (new_atom_name != NULL) {
-		//the atom should be created first, so that we can determine these size issues first
-		//new_atom_name = strsep(&missing_hierarchy,".");
-		//fprintf(stdout, "At %s, adding new atom \"%s\" at level %i, after %s\n", present_hierarchy, new_atom_name, atom_level, parsedAtoms[APar_FindPrecedingAtom(KeyInsertionAtom->AtomicNumber)].AtomicName);
-
-		new_atom = &parsedAtoms[atom_number];
+	//if 'uuid' atom, copy the info directly, otherwise use KnownAtoms to get the info
+	if (surrogate_atom->AtomicClassification == EXTENDED_ATOM) {
+		new_atom->AtomicContainerState = CHILD_ATOM;
+		new_atom->AtomicClassification = surrogate_atom->AtomicClassification;
 		
-		new_atom->AtomicStart = 0;
-		new_atom->AtomicNumber = atom_number;
+	} else {
+		//determine the type of atom from our array of KnownAtoms; this is a worst case scenario; it should be handled properly afterwards
+		known_atom = APar_MatchToKnownAtom(surrogate_atom->AtomicName, parent_atom->AtomicName, false);
 		
-		new_atom->AtomicName = (char*)malloc(sizeof(char)*6);
-		memset(new_atom->AtomicName, 0, sizeof(char)*6);
-		
-		uuid_name = strstr(new_atom_name, "uuid=");
-		if (uuid_name != NULL) {
-			uuid_name = strsep(&new_atom_name,"=");
-			strcpy(new_atom->AtomicName, new_atom_name);
-			
-			new_atom->AtomicContainerState = CHILD_ATOM;
-			new_atom->AtomicClassification = EXTENDED_ATOM;
-			
-		} else {
-			strcpy(new_atom->AtomicName, new_atom_name);
-			
-			int known_atom = APar_MatchToKnownAtom(new_atom_name, twenty_byte_buffer, false);
-		
-			new_atom->AtomicContainerState = KnownAtoms[known_atom].container_state;
-			new_atom->AtomicClassification = KnownAtoms[known_atom].box_type;
-		}
-		new_atom->AtomicVerFlags = 0;
-		new_atom->AtomicLanguage = atom_lang;
-		new_atom->AtomicLevel = atom_level;
-		
-		if (!atom_shunted) {
-			
-			//follow the hierarchy by NextAtomNumber (and not by AtomicNumber because that still includes the atoms removed during this run) & match KeyInsertionAtom
-			int test_atom_num = 0;
-			while ( test_atom_num <= atom_number ) {
-			
-				if (parsedAtoms[test_atom_num].NextAtomNumber == KeyInsertionAtom->NextAtomNumber) {
-					parsedAtoms[test_atom_num].NextAtomNumber = atom_number;
-					break;
-				}
-				test_atom_num = parsedAtoms[test_atom_num].NextAtomNumber;
-				if (test_atom_num == 0) {
-					parsedAtoms[atom_number].NextAtomNumber = atom_number;
-					break;
-				}
-			}
-			new_atom->NextAtomNumber=atom_number;
-		} else {
-			parsedAtoms[atom_number-1].NextAtomNumber=atom_number;
-		}
-		new_atom->NextAtomNumber = continuation_atom_number;
-		
-		memcpy(twenty_byte_buffer, new_atom_name, 4); //new_atom_name was just created; if we are looping still then it must be some sort of parent; copy it
-		new_atom_name = strsep(&remaining_hierarchy,".");
-		atom_level++;
-		//parsedAtoms[atom_number] = new_atom;
-		
-		atom_number++;
-		atom_shunted = true;
-		
-		if (new_atom_name != NULL && remaining_hierarchy != NULL) {
-			if ( (strncmp(new_atom_name, "meta", 4) == 0) && (strncmp(remaining_hierarchy, "ilst", 4) == 0) ) {
-				if (!Create__udta_meta_hdlr__atom) {
-					Create__udta_meta_hdlr__atom = true;
-				}
-			}
-		} //ends create hdlr section
-		
+		new_atom->AtomicContainerState = KnownAtoms[known_atom].container_state;
+		new_atom->AtomicClassification = KnownAtoms[known_atom].box_type;
 	}
+	
+	//this is almost assuredly wrong for everything except a simple parent atom & needs to be handled properly afterwards; Note the use of 'Sparse'
+	new_atom->AtomicVerFlags = 0;
+	new_atom->AtomicLength = 8;
+
+	new_atom->NextAtomNumber = parsedAtoms[ preceding_atom ].NextAtomNumber;
+	parsedAtoms[ preceding_atom ].NextAtomNumber = atom_number;
+	atom_number++;
 	
 	return new_atom;
 }
@@ -2845,21 +2649,28 @@ APar_Verify__udta_meta_hdlr__atom
     only test if the atom is present for now, it will be created just before writeout time - to insure it only happens once.
 ----------------------*/
 void APar_Verify__udta_meta_hdlr__atom() {
-	if (metadata_style == ITUNES_STYLE) {
-		const char* udta_meta_hdlr__atom = "moov.udta.meta.hdlr";
-		AtomicInfo* hdlrAtom = APar_FindAtom(udta_meta_hdlr__atom, false, VERSIONED_ATOM, false, true, 0);
-		if (hdlrAtom == NULL) {
+	bool Create__udta_meta_hdlr__atom = false;
+	
+	if (metadata_style == ITUNES_STYLE && hdlr_atom == NULL) {
+		hdlr_atom = APar_FindAtom("moov.udta.meta.hdlr", false, VERSIONED_ATOM, 0);
+		if (hdlr_atom == NULL) {
 			Create__udta_meta_hdlr__atom = true;
-			
-		} else {
-			if ( hdlrAtom->AtomicNumber > 0 && hdlrAtom->AtomicNumber < atom_number ) {
-				if ( strncmp(hdlrAtom->AtomicName, "hdlr", 4) != 0 ) {
-					Create__udta_meta_hdlr__atom = true;
-				}
-			} else {
-				Create__udta_meta_hdlr__atom = true; //we got a null value - which means there wan't a moov.udta.meta.hdlr atom
-			}
 		}
+	}
+	if (Create__udta_meta_hdlr__atom ) {
+		
+		//if Quicktime (Player at the least) is used to create any type of mp4 file, the entire udta hierarchy is missing. If iTunes doesn't find
+		//this "moov.udta.meta.hdlr" atom (and its data), it refuses to let any information be changed & the dreaded "Album Artwork Not Modifiable"
+		//shows up. It's because this atom is missing. Oddly, QT Player can see the info, but this only works for mp4/m4a files.
+		
+		hdlr_atom = APar_FindAtom("moov.udta.meta.hdlr", true, VERSIONED_ATOM, 0);
+		
+		APar_MetaData_atom_QuickInit(hdlr_atom->AtomicNumber, 0, 0);
+		APar_Unified_atom_Put(hdlr_atom->AtomicNumber, NULL, UTF8_iTunesStyle_256byteLimited, 0x6D646972, 32); //'mdir'
+		APar_Unified_atom_Put(hdlr_atom->AtomicNumber, NULL, UTF8_iTunesStyle_256byteLimited, 0x6170706C, 32); //'appl'
+		APar_Unified_atom_Put(hdlr_atom->AtomicNumber, NULL, UTF8_iTunesStyle_256byteLimited, 0, 32);
+		APar_Unified_atom_Put(hdlr_atom->AtomicNumber, NULL, UTF8_iTunesStyle_256byteLimited, 0, 32);
+		APar_Unified_atom_Put(hdlr_atom->AtomicNumber, NULL, UTF8_iTunesStyle_256byteLimited, 0, 16);
 	}
 	return;
 }
@@ -2882,44 +2693,49 @@ void APar_MetaData_atomGenre_Set(const char* atomPayload) {
 		modified_atoms = true;
 		
 		if ( strlen(atomPayload) == 0) {
-			APar_RemoveAtom(std_genre_data_atom, false, VERSIONED_ATOM, 0); //find the atom; don't create if it's "" to remove
-			APar_RemoveAtom(cstm_genre_data_atom, false, VERSIONED_ATOM, 0); //find the atom; don't create if it's "" to remove
+			APar_RemoveAtom(std_genre_data_atom, VERSIONED_ATOM, 0); //find the atom; don't create if it's "" to remove
+			APar_RemoveAtom(cstm_genre_data_atom, VERSIONED_ATOM, 0); //find the atom; don't create if it's "" to remove
 		} else {
 		
 			uint8_t genre_number = StringGenreToInt(atomPayload);
 			AtomicInfo* genreAtom;
-			skip_meta_hdlr_creation = false;
+			
+			APar_Verify__udta_meta_hdlr__atom();
 			
 			if (genre_number != 0) {
 				//first find if a custom genre atom ("©gen") exists; erase the custom-string genre atom in favor of the standard genre atom
 				
-				AtomicInfo* verboten_genre_atom = APar_FindAtom(custom_genre_atom, false, SIMPLE_ATOM, true, false, 0);
+				AtomicInfo* verboten_genre_atom = APar_FindAtom(custom_genre_atom, false, SIMPLE_ATOM, 0);
+				//AtomicInfo* verboten_genre_atom = APar_FindAtom(custom_genre_atom, false, SIMPLE_ATOM, true, false, 0);
 				
 				if (verboten_genre_atom != NULL) {
 					if (strlen(verboten_genre_atom->AtomicName) > 0) {
 						if (strncmp(verboten_genre_atom->AtomicName, "©gen", 4) == 0) {
-							APar_RemoveAtom(cstm_genre_data_atom, false, VERSIONED_ATOM, 0);
+							APar_RemoveAtom(cstm_genre_data_atom, VERSIONED_ATOM, 0);
 						}
 					}
 				}
 				
-				genreAtom = APar_FindAtom(std_genre_data_atom, true, VERSIONED_ATOM, true, false, 0);
+				genreAtom = APar_FindAtom(std_genre_data_atom, true, VERSIONED_ATOM, 0);
+				//genreAtom = APar_FindAtom(std_genre_data_atom, true, VERSIONED_ATOM, true, false, 0);
 				APar_MetaData_atom_QuickInit(genreAtom->AtomicNumber, AtomicDataClass_UInteger, 0);
 				APar_Unified_atom_Put(genreAtom->AtomicNumber, NULL, UTF8_iTunesStyle_256byteLimited, 0, 8);
 				APar_Unified_atom_Put(genreAtom->AtomicNumber, NULL, UTF8_iTunesStyle_256byteLimited, (uint32_t)genre_number, 8);
 
 			} else {
 				
-				AtomicInfo* verboten_genre_atom = APar_FindAtom(standard_genre_atom, false, SIMPLE_ATOM, true, false, 0);
+				AtomicInfo* verboten_genre_atom = APar_FindAtom(standard_genre_atom, false, SIMPLE_ATOM, 0);
+				//AtomicInfo* verboten_genre_atom = APar_FindAtom(standard_genre_atom, false, SIMPLE_ATOM, true, false, 0);
 				
 				if (verboten_genre_atom != NULL) {
 					if (verboten_genre_atom->AtomicNumber > 5 && verboten_genre_atom->AtomicNumber < atom_number) {
 						if (strncmp(verboten_genre_atom->AtomicName, "gnre", 4) == 0) {
-							APar_RemoveAtom(std_genre_data_atom, false, VERSIONED_ATOM, 0);
+							APar_RemoveAtom(std_genre_data_atom, VERSIONED_ATOM, 0);
 						}		
 					}
 				}
-				genreAtom = APar_FindAtom(cstm_genre_data_atom, true, VERSIONED_ATOM, true, false, 0);
+				genreAtom = APar_FindAtom(cstm_genre_data_atom, true, VERSIONED_ATOM, 0);
+				//genreAtom = APar_FindAtom(cstm_genre_data_atom, true, VERSIONED_ATOM, true, false, 0);
 				APar_MetaData_atom_QuickInit(genreAtom->AtomicNumber, AtomicDataClass_Text, 0);
 				APar_Unified_atom_Put(genreAtom->AtomicNumber, atomPayload, UTF8_iTunesStyle_256byteLimited, 0, 0);
 			}
@@ -2967,12 +2783,18 @@ void APar_MetaData_atomArtwork_Set(const char* artworkPath, char* env_PicOptions
 		modified_atoms = true;
 		const char* artwork_atom = "moov.udta.meta.ilst.covr";
 		if (memcmp(artworkPath, "REMOVE_ALL", 10) == 0) {
-			APar_RemoveAtom(artwork_atom, false, SIMPLE_ATOM, 0);
+			APar_RemoveAtom(artwork_atom, SIMPLE_ATOM, 0);
 			
 		} else {
-			skip_meta_hdlr_creation = false;
-			AtomicInfo* desiredAtom = APar_FindAtom(artwork_atom, true, SIMPLE_ATOM, true, false, 0);
-			desiredAtom = APar_CreateSparseAtom(artwork_atom, "data", NULL, 6, true, 0);
+			APar_Verify__udta_meta_hdlr__atom();
+			
+			AtomicInfo* desiredAtom = APar_FindAtom(artwork_atom, true, SIMPLE_ATOM, 0);
+			AtomicInfo sample_data_atom = { 0 };
+			short parent_atom = desiredAtom->AtomicNumber; //used on Darwin adding a 2nd image (the original)
+			APar_CreateSurrogateAtom(&sample_data_atom, "data", 6, VERSIONED_ATOM, 0, NULL, 0);
+			desiredAtom = APar_CreateSparseAtom(&sample_data_atom, desiredAtom, APar_FindLastChild_of_ParentAtom(desiredAtom->AtomicNumber) );
+			//AtomicInfo* desiredAtom = APar_FindAtom(artwork_atom, true, SIMPLE_ATOM, true, false, 0);
+			//desiredAtom = APar_CreateSparseAtom(artwork_atom, "data", NULL, 6, true, 0);
 			
 			//determine if any picture preferences will impact the picture file in any way
 			myPicturePrefs = ExtractPicPrefs(env_PicOptions);
@@ -2985,8 +2807,9 @@ void APar_MetaData_atomArtwork_Set(const char* artworkPath, char* env_PicOptions
 			
 				if (myPicturePrefs.addBOTHpix) {
 					//create another sparse atom to hold the new file path (otherwise the 2nd will just overwrite the 1st in EncapsulateData
-					desiredAtom = APar_FindAtom(artwork_atom, true, SIMPLE_ATOM, true, false, 0);
-					desiredAtom = APar_CreateSparseAtom(artwork_atom, "data", NULL, 6, true, 0);
+					desiredAtom = APar_CreateSparseAtom(&sample_data_atom, desiredAtom, APar_FindLastChild_of_ParentAtom(parent_atom) );
+					//desiredAtom = APar_FindAtom(artwork_atom, true, SIMPLE_ATOM, true, false, 0);
+					//desiredAtom = APar_CreateSparseAtom(artwork_atom, "data", NULL, 6, true, 0);
 					APar_MetaData_atomArtwork_Init(desiredAtom->AtomicNumber, artworkPath);
 				}
 			} else {
@@ -3091,13 +2914,12 @@ short APar_uuid_atom_Init(const char* atom_path, char* uuidName, const uint32_t 
 	}
 	
 	if ( uuidValue == NULL || strlen(uuidValue) == 0) {
-		APar_RemoveAtom(uuid_path, true, EXTENDED_ATOM, 0); //find the atom; don't create if it's "" to remove
+		APar_RemoveAtom(uuid_path, EXTENDED_ATOM, 0); //find the atom; don't create if it's "" to remove
 		return -1;
 		
 	} else {
 		//uuid atoms won't have 'data' child atoms - they will carry the data directly as opposed to traditional iTunes-style metadata that does store the information on 'data' atoms. But user-defined is user-defined, so that is how it will be defined here.
-		desiredAtom = APar_FindAtom(uuid_path, true, EXTENDED_ATOM, false, false, 0);
-		skip_meta_hdlr_creation = false;
+		desiredAtom = APar_FindAtom(uuid_path, true, EXTENDED_ATOM, 0);
 		
 		if (dataType == (uint32_t)AtomicDataClass_Text) {
 			APar_MetaData_atom_QuickInit(desiredAtom->AtomicNumber, dataType, 4); //+4 because 'uuid' takes 4 bytes
@@ -3149,19 +2971,21 @@ short APar_MetaData_atom_Init(const char* atom_path, const char* MD_Payload, con
 	if ( strlen(MD_Payload) == 0 ) {
 		retain_atom = false;
 	}
-		
-	AtomicInfo* desiredAtom = APar_FindAtom(atom_path, true, VERSIONED_ATOM, retain_atom, false, 0); //finds the atom; if not present, creates the atom
-		
-	AtomicInfo* parent_atom = &parsedAtoms[ APar_FindParentAtom(desiredAtom->AtomicNumber, desiredAtom->AtomicLevel) ];
+	
+	if (retain_atom) {
+		APar_Verify__udta_meta_hdlr__atom();
+	}
+	
+	AtomicInfo* desiredAtom = APar_FindAtom(atom_path, retain_atom, VERSIONED_ATOM, 0); //finds the atom; if not present, creates the atom
 		
 	if (! retain_atom) {
+		AtomicInfo* parent_atom = &parsedAtoms[ APar_FindParentAtom(desiredAtom->AtomicNumber, desiredAtom->AtomicLevel) ];
 		if (desiredAtom->AtomicNumber > 0 && parent_atom->AtomicNumber > 0) {
 			APar_EliminateAtom(parent_atom->AtomicNumber, desiredAtom->NextAtomNumber);
 			return -1;
 		}
 			
 	} else {
-		skip_meta_hdlr_creation = false;
 		parsedAtoms[desiredAtom->AtomicNumber].AtomicData = (char*)malloc(sizeof(char)* MAXDATA_PAYLOAD + 1 ); //puts a hard limit on the length of strings (the spec doesn't)
 		memset(parsedAtoms[desiredAtom->AtomicNumber].AtomicData, 0, sizeof(char)* MAXDATA_PAYLOAD + 1 );
 		
@@ -3208,10 +3032,11 @@ short APar_UserData_atom_Init(const char* atom_path, const char* UD_Payload, uin
 	}
 	
 	if ( !retain_atom ) {
-		APar_RemoveAtom(atom_path, true, atom_type, UD_lang); //find the atom; don't create if it's "" to remove
+		APar_RemoveAtom(atom_path, atom_type, UD_lang); //find the atom; don't create if it's "" to remove
 		return -1;
 	} else {
-		desiredAtom = APar_FindAtom(atom_path, true, atom_type, true, false, UD_lang);
+		desiredAtom = APar_FindAtom(atom_path, true, atom_type, UD_lang);
+		
 		parsedAtoms[desiredAtom->AtomicNumber].AtomicData = (char*)malloc(sizeof(char)* MAXDATA_PAYLOAD ); //puts a hard limit on the length of strings (the spec doesn't)
 		memset(parsedAtoms[desiredAtom->AtomicNumber].AtomicData, 0, sizeof(char)* MAXDATA_PAYLOAD );
 		
@@ -3503,12 +3328,17 @@ APar_DetermineDynamicUpdate
 ----------------------*/
 void APar_DetermineDynamicUpdate(bool initial_pass) {
 	
-	AtomicInfo* udtaAtom = APar_FindAtom("moov.udta", false, SIMPLE_ATOM, false, true, 0);
+	AtomicInfo* udtaAtom = APar_FindAtom("moov.udta", false, SIMPLE_ATOM, 0);
+	//AtomicInfo* udtaAtom = APar_FindAtom("moov.udta", false, SIMPLE_ATOM, false, true, 0);
 	
 	//if there is no 'udta' atom, but we still want any available padding listed - there is none
 	if (udtaAtom == NULL && !modified_atoms) {
 		udta_dynamics.max_usable_free_space = 0;
 		return;
+	} else if (udtaAtom == NULL) {
+		//TODO: how to handle this so a full rewrite doesn't occur, because a segfault happens a few lines down with udtaAtom->AtomicNumber
+		udta_dynamics.max_usable_free_space = 0; //for now
+		return; //for now
 	}
 	
 	if (!udta_dynamics.dynamic_updating) {
@@ -3780,35 +3610,15 @@ void APar_DetermineNewFileLength() {
 
 void APar_DetermineAtomLengths() {
 	
-	if (!skip_meta_hdlr_creation) {
-		APar_Verify__udta_meta_hdlr__atom();
-	}
-	
 	if (!udta_dynamics.dynamic_updating && !psp_brand && initial_optimize_pass) {
 		APar_Optimize(false);
 	} else {
 		//'moov' & the last child of 'udta' are discovered in APar_Optimize and must be known to do dynamic updating (for PSP files)
-		udta_dynamics.moov_atom = APar_FindAtom("moov",false, SIMPLE_ATOM, false, true, 0)->AtomicNumber;
-		udta_dynamics.last_udta_child_atom = APar_FindLastChild_of_ParentAtom(APar_FindAtom("moov.udta",false, SIMPLE_ATOM, false, true, 0)->AtomicNumber);
-	}
-	
-	//Create__udta_meta_hdlr__atom gets set in APar_Verify__udta_meta_hdlr__atom; a (filled) hdlr atom is required by iTunes to enable tagging
-	if (Create__udta_meta_hdlr__atom && !skip_meta_hdlr_creation) {
-		
-		//if Quicktime (Player at the least) is used to create any type of mp4 file, the entire udta hierarchy is missing. If iTunes doesn't find
-		//this "moov.udta.meta.hdlr" atom (and its data), it refuses to let any information be changed & the dreaded "Album Artwork Not Modifiable"
-		//shows up. It's because this atom is missing. Oddly, QT Player can see the info, but this only works for mp4/m4a files.
-		
-		AtomicInfo* hdlr_atom = APar_FindAtom("moov.udta.meta.hdlr", false, VERSIONED_ATOM, false, true, 0);
-		hdlr_atom = APar_CreateSparseAtom("moov.udta.meta", "hdlr", NULL, 4, false, 0);
-		
-		APar_MetaData_atom_QuickInit(hdlr_atom->AtomicNumber, 0, 0);
-		APar_Unified_atom_Put(hdlr_atom->AtomicNumber, NULL, UTF8_iTunesStyle_256byteLimited, 0x6D646972, 32); //'mdir'
-		APar_Unified_atom_Put(hdlr_atom->AtomicNumber, NULL, UTF8_iTunesStyle_256byteLimited, 0x6170706C, 32); //'appl'
-		APar_Unified_atom_Put(hdlr_atom->AtomicNumber, NULL, UTF8_iTunesStyle_256byteLimited, 0, 32);
-		APar_Unified_atom_Put(hdlr_atom->AtomicNumber, NULL, UTF8_iTunesStyle_256byteLimited, 0, 32);
-		APar_Unified_atom_Put(hdlr_atom->AtomicNumber, NULL, UTF8_iTunesStyle_256byteLimited, 0, 16);
-		skip_meta_hdlr_creation = true;
+		udta_dynamics.moov_atom = APar_FindAtom("moov",false, SIMPLE_ATOM, 0)->AtomicNumber;
+		AtomicInfo* udta_atom = APar_FindAtom("moov.udta", false, SIMPLE_ATOM, 0);
+		if (udta_atom != NULL) { //its possible it was erased...
+			udta_dynamics.last_udta_child_atom = APar_FindLastChild_of_ParentAtom(udta_atom->AtomicNumber);
+		}
 	}
 	
 	short rev_atom_loop = APar_FindLastAtom();
@@ -4084,7 +3894,8 @@ void APar_MetadataFileDump(const char* m4aFile) {
 	memset(dump_file_name, 0, sizeof(char)* (strlen(m4aFile) +12 +1) );
 	
 	FILE* dump_file;
-	AtomicInfo* ilst_atom = APar_FindAtom("moov.udta.meta.ilst", false, SIMPLE_ATOM, false, true, 0);
+	AtomicInfo* ilst_atom = APar_FindAtom("moov.udta.meta.ilst", false, SIMPLE_ATOM, 0);
+	//AtomicInfo* ilst_atom = APar_FindAtom("moov.udta.meta.ilst", false, SIMPLE_ATOM, false, true, 0);
 	
 	//make sure that the atom really exists
 	if (ilst_atom != NULL) {
@@ -4643,7 +4454,7 @@ void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_origi
 		}
 	}
 	//APar_PrintAtomicTree();
-	APar_FreeMemory();
+	//APar_FreeMemory();
 	free(temp_file_name);
 	temp_file_name=NULL;
 	free(file_buffer);

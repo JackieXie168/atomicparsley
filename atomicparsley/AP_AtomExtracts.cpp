@@ -401,7 +401,7 @@ void APar_ExtractBrands(char* filepath) {
 			break;
 		}
 	}
-	
+	openSomeFile(filepath, false);
 	return;
 }
 

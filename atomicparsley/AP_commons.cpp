@@ -336,6 +336,10 @@ bool APar_assert(bool expression, int error_msg, char* supplemental_info) {
 				fprintf(stdout, "AtomicParsley warning: \n\tthe 'albm' tag is only allowed on files of '3gp6' brand & later.\nSkipping.\n");
 				break;
 			}
+			case 4 : { //trying to set a 3gp album asset on an early 3gp file that only came into being with 3gp6
+				fprintf(stdout, "Major brand of given file: %s\n", supplemental_info);
+				break;
+			}
 		}
 	}
 	return force_break;

@@ -68,14 +68,15 @@ struct AtomicInfo  {
 	uint32_t  AtomicLength;
 	uint64_t  AtomicLengthExtended;
 	char*     AtomicName;
+	char*			ReverseDNSname;
 	uint8_t   AtomicContainerState;
-	uint8_t   AtomicClassification;
-	uint32_t	AtomicVerFlags;
-	uint16_t  AtomicLanguage;
+	uint8_t   AtomicClassification; 
+	uint32_t	AtomicVerFlags;					//used by versioned atoms and derivatives
+	uint16_t  AtomicLanguage;					//used by 3gp assets only
 	uint8_t   AtomicLevel;
 	char*     AtomicData;
-	int       NextAtomNumber; //our first atom is numbered 0; the last points back to it - so watch it!
-	bool      tempFile; //used to delete temp pic files (if set as an environmental preference)
+	int       NextAtomNumber;					//our first atom is numbered 0; the last points back to it - so watch it!
+	bool      tempFile;								//used to delete temp pic files (if set as an environmental preference)
 	uint32_t  stsd_codec;
 };
 
@@ -187,6 +188,7 @@ extern bool modified_atoms;
 extern bool alter_original;
 
 extern int metadata_style;
+extern uint32_t brand;
 
 extern bool move_moov_atom;
 
@@ -218,15 +220,17 @@ void ShowVersionInfo();
 FILE* openSomeFile(const char* file, bool open);
 void TestFileExistence(const char *filePath, bool errorOut);
 
+void APar_FreeMemory();
+
 void APar_PrintUserDataAssests();
 void APar_PrintDataAtoms(const char *path, bool extract_pix, char* pic_output_path);
 void APar_PrintAtomicTree();
 
+int APar_MatchToKnownAtom(const char* atom_name, const char* atom_container, bool fromFile);
 void APar_ScanAtoms(const char *path, bool scan_for_tree_ONLY = false);
 void APar_IdentifyBrand(char* file_brand);
 
-AtomicInfo* APar_CreateSparseAtom(const char* present_hierarchy, char* new_atom_name, char* remaining_hierarchy, 
-                                   uint8_t atom_level, bool asLastChild, uint16_t atom_lang);
+AtomicInfo* APar_CreateSparseAtom(AtomicInfo* surrogate_atom, AtomicInfo* parent_atom, short preceding_atom);
 void APar_Unified_atom_Put(short atom_num, const char* unicode_data, uint8_t text_tag_style, uint32_t ancillary_data, uint8_t anc_bit_width);
 void APar_atom_Binary_Put(short atom_num, const char* binary_data, uint32_t bytecount, uint32_t atomic_data_offset);
 
@@ -244,7 +248,7 @@ short APar_uuid_atom_Init(const char* atom_path, char* uuidName, const uint32_t 
 uint32_t APar_3GP_Keyword_atom_Format(char* keywords_globbed, uint8_t keyword_count, bool set_UTF16_text, char* &formed_keyword_struct);
 short APar_UserData_atom_Init(const char* atom_path, const char* UD_Payload, uint16_t UD_lang);
 
-void APar_RemoveAtom(const char* atom_path, bool direct_find, uint8_t atom_type, uint16_t UD_lang);
+void APar_RemoveAtom(const char* atom_path, uint8_t atom_type, uint16_t UD_lang);
 void APar_freefree(int purge_level);
 
 void APar_MetadataFileDump(const char* m4aFile);
@@ -276,5 +280,5 @@ v0.7.6  12/31/2005 ceased flawed null-termination (which was implemented more in
 v0.8    01/14/2006 switched over to uint8_t for former ADC_CPIL_TMPO & former ADC_Integer; added podcast stik setting & purl/egid; bugfixes to APar_RemoveAtom; bugfixes & optimizations to APar_FindAtom; changes to text output & set values for stik atom; increase in buffer size; limit non-uuid strings to 255bytes; fixed retreats in progress bar; added purd atom; support mdat.length=0 atom (length=1/64-bit isn't supported; I'll somehow cope with a < 4GB file); switch from long to uint32_t; better x86 bitshifting; added swtich to prevent moving mdat atoms (possible PSP requires mdat before moov); universal binary for Mac OS X release; no text limit on lyrics tag
 v0.8.4  02/25/2006 fixed an imaging bug from preferences; fixed metaEnema screwing up the meta atom (APar_RemoveAtom bugfix to remove a direct_find atom); added --output, --overWrite; added --metaDump to dump ONLY metadata tags to a file; versioning for cvs builds; limited support for 64-bit mdat atoms (limited to a little less than a 32-bit atom; > 4GB); bugfixes to APar_RemoveAtom for removing uuid atoms or non-existing atoms & to delete all artwork, then add in 1 command ("--artwork REMOVE_ALL --artwork /path --artwork /path"); support 64-bit co64 atom; support MacOSX-style type/creator codes for tempfiles that end in ".mp4" (no need to change extn to ".m4v"/".m4a" anymore); moved purl/egid onto AtomicDataClass_UInteger (0x00 instead of 0x15) to mirror Apple's change on these tags; start incorporating Brian's Win32 fixes (if you malloc, memset is sure to follow; fopen); give the 'name' atom for '---' iTunes-internal tags for metadata printouts; allow --freefree remove 'free's up to a certain level (preserves iTunes padding); squash some memory leaks; change how CreateSparseAtom was matching atoms to accommodate EliminateAtom-ed atoms (facilitates the previous artwork amendments); exit on unsupported 'ftyp' file brands; anonymous 3rd party native win32 contributions; reworked APar_DetermineAtomLengths to accommodate proper tag setting with --mdatLock; parsing atoms under 'stsd' is no longer internally used - only for tree printing; reworked Mac OS X TYPE determination based on new stsd_codec structure member; revisit co64 offset calculations; start extracting track-level details (dates, language, encoder, channels); changed stco/co64 calculations to support non-muxed files; anonymous "Everyday is NOT like Sunday" contribution; changed unknown 0x15 flagged metadata atoms to hex printouts; move mdat only when moov precedes mdat; new flexible esds parsing
 v0.8.8  05/21/2006 prevent libmp4v2 artwork from a hexdump; changed how short strings were set; win32 change for uuid atoms to avoid sprintf; skip parsing 'free' atoms; work around foobar2000 0.9 non-compliant tagging scheme & added cli switch to give 'tags' the GoLytely - aka '--foobar2000Enema'; ability to read/set completely separate 3gp tags subset (3GPP TS 26.444 version 6.4.0 Release 6 compliant & more like QuickTime-style tags); added libxml's utf8 & utf16 conversion functions; new windows (windows2000 & later) unicode (utf16) console output (literal utf8 bytes in win98 & earlier; memset standard means of initializing; simplified setting of arbitrary info uniformly onto parsedAtoms.AtomicData; win32 switch to CP_UTF8 codepage on redirected console output for better unicode output support; eliminate need for libiconv - use xml's utf8<->latin1 functions to supplant libiconv; properly display atoms like '©nam' under Windows for trees & atom printouts; support setting unicode on Windows CP_UTF8; added 3GP keyword; fixed bug removing last 3GP asset to reset the length of 'udta'; added 'manualAtomRemove' for manually removing iTunes-style atoms; improved tracking of filesize/percentage when large free atoms impinge on % of new filesize; added 3GP location 'loci' (El Loco) atom - all known 3GP assets can now be set/viewed (except support for multiple same atoms of different languages); ->forced<- elimination of Nero tagging scheme (their foobar2000 inspired 'tags' atom) on 3GP files; prevent iTunes-style tags on 3GP files or 3GP assets on MPEG-4 files; fix offsets in fragmented files ("moof.traf.tfhd"); up MAX_ATOMS to 1024; Windows support for full utf16 (unicode) for cli args & filenames
-v0.9.0	??/??/2006 new file scanning method based on an array of known atoms/KnownAtoms struct added to list the gamut of known atoms & their basic properties; better atom versioning & flags support; allow negatives in 3gp asset coordinates (switch to high-bit ascii for getopt_long for assets); fixed minor bug that crept in on non-Win systems in removing files; switch from moving mdat(s) to moving moov to reorder atoms; mellow_flow's genre fix; SLarew's utf16 fix for printing 3gp assets on Win32; reorder moov's child atoms so that udta is last (as per ISO spec recommendations) in moov; enable use of 'free' atom padding for rapid updating, pad with a (user-defined) default amount of padding with a complete file rewrite; switch remaining AtomicInfo variables over to pointers; add support for multiple same atoms with differing languages (like 3gp assets); more flexible 'stik' setting/retrieving & added Audiobook; genre bugfix (again!!); added ability to list std genres & stik strings; switch output for rtng's "Lyrics" to "Content"; list file brands; bugfix for removing some cli metadata; prevent optimizing on PSP mpeg-4 files (but allow dynamic updating, and don't add padding to psp files)
+v0.9.0	??/??/2006 new file scanning method based on an array of known atoms/KnownAtoms struct added to list the gamut of known atoms & their basic properties; better atom versioning & flags support; allow negatives in 3gp asset coordinates (switch to high-bit ascii for getopt_long for assets); fixed minor bug that crept in on non-Win systems in removing files; switch from moving mdat(s) to moving moov to reorder atoms; mellow_flow's genre fix; SLarew's utf16 fix for printing 3gp assets on Win32; reorder moov's child atoms so that udta is last (as per ISO spec recommendations) in moov; enable use of 'free' atom padding for rapid updating, pad with a (user-defined) default amount of padding with a complete file rewrite; switch remaining AtomicInfo variables over to pointers; add support for multiple same atoms with differing languages (like 3gp assets); more flexible 'stik' setting/retrieving & added Audiobook; genre bugfix (again!!); added ability to list std genres & stik strings; switch output for rtng's "Lyrics" to "Content"; list file brands; bugfix for removing some cli metadata; prevent optimizing on PSP mpeg-4 files (but allow dynamic updating, and don't add padding to psp files); new APar_FindAtom routine eliminating some loops; updated routine to find 'moov.udta.meta.hdlr' or iTunes-style tagging; simplified APar_RemoveAtom; 3gp assets differing in language are grouped now instead of being fifo
 */

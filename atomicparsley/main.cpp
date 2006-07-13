@@ -180,7 +180,8 @@ static const char* longHelp_text =
 "------------------------------------------------------------------------------------------------\n"
 " Atom contents (printing on screen & extracting artwork(s) to files)\n"
 "\n"
-"  --textdata         ,  -t      prints contents of user data text items out (inc. # of any pics).\n"
+"  --textdata         ,  -t      show user data text metadata relevant to brand (inc. # of any pics).\n"
+"                                show metadata regardless of brand with \"-t 1\" (1 can be anything)\n"
 "\n"
 "  Extract any pictures in user data \"covr\" atoms to separate files. \n"
 "  --extractPix       ,  -E                     Extract to same folder (basename derived from file).\n"
@@ -234,9 +235,12 @@ static const char* longHelp_text =
 "  --artwork REMOVE_ALL \n"
 "  --manualAtomRemove \"some.atom.path\" where some.atom.path can be:\n"
 "                             \"moov.udta.ATOM\" for an child or parent atom in 'udta' (but not 3gp assets)\n"
-"                             \"moov.udta.ATOM:[eng]\" for a 3gp asset of a specific language\n"
+"                             \"moov.udta.ATOM:lang=eng\" for a 3gp asset of a specific language\n"
 "                             \"moov.udta.meta.ilst.ATOM\" or\n"
 "                             \"moov.udta.meta.ilst.ATOM.data\" for iTunes-style metadata\n"
+"                             \"moov.udta.meta.ilst.----.name:[foo]\" for reverse dns metadata\n"
+"                                    Note: these atoms show up with 'AP -t' as: Atom \"----\" [foo]\n"
+"                                          'foo' is actually carried on the 'name' atom\n"
 "\n"
 "------------------------------------------------------------------------------------------------\n"
 " Setting user-defined 'uuid' tags (all will appear in \"moov.udta.meta\"):\n"
@@ -406,8 +410,9 @@ void ExtractPaddingPrefs(char* env_padding_prefs) {
 	
 	while (env_pad_prefs_ptr != NULL) {
 		env_pad_prefs_ptr = strsep(&env_padding_prefs,":");
-		//fprintf(stdout, "%s\n", env_pad_prefs_ptr);
+		
 		if (env_pad_prefs_ptr == NULL) break;
+		
 		if (memcmp(env_pad_prefs_ptr, "DEFAULT_PAD=", 12) == 0) {
 			strsep(&env_pad_prefs_ptr,"=");
 			sscanf(env_pad_prefs_ptr, "%u", &pad_prefs.default_padding_size);
@@ -476,7 +481,6 @@ int wmain( int argc, wchar_t *arguments[]) {
 #else
 int main( int argc, char *argv[]) {
 #endif
-
 	if (argc == 1) {
 		fprintf (stdout,"%s", longHelp_text); exit(0);
 	} else if (argc == 2 && ((strncmp(argv[1],"-v",2) == 0) || (strncmp(argv[1],"-version",2) == 0)) ) {
@@ -520,7 +524,7 @@ int main( int argc, char *argv[]) {
 	static struct option long_options[] = {
 		{ "help",						  0,									NULL,						OPT_HELP },
 		{ "test",					  	optional_argument,	NULL,						OPT_TEST },
-		{ "textdata",         0,                  NULL,           OPT_ShowTextData },
+		{ "textdata",         optional_argument,  NULL,           OPT_ShowTextData },
 		{ "extractPix",				0,									NULL,           OPT_ExtractPix },
 		{ "extractPixToPath", required_argument,	NULL,				    OPT_ExtractPixToPath },
 		{ "artist",           required_argument,  NULL,						Meta_artist },
@@ -625,13 +629,26 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case OPT_ShowTextData: {
-			APar_ScanAtoms(m4afile);
-			
-			openSomeFile(m4afile, true);
-			if (metadata_style >= THIRD_GEN_PARTNER) {
+			if (argv[optind]) { //for utilities that write iTunes-style metadata into 3gp branded files
+				APar_ExtractBrands(m4afile);
+				APar_ScanAtoms(m4afile);
+				
+				openSomeFile(m4afile, true);
+				fprintf(stdout, "  3GPP assets:\n");
 				APar_PrintUserDataAssests();
-			} else if (metadata_style == ITUNES_STYLE) {
-				APar_PrintDataAtoms(m4afile, false, NULL); //false, don't try to extractPix
+				fprintf(stdout, "---------------------------\n  iTunes-style metadata tags:\n");
+				APar_PrintDataAtoms(m4afile, false, NULL);
+				fprintf(stdout, "---------------------------\n");
+				
+			} else {
+				APar_ScanAtoms(m4afile);
+				openSomeFile(m4afile, true);
+				
+				if (metadata_style >= THIRD_GEN_PARTNER) {
+					APar_PrintUserDataAssests();
+				} else if (metadata_style == ITUNES_STYLE) {
+					APar_PrintDataAtoms(m4afile, false, NULL); //false, don't try to extractPix
+				}
 			}
 			openSomeFile(m4afile, false);
 			break;
@@ -660,6 +677,9 @@ int main( int argc, char *argv[]) {
 		case Meta_artist : {
 			APar_ScanAtoms(m4afile);
 			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "artist") ) {
+				char major_brand[4];
+				char4TOuint32(brand, &*major_brand);
+				APar_assert(false, 4, &*major_brand);
 				break;
 			}
 			short artistData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©ART.data", optarg, AtomicDataClass_Text);
@@ -832,7 +852,7 @@ int main( int argc, char *argv[]) {
 			}
 			
 			if (strncmp(optarg, "false", 5) == 0 || strlen(optarg) == 0) {
-				APar_RemoveAtom("moov.udta.meta.ilst.cpil.data", false, SIMPLE_ATOM, 0);
+				APar_RemoveAtom("moov.udta.meta.ilst.cpil.data", VERSIONED_ATOM, 0);
 			} else {
 				//compilation: [0, 0, 0, 0,   boolean_value]; BUT that first uint32_t is already accounted for in APar_MetaData_atom_Init
 				short compilationData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.cpil.data", optarg, AtomicDataClass_UInt8_Binary);
@@ -848,7 +868,7 @@ int main( int argc, char *argv[]) {
 			}
 			
 			if (strncmp(optarg, "0", 1) == 0 || strlen(optarg) == 0) {
-				APar_RemoveAtom("moov.udta.meta.ilst.tmpo.data", false, SIMPLE_ATOM, 0);
+				APar_RemoveAtom("moov.udta.meta.ilst.tmpo.data", VERSIONED_ATOM, 0);
 			} else {
 				uint8_t bpm_value = 0;
 				sscanf(optarg, "%hhu", &bpm_value );
@@ -867,7 +887,7 @@ int main( int argc, char *argv[]) {
 			}
 			
 			if (strncmp(optarg, "remove", 6) == 0 || strlen(optarg) == 0) {
-				APar_RemoveAtom("moov.udta.meta.ilst.rtng.data", false, SIMPLE_ATOM, 0);
+				APar_RemoveAtom("moov.udta.meta.ilst.rtng.data", VERSIONED_ATOM, 0);
 			} else {
 				uint8_t rating_value = 0;
 				if (strncmp(optarg, "clean", 5) == 0) {
@@ -900,7 +920,7 @@ int main( int argc, char *argv[]) {
 			}
 			
 			if (strncmp(optarg, "remove", 6) == 0 || strlen(optarg) == 0) {
-				APar_RemoveAtom("moov.udta.meta.ilst.stik.data", false, SIMPLE_ATOM, 0);
+				APar_RemoveAtom("moov.udta.meta.ilst.stik.data", VERSIONED_ATOM, 0);
 			} else {
 				uint8_t stik_value = 0;
 				
@@ -1028,7 +1048,7 @@ int main( int argc, char *argv[]) {
 			}
 			
 			if (strncmp(optarg, "false", 5) == 0) {
-				APar_RemoveAtom("moov.udta.meta.ilst.pcst.data", false, SIMPLE_ATOM, 0);
+				APar_RemoveAtom("moov.udta.meta.ilst.pcst.data", VERSIONED_ATOM, 0);
 			} else {
 				//podcastflag: [0, 0, 0, 0,   boolean_value]; BUT that first uint32_t is already accounted for in APar_MetaData_atom_Init
 				short podcastFlagData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.pcst.data", optarg, AtomicDataClass_UInt8_Binary);
@@ -1161,17 +1181,25 @@ int main( int argc, char *argv[]) {
 			UTF8Toisolat1((unsigned char*)compliant_name, strlen(optarg), (unsigned char*)optarg, strlen(optarg) );
 			
 			if (strstr(optarg, "uuid=") != NULL) {
-				APar_RemoveAtom(compliant_name, true, EXTENDED_ATOM, 0);
+				APar_RemoveAtom(compliant_name, EXTENDED_ATOM, 0);
+				
 			} else if (memcmp(compliant_name + (strlen(compliant_name) - 4), "data", 4) == 0) {
-				APar_RemoveAtom(compliant_name, false, SIMPLE_ATOM, 0);
+				APar_RemoveAtom(compliant_name, VERSIONED_ATOM, 0);
+				
 			} else {
 				size_t string_len = strlen(compliant_name);
-				if (memcmp(compliant_name + string_len - 6, ":[", 2) == 0 && memcmp(compliant_name + string_len-1, "]", 1) == 0 ) {
-					uint16_t packed_lang = PackLanguage(compliant_name + string_len - 4, 0);
-					memset(compliant_name + string_len - 6, 0, 1);
-					APar_RemoveAtom(compliant_name, true, PACKED_LANG_ATOM, packed_lang);
+				//reverseDNS atom path
+				if (strstr(optarg, ":[") != NULL && memcmp(compliant_name + string_len-1, "]", 1) == 0 ) {
+					APar_RemoveAtom(compliant_name, VERSIONED_ATOM, 0);
+				
+				//packed language asset
+				} else if (memcmp(compliant_name + string_len - 9, ":lang=", 6) == 0 ) {
+					uint16_t packed_lang = PackLanguage(compliant_name + string_len - 3, 0);
+					memset(compliant_name + string_len - 9, 0, 1);
+					APar_RemoveAtom(compliant_name, PACKED_LANG_ATOM, packed_lang);
+					
 				} else {
-					APar_RemoveAtom(compliant_name, true, SIMPLE_ATOM, 0);
+					APar_RemoveAtom(compliant_name, UNKNOWN_ATOM, 0);
 				}
 			}
 			free(compliant_name);
@@ -1511,21 +1539,21 @@ int main( int argc, char *argv[]) {
 		
 		case Metadata_Purge : {
 			APar_ScanAtoms(m4afile);
-			APar_RemoveAtom("moov.udta.meta.ilst", true, SIMPLE_ATOM, 0);
+			APar_RemoveAtom("moov.udta.meta.ilst", SIMPLE_ATOM, 0);
 			
 			break;
 		}
 		
 		case UserData_Purge : {
 			APar_ScanAtoms(m4afile);
-			APar_RemoveAtom("moov.udta", true, SIMPLE_ATOM, 0);
+			APar_RemoveAtom("moov.udta", SIMPLE_ATOM, 0);
 			
 			break;
 		}
 		
 		case foobar_purge : {
 			APar_ScanAtoms(m4afile);
-			APar_RemoveAtom("moov.udta.tags", true, SIMPLE_ATOM, 0);
+			APar_RemoveAtom("moov.udta.tags", SIMPLE_ATOM, 0);
 			
 			break;
 		}
@@ -1578,6 +1606,7 @@ int main( int argc, char *argv[]) {
 			openSomeFile(m4afile, false);
 		}
 	}
+	APar_FreeMemory();
 #if defined (_MSC_VER) && defined (UTF16_ENABLED)
 	for(int zz=0; zz < argc; zz++) {
 		if (argv[zz] > 0) {
