@@ -56,7 +56,7 @@ atomDefinition KnownAtoms[] = {
 	{"tref",	{"trak"},						PARENT_ATOM,			OPTIONAL_MANY,				SIMPLE_ATOM },
 	{"mdia",	{"trak"},						PARENT_ATOM,			OPTIONAL_ONE,					SIMPLE_ATOM },
 	
-	{"tapt",	{"trak"},						PARENT_ATOM,			OPTIONAL_ONE,					SIMPLE_PARENT_ATOM },
+	{"tapt",	{"trak"},						PARENT_ATOM,			OPTIONAL_ONE,					SIMPLE_ATOM },
 	{"clef",	{"tapt"},						CHILD_ATOM,				OPTIONAL_ONE,					VERSIONED_ATOM },
 	{"prof",	{"tapt"},						CHILD_ATOM,				OPTIONAL_ONE,					VERSIONED_ATOM },
 	{"enof",	{"tapt"},						CHILD_ATOM,				OPTIONAL_ONE,					VERSIONED_ATOM },
@@ -155,11 +155,11 @@ atomDefinition KnownAtoms[] = {
 
 	{"srpp",	{"srtp"},						CHILD_ATOM,				REQUIRED_ONE,					VERSIONED_ATOM },
 
-	{"hnti",	{"udta"},						PARENT_ATOM,			OPTIONAL_ONE,					SIMPLE_PARENT_ATOM },
+	{"hnti",	{"udta"},						PARENT_ATOM,			OPTIONAL_ONE,					SIMPLE_ATOM },
 	{"rtp ",	{"hnti"},						CHILD_ATOM,				OPTIONAL_ONE,					SIMPLE_ATOM },        //'rtp ' is defined twice in different containers
 	{"sdp ",	{"hnti"},						CHILD_ATOM,				OPTIONAL_ONE,					SIMPLE_ATOM },
 
-	{"hinf",	{"udta"},						PARENT_ATOM,			OPTIONAL_ONE,					SIMPLE_PARENT_ATOM },
+	{"hinf",	{"udta"},						PARENT_ATOM,			OPTIONAL_ONE,					SIMPLE_ATOM },
 	{"name",	{"udta"},						CHILD_ATOM,				OPTIONAL_ONE,					SIMPLE_ATOM },
 	{"trpy",	{"hinf"},						CHILD_ATOM,				OPTIONAL_ONE,					SIMPLE_ATOM },
 	{"nump",	{"hinf"},						CHILD_ATOM,				OPTIONAL_ONE,					SIMPLE_ATOM },
@@ -248,7 +248,7 @@ atomDefinition KnownAtoms[] = {
 
 	{"esds",	{"SAMPLE_DESC"},		CHILD_ATOM,				REQUIRED_ONE,					SIMPLE_ATOM },         //multiple parents; keep 3rd from end; manual return
 
-	{"(..)",	{"ITUNES_METADATA"},	PARENT_ATOM,		OPTIONAL_ONE,			    SIMPLE_PARENT_ATOM },  //multiple parents; keep 2nd from end; manual return
+	{"(..)",	{"ilst"},						PARENT_ATOM,		  OPTIONAL_ONE,			    SIMPLE_ATOM },         //multiple parents; keep 2nd from end; manual return
 	{"data",	{"ITUNES_METADATA"},	CHILD_ATOM,			PARENT_SPECIFIC,			VERSIONED_ATOM }       //multiple parents
 	
 };
