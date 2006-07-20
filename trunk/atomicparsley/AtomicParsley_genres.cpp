@@ -31,7 +31,7 @@
 #include <stdlib.h>
 
 #include "AP_commons.h"     //just so win32/msvc can get uint8_t defined
-#include "AtomicParsley.h"  //for stik
+#include "AtomicParsley.h"  //for stiks & sfIDs
 
 //////////////
 
@@ -60,7 +60,7 @@ static const char* ID3v1GenreList[] = {
 		"Symphony", "Booty Bass", "Primus", "Porn Groove", 
 		"Satire", "Slow Jam", "Club", "Tango", "Samba", 
 		"Folklore", "Ballad", "Power Ballad", "Rhythmic Soul", "Freestyle", 
-		"Duet", "Punk Rock", "Drum Solo", "A capella", "Euro-House",
+		"Duet", "Punk Rock", "Drum Solo", "A Capella", "Euro-House",
 		"Dance Hall" };
 		/*
 		"Goa", "Drum & Bass", "Club House", "Hardcore", 
@@ -78,6 +78,32 @@ stiks stikArray[] = {
 	{ "Music Video", 6 },
 	{ "Short Film", 9 },
 	{ "TV Show", 10 }
+};
+
+// from William Herrera: http://search.cpan.org/src/BILLH/LWP-UserAgent-iTMS_Client-0.16/lib/LWP/UserAgent/iTMS_Client.pm
+sfIDs storefronts[] = {
+	{ "United States",	143441 },
+	{ "France",					143442 },
+	{ "Germany",				143443 },
+	{ "United Kingdom",	143444 },
+	{ "Austria",				143445 },
+	{ "Belgium",				143446 },
+	{ "Finland",				143447 },
+	{ "Greece",					143448 },
+	{ "Ireland",				143449 },
+	{ "Italy",					143450 },
+	{ "Luxembourg",			143451 },
+	{ "Netherlands",		143452 },
+	{ "Portugal",				143453 },
+	{ "Spain",					143454 },
+	{ "Canada",					143455 },
+	{ "Sweden",					143456 },
+	{ "Norway",					143457 },
+	{ "Denmark",				143458 },
+	{ "Switzerland",		143459 },
+	{ "Australia",			143460 },
+	{ "New Zealand",		143461 },
+	{ "Japan",					143462 }
 };
 
 char* GenreIntToString(int genre) {
@@ -152,4 +178,17 @@ void ListStikValues() {
 		fprintf(stdout, "(%u)  %s\n", stikArray[i].stik_number, stikArray[i].stik_string);
 	}
 	return;
+}
+
+sfIDs* MatchStoreFrontNumber(uint32_t storefrontnum) {
+	sfIDs* matching_sfID = NULL;
+	uint8_t total_known_sfs = (uint32_t)(sizeof(storefronts)/sizeof(*storefronts));
+	
+	for (uint8_t i = 0; i < total_known_sfs; i++) {
+		if ( storefronts[i].storefront_number == storefrontnum ) {
+			matching_sfID = &storefronts[i];
+			break;
+		}
+	}
+	return matching_sfID;
 }
