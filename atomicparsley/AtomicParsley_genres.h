@@ -26,3 +26,5 @@ void ListGenresValues();
 stiks* MatchStikString(const char* stik_string);
 stiks* MatchStikNumber(uint8_t in_stik_num);
 void ListStikValues();
+
+sfIDs* MatchStoreFrontNumber(uint32_t storefrontnum);

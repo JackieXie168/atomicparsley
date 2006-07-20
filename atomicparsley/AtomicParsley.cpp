@@ -58,7 +58,7 @@ bool cvs_build = true; //controls which type of versioning - cvs build-time stam
 //bool cvs_build = false; //controls which type of versioning - release number
 
 FILE* source_file;
-off_t file_size;
+uint32_t file_size;
 
 struct AtomicInfo parsedAtoms[MAX_ATOMS]; //(most I've seen is 144 for an untagged mp4)
 short atom_number = 0;
@@ -81,7 +81,6 @@ uint32_t bytes_into_mdat = 0;
 uint64_t mdat_supplemental_offset = 0;
 uint32_t removed_bytes_tally = 0;
 uint32_t new_file_size = 0; //used for the progressbar
-//uint32_t default_padding_size = 2048;
 uint32_t brand = 0;
 
 struct udta_stats udta_dynamics;
@@ -275,20 +274,19 @@ int APar_TestArtworkBinaryData(const char* artworkPath) {
 	int artwork_dataType = 0;
 	FILE *artfile = APar_OpenFile(artworkPath, "rb");
 	if (artfile != NULL) {
-		char *pic_data=(char *)malloc(sizeof(char)*9 + 1);
-		memset(pic_data, 0, sizeof(char)*9 + 1);
+		char pic_data[10];
+		memset(pic_data, 0, 10);
 		
-		fread(pic_data, 1, 8, artfile);
-		if ( strncmp(pic_data, "\x89\x50\x4E\x47\x0D\x0A\x1A\x0A", 8) == 0 ) {
-			artwork_dataType = AtomicDataClass_PNGBinary;
-		} else if ( strncmp(pic_data, "\xFF\xD8\xFF\xE0", 4) == 0 ) {
-			artwork_dataType = AtomicDataClass_JPEGBinary;
+		fread(&pic_data, 1, 8, artfile);
+		if ( strncmp(&*pic_data, "\x89\x50\x4E\x47\x0D\x0A\x1A\x0A", 8) == 0 ) {
+			artwork_dataType = AtomFlags_Data_PNGBinary;
+		} else if ( strncmp(&*pic_data, "\xFF\xD8\xFF\xE0", 4) == 0 ) {
+			artwork_dataType = AtomFlags_Data_JPEGBinary;
 		} else {
 			fprintf(stdout, "AtomicParsley error: %s\n\t image file is not jpg/png and cannot be embedded.\n", artworkPath);
 			exit(1);
 		}
 		fclose(artfile);
-		free(pic_data);
 		
 	} else {
 		fprintf(stdout, "AtomicParsley error: %s\n\t image file could not be opened.\n", artworkPath);
@@ -788,7 +786,7 @@ AtomicInfo* APar_FindAtom(const char* atom_name, bool createMissing, uint8_t ato
 		
 		if (strlen(search_atom_name) == 4) {
 			if (atom_type == UNKNOWN_ATOM) {
-				known_atom = APar_MatchToKnownAtom(search_atom_name, last_known_present_parent->AtomicName, false);
+				known_atom = APar_MatchToKnownAtom(search_atom_name, last_known_present_parent->AtomicName, false, atom_name);
 				search_atom_type = KnownAtoms[known_atom].box_type;
 			} else {
 				search_atom_type = atom_type;
@@ -881,7 +879,7 @@ void APar_AtomicRead(short this_atom_number) {
 	parsedAtoms[this_atom_number].AtomicData = (char*)malloc(sizeof(char)* (size_t)(parsedAtoms[this_atom_number].AtomicLength) );
 	memset(parsedAtoms[this_atom_number].AtomicData, 0, sizeof(char)* (size_t)(parsedAtoms[this_atom_number].AtomicLength) );
 	
-	fseek(source_file, parsedAtoms[this_atom_number].AtomicStart+12, SEEK_SET);
+	fseeko(source_file, parsedAtoms[this_atom_number].AtomicStart+12, SEEK_SET);
 	fread(parsedAtoms[this_atom_number].AtomicData, 1, parsedAtoms[this_atom_number].AtomicLength-12, source_file);
 	return;
 }
@@ -1038,8 +1036,13 @@ void APar_PrintUserDataAssests() { //3gp files
 			
 			uint32_t box = UInt32FromBigEndian(parsedAtoms[i].AtomicName);
 			
-			char* bitpacked_lang = (char*)malloc(sizeof(char)*3);
+			char bitpacked_lang[3];
 			memset(bitpacked_lang, 0, 3);
+			unsigned char unpacked_lang[3];
+			
+			uint32_t box_length = parsedAtoms[i].AtomicLength;
+			char* box_data = (char*)malloc(sizeof(char)*box_length);
+			memset(box_data, 0, sizeof(char)*box_length);
 			
 			switch (box) {
 				case 0x7469746C : //'titl'
@@ -1052,14 +1055,8 @@ void APar_PrintUserDataAssests() { //3gp files
 					{
 					fprintf(stdout, "User data \"%s\" ", parsedAtoms[i].AtomicName);
 					
-					int box_length = parsedAtoms[i].AtomicLength;
-					
 					uint16_t packed_lang = APar_read16(bitpacked_lang, source_file, parsedAtoms[i].AtomicStart + 12);
-					unsigned char unpacked_lang[3];
 					APar_UnpackLanguage(unpacked_lang, packed_lang);
-					
-					char* box_data = (char*)malloc(sizeof(char)*box_length);
-					memset(box_data, 0, box_length);
 					
 					APar_readX(box_data, source_file, parsedAtoms[i].AtomicStart + 14, box_length-14); //4bytes length, 4 bytes name, 4 bytes flags, 2 bytes lang
 					
@@ -1080,10 +1077,6 @@ void APar_PrintUserDataAssests() { //3gp files
 						fprintf(stdout, "  |  Track: %u", track_num);
 					}
 					fprintf(stdout, "\n");
-					
-					free(box_data);
-					box_data = NULL;
-					
 					break;
 					}
 				
@@ -1091,9 +1084,6 @@ void APar_PrintUserDataAssests() { //3gp files
 					{
 					fprintf(stdout, "User data \"%s\" ", parsedAtoms[i].AtomicName);
 					
-					int box_length = parsedAtoms[i].AtomicLength;
-					char* box_data = (char*)malloc(sizeof(char)*box_length);
-					memset(box_data, 0, box_length);
 					APar_readX(box_data, source_file, parsedAtoms[i].AtomicStart + 12, 4);
 					
 					fprintf(stdout, "[Rating Entity=%s", box_data);
@@ -1103,7 +1093,6 @@ void APar_PrintUserDataAssests() { //3gp files
 					fprintf(stdout, " | Criteria=%s", box_data);
 					
 					uint16_t packed_lang = APar_read16(bitpacked_lang, source_file, parsedAtoms[i].AtomicStart + 20);
-					unsigned char unpacked_lang[3];
 					APar_UnpackLanguage(unpacked_lang, packed_lang);
 					fprintf(stdout, " lang=%s", unpacked_lang);
 					
@@ -1119,16 +1108,12 @@ void APar_PrintUserDataAssests() { //3gp files
 					{
 					fprintf(stdout, "User data \"%s\" ", parsedAtoms[i].AtomicName);
 					
-					int box_length = parsedAtoms[i].AtomicLength;
-					char* box_data = (char*)malloc(sizeof(char)*box_length);
-					memset(box_data, 0, box_length);
 					APar_readX(box_data, source_file, parsedAtoms[i].AtomicStart + 12, box_length-12); //4bytes length, 4 bytes name, 4 bytes flags, 2 bytes lang
 					
 					fprintf(stdout, "[Classification Entity=%s", box_data);
 					fprintf(stdout, " | Index=%u", UInt16FromBigEndian(box_data + 4) );
 					
 					uint16_t packed_lang = APar_read16(bitpacked_lang, source_file, parsedAtoms[i].AtomicStart + 18);
-					unsigned char unpacked_lang[3];
 					APar_UnpackLanguage(unpacked_lang, packed_lang);
 					fprintf(stdout, " lang=%s", unpacked_lang);
 						
@@ -1141,13 +1126,11 @@ void APar_PrintUserDataAssests() { //3gp files
 					{
 					fprintf(stdout, "User data \"%s\" ", parsedAtoms[i].AtomicName);
 					
-					uint32_t box_length = parsedAtoms[i].AtomicLength;
 					uint32_t box_offset = 12;
 					
 					uint16_t packed_lang = APar_read16(bitpacked_lang, source_file, parsedAtoms[i].AtomicStart + box_offset);
 					box_offset+=2;
 					
-					unsigned char unpacked_lang[3];
 					APar_UnpackLanguage(unpacked_lang, packed_lang);
 					
 					uint8_t keyword_count = APar_read8(source_file, parsedAtoms[i].AtomicStart + box_offset);
@@ -1177,31 +1160,27 @@ void APar_PrintUserDataAssests() { //3gp files
 					{
 					fprintf(stdout, "User data \"%s\" ", parsedAtoms[i].AtomicName);
 					
-					uint32_t box_length = parsedAtoms[i].AtomicLength;
 					uint32_t box_offset = 12;
-					
 					uint16_t packed_lang = APar_read16(bitpacked_lang, source_file, parsedAtoms[i].AtomicStart + box_offset);
 					box_offset+=2;
 					
-					unsigned char unpacked_lang[3];
 					APar_UnpackLanguage(unpacked_lang, packed_lang);
 					
-					char* location_string = (char*)malloc(sizeof(char)* box_length);
-					APar_readX(location_string, source_file, parsedAtoms[i].AtomicStart + box_offset, box_length);
+					APar_readX(box_data, source_file, parsedAtoms[i].AtomicStart + box_offset, box_length);
 					fprintf(stdout, "[lang=%s] ", unpacked_lang);
 					
 					//the length of the location string is unknown (max is box lenth), but the long/lat/alt/body/notes needs to be retrieved.
 					//test if the location string is utf16; if so search for 0x0000 (or if utf8, find the first NULL).
-					if ( memcmp(location_string, "\xFE\xFF", 2) == 0 ) {
-						uint32_t new_tally = widechar_len(location_string, box_length);
-						box_offset+= 2 * widechar_len(location_string, box_length) + 2; //*2 for utf16 (double-byte); +2 for the terminating NULL
+					if ( memcmp(box_data, "\xFE\xFF", 2) == 0 ) {
+						uint32_t new_tally = widechar_len(box_data, box_length);
+						box_offset+= 2 * widechar_len(box_data, box_length) + 2; //*2 for utf16 (double-byte); +2 for the terminating NULL
 						fprintf(stdout, "(utf16) ");
 					} else {
 						fprintf(stdout, "(utf8) ");
-						box_offset+= strlen(location_string) + 1; //+1 for the terminating NULL
+						box_offset+= strlen(box_data) + 1; //+1 for the terminating NULL
 					}
 					fprintf(stdout, "Location: ");
-					APar_SimplePrintUnicodeAssest(location_string, box_length, false);
+					APar_SimplePrintUnicodeAssest(box_data, box_length, false);
 					
 					uint8_t location_role = APar_read8(source_file, parsedAtoms[i].AtomicStart + box_offset);
 					box_offset++;
@@ -1238,19 +1217,19 @@ void APar_PrintUserDataAssests() { //3gp files
 					
 					if (box_offset < box_length) {
 						fprintf(stdout, " Body: ");
-						APar_SimplePrintUnicodeAssest(location_string+box_offset-14, box_length-box_offset, false);
-						if ( memcmp(location_string+box_offset-14, "\xFE\xFF", 2) == 0 ) {
-							uint32_t new_tally = widechar_len(location_string+box_offset-14, box_length-box_offset);
-							box_offset+= 2 * widechar_len(location_string+box_offset-14, box_length-box_offset) + 2; //*2 for utf16 (double-byte); +2 for the terminating NULL
+						APar_SimplePrintUnicodeAssest(box_data+box_offset-14, box_length-box_offset, false);
+						if ( memcmp(box_data+box_offset-14, "\xFE\xFF", 2) == 0 ) {
+							uint32_t new_tally = widechar_len(box_data+box_offset-14, box_length-box_offset);
+							box_offset+= 2 * widechar_len(box_data+box_offset-14, box_length-box_offset) + 2; //*2 for utf16 (double-byte); +2 for the terminating NULL
 						} else {
-							box_offset+= strlen(location_string+box_offset-14) + 1; //+1 for the terminating NULL
+							box_offset+= strlen(box_data+box_offset-14) + 1; //+1 for the terminating NULL
 						}
 					}
 					fprintf(stdout, "]");
 					
 					if (box_offset < box_length) {
 						fprintf(stdout, " Notes: ");
-						APar_SimplePrintUnicodeAssest(location_string+box_offset-14, box_length-box_offset, false);
+						APar_SimplePrintUnicodeAssest(box_data+box_offset-14, box_length-box_offset, false);
 					}
 					
 					fprintf(stdout, "\n");
@@ -1271,6 +1250,8 @@ void APar_PrintUserDataAssests() { //3gp files
 					break;
 					}
 			}
+			free(box_data);
+			box_data = NULL;
 		}
 	}
 	return;
@@ -1287,7 +1268,7 @@ void APar_ExtractAAC_Artwork(short this_atom_num, char* pic_output_path, short a
 	char* art_payload = (char*)malloc( sizeof(char) * (parsedAtoms[this_atom_num].AtomicLength-16) +1 );	
 	memset(art_payload, 0, (parsedAtoms[this_atom_num].AtomicLength-16) +1 );
 			
-	fseek(source_file, parsedAtoms[this_atom_num].AtomicStart+16, SEEK_SET);
+	fseeko(source_file, parsedAtoms[this_atom_num].AtomicStart+16, SEEK_SET);
 	fread(art_payload, 1, parsedAtoms[this_atom_num].AtomicLength-16, source_file);
 	
 	char* suffix = (char *)malloc(sizeof(char)*5);
@@ -1317,7 +1298,6 @@ void APar_ExtractAAC_Artwork(short this_atom_num, char* pic_output_path, short a
 void APar_ExtractDataAtom(int this_atom_number) {
 	if ( source_file != NULL ) {
 		AtomicInfo* thisAtom = &parsedAtoms[this_atom_number];
-		//char* genre_string;
 		char* parent_atom_name;
 		
 		AtomicInfo parent_atom_stats = parsedAtoms[this_atom_number-1];
@@ -1335,10 +1315,10 @@ void APar_ExtractDataAtom(int this_atom_number) {
 			char* data_payload = (char*)malloc( sizeof(char) * (thisAtom->AtomicLength - atom_header_size +1) );
 			memset(data_payload, 0, sizeof(char) * (thisAtom->AtomicLength - atom_header_size +1) );
 			
-			fseek(source_file, thisAtom->AtomicStart + atom_header_size, SEEK_SET);
+			fseeko(source_file, thisAtom->AtomicStart + atom_header_size, SEEK_SET);
 			fread(data_payload, 1, thisAtom->AtomicLength - atom_header_size, source_file);
 			
-			if (thisAtom->AtomicVerFlags == (uint32_t)AtomicDataClass_Text) {
+			if (thisAtom->AtomicVerFlags == (uint32_t)AtomFlags_Data_Text) {
 				if (thisAtom->AtomicLength < (atom_header_size + 4) ) {
 					//tvnn was showing up with 4 chars instead of 3; easier to null it out for now
 					data_payload[thisAtom->AtomicLength - atom_header_size] = '\00';
@@ -1348,117 +1328,104 @@ void APar_ExtractDataAtom(int this_atom_number) {
 				fprintf(stdout,"\n");
 				
 			} else {
-			
-				char* primary_number_data = (char*)malloc( sizeof(char) * 4 );
-				uint32_t primary_number = 0;
-				uint32_t secondary_OF_number = 0;
-				
-				for (int i=0; i < 4; i++) {
-							primary_number_data[i] = '\0';
-				}
-				
-				if ( (strncmp(parent_atom_name, "trkn", 4) == 0) || (strncmp(parent_atom_name, "disk", 4) == 0) ) {
-					char* secondary_OF_number_data = (char*)malloc( sizeof(char) * 4 );
-					secondary_OF_number_data[0] = '\00';
-					secondary_OF_number_data[1] = '\00';
-					secondary_OF_number_data[2] = '\00';
-					secondary_OF_number_data[3] = data_payload[5];
-					secondary_OF_number = UInt32FromBigEndian(secondary_OF_number_data);
-					free(secondary_OF_number_data);
-					secondary_OF_number_data = NULL;
-					
-					for (int i=0; i < 4; i++) {
-						primary_number_data[i] = data_payload[i]; //we want the 4 byte 'atom' in data [4,5,6,7]
-					}
-					primary_number = UInt32FromBigEndian(primary_number_data);
-					
-					if (secondary_OF_number != 0) {
-						fprintf(stdout, "%u of %u\n", primary_number, secondary_OF_number);
+				if ( (memcmp(parent_atom_name, "trkn", 4) == 0) || (memcmp(parent_atom_name, "disk", 4) == 0) ) {
+					if (UInt16FromBigEndian(data_payload+4) != 0) {
+						fprintf(stdout, "%hu of %hu\n", UInt16FromBigEndian(data_payload+2), UInt16FromBigEndian(data_payload+4) );
 					} else {
-						fprintf(stdout, "%u\n", primary_number);
+						fprintf(stdout, "%hu\n", UInt16FromBigEndian(data_payload+2) );
 					}
 					
 				} else if (strncmp(parent_atom_name, "gnre", 4) == 0) {
 					if ( thisAtom->AtomicLength - atom_header_size < 3 ) { //oh, a 1byte int for genre number
-						for (int i=0; i < 2; i++) {
-							primary_number_data[i+2] = data_payload[i];
-						}
-						char* genre_string = GenreIntToString( UInt32FromBigEndian(primary_number_data) );
+						char* genre_string = GenreIntToString( UInt16FromBigEndian(data_payload) );
 						if (genre_string != NULL) {
 							fprintf(stdout,"%s\n", genre_string);
 						} else {
-							fprintf(stdout," out of bound value - %u\n", UInt32FromBigEndian(primary_number_data));
+							fprintf(stdout," out of bound value - %hu\n", UInt16FromBigEndian(data_payload) );
 						}
 					} else {
-						fprintf(stdout," out of bound value - %u\n", UInt32FromBigEndian(primary_number_data) );
-					}
-					
-				}	else if (strncmp(parent_atom_name, "tmpo", 4) == 0) {
-					primary_number_data[2] = data_payload[0];
-					primary_number_data[3] = data_payload[1];
-					primary_number = UInt32FromBigEndian(primary_number_data);
-					fprintf(stdout, "%u\n", primary_number);
-
-				} else if ( (strncmp(parent_atom_name, "cpil", 4) == 0) || (strncmp(parent_atom_name, "pcst", 4) == 0) ) {
-					primary_number_data[3] = data_payload[0];
-					primary_number = UInt32FromBigEndian(primary_number_data);
-					if (primary_number == 1) {
-						fprintf(stdout, "true\n");
-					} else {
-						fprintf(stdout, "false\n");
-					}
-					
-				} else if (strncmp(parent_atom_name, "stik", 4) == 0) { //no idea what 'stik' stands for; the State of the Union address came as 0x02
-					//primary_number_data[3] = data_payload[0];
-					//primary_number = UInt32FromBigEndian(primary_number_data);
-					
-					stiks* returned_stik = MatchStikNumber((uint8_t)data_payload[0]);
-					if (returned_stik != NULL) {
-						fprintf(stdout, "%s\n", returned_stik->stik_string);
-					} else {
-						fprintf(stdout, "Unknown value: %u\n", (uint8_t)data_payload[0]);
-					}
-
-				} else if (strncmp(parent_atom_name, "rtng", 4) == 0) {
-					primary_number_data[3] = data_payload[0];
-					primary_number = UInt32FromBigEndian(primary_number_data);
-					if (primary_number == 2) {
-						fprintf(stdout, "Clean Content\n");
-					} else if (primary_number != 0 ) {
-						fprintf(stdout, "Explicit Content\n");
-					} else {
-						fprintf(stdout, "Inoffensive\n");
+						fprintf(stdout," out of bound value - %hu\n", UInt16FromBigEndian(data_payload) );
 					}
 					
 				} else if ( (strncmp(parent_atom_name, "purl", 4) == 0) || (strncmp(parent_atom_name, "egid", 4) == 0) ) {
 					fprintf(stdout,"%s\n", data_payload);
 				
-				} else if ( (strncmp(parent_atom_name, "tvsn", 4) == 0) || (strncmp(parent_atom_name, "tves", 4) == 0) ) {
-					  for (int i=0; i < 4; i++) {
-						  primary_number_data[i] = data_payload[i]; 
-					  }
-					  primary_number = UInt32FromBigEndian(primary_number_data);
-						fprintf(stdout, "%u\n", primary_number);
-						
 				} else {
-					  
-					fprintf(stdout, "hex 0x");
-					for( int hexx = 1; hexx <= (int)(thisAtom->AtomicLength - atom_header_size); ++hexx) {
-						fprintf(stdout,"%02X", (uint8_t)data_payload[hexx-1]);
-						if ((hexx % 4) == 0 && hexx >= 4) {
-							fprintf(stdout," ");
-						}
-						if ((hexx % 16) == 0 && hexx > 16) {
-							fprintf(stdout,"\n\t\t\t");
-						}
-						if (hexx == (int)(thisAtom->AtomicLength - atom_header_size) ) {
-							fprintf(stdout,"\n");
-						}
+						if (thisAtom->AtomicVerFlags == AtomFlags_Data_UInt && (thisAtom->AtomicLength <= 20 || thisAtom->AtomicLength == 24) ) {
+						uint8_t bytes_rep = thisAtom->AtomicLength-atom_header_size;
+						
+						switch(bytes_rep) {
+							case 1 : {
+								if ( (memcmp(parent_atom_name, "cpil", 4) == 0) || (memcmp(parent_atom_name, "pcst", 4) == 0) ) {
+									if (data_payload[0] == 1) {
+										fprintf(stdout, "true\n");
+									} else {
+										fprintf(stdout, "false\n");
+									}
+									
+								} else if (strncmp(parent_atom_name, "stik", 4) == 0) {
+									stiks* returned_stik = MatchStikNumber((uint8_t)data_payload[0]);
+									if (returned_stik != NULL) {
+										fprintf(stdout, "%s\n", returned_stik->stik_string);
+									} else {
+										fprintf(stdout, "Unknown value: %hhu\n", (uint8_t)data_payload[0]);
+									}
+									
+								} else if (strncmp(parent_atom_name, "rtng", 4) == 0) { //okay, this is definitely an 8-bit number
+									if (data_payload[0] == 2) {
+										fprintf(stdout, "Clean Content\n");
+									} else if (data_payload[0] != 0 ) {
+										fprintf(stdout, "Explicit Content\n");
+									} else {
+										fprintf(stdout, "Inoffensive\n");
+									}
+									
+								} else {
+									fprintf(stdout, "%hhu\n", data_payload[0] );
+								}
+								break;
+							}
+							case 2 : { //tmpo
+								fprintf(stdout, "%hu\n", UInt16FromBigEndian(data_payload) );
+								break;
+							}
+							case 4 : { //tves, tvsn
+								if (memcmp(parent_atom_name, "sfID", 4) == 0) {
+									sfIDs* this_store = MatchStoreFrontNumber( UInt32FromBigEndian(data_payload) );
+									if (this_store != NULL) {
+										fprintf(stdout, "%s (%u)\n", this_store->storefront_string, this_store->storefront_number );
+									} else {
+										fprintf(stdout, "Unknown (%u)\n", UInt32FromBigEndian(data_payload) );
+									}
+								
+								} else {
+									fprintf(stdout, "%u\n", UInt32FromBigEndian(data_payload) );
+								}
+								break;
+							}
+							case 8 : {
+								fprintf(stdout, "%llu\n", UInt64FromBigEndian(data_payload) );
+								break;
+							}
 					}
+					
+					} else {       //purl & egid would end up here too, but Apple switched it to a text string (0x00), so gets taken care above explicitly			  
+						fprintf(stdout, "hex 0x");
+						for( int hexx = 1; hexx <= (int)(thisAtom->AtomicLength - atom_header_size); ++hexx) {
+							fprintf(stdout,"%02X", (uint8_t)data_payload[hexx-1]);
+							if ((hexx % 4) == 0 && hexx >= 4) {
+								fprintf(stdout," ");
+							}
+							if ((hexx % 16) == 0 && hexx > 16) {
+								fprintf(stdout,"\n\t\t\t");
+							}
+							if (hexx == (int)(thisAtom->AtomicLength - atom_header_size) ) {
+								fprintf(stdout,"\n");
+							}
+						}
+					} //end if AtomFlags_Data_UInt
 				}
 					
-				free(primary_number_data);
-				primary_number_data=NULL;
 				free(data_payload);
 				data_payload = NULL;
 			}
@@ -1480,13 +1447,13 @@ void APar_PrintDataAtoms(const char *path, bool extract_pix, char* pic_output_pa
 	for (int i=0; i < atom_number; i++) { 
 		AtomicInfo* thisAtom = &parsedAtoms[i];
 		
-		if ( strncmp(thisAtom->AtomicName, "data", 4) == 0 ) {
+		if ( strncmp(thisAtom->AtomicName, "data", 4) == 0) { //thisAtom->AtomicClassification == VERSIONED_ATOM) {
 			
 			AtomicInfo* parent = &parsedAtoms[ APar_FindParentAtom(i, thisAtom->AtomicLevel) ];
 			
-			if ( (thisAtom->AtomicVerFlags == (uint32_t)AtomicDataClass_UInteger ||
-            thisAtom->AtomicVerFlags == (uint32_t)AtomicDataClass_Text || 
-            thisAtom->AtomicVerFlags == (uint32_t)AtomicDataClass_UInt8_Binary) && !extract_pix ) {
+			if ( (thisAtom->AtomicVerFlags == (uint32_t)AtomFlags_Data_Binary ||
+            thisAtom->AtomicVerFlags == (uint32_t)AtomFlags_Data_Text || 
+            thisAtom->AtomicVerFlags == (uint32_t)AtomFlags_Data_UInt) && !extract_pix ) {
 				if (strncmp(parent->AtomicName, "----", 4) == 0) {
 					if (memcmp(parsedAtoms[i-1].AtomicName, "name", 4) == 0) {
 						fprintf(stdout, "Atom \"%s\" [%s] contains: ", parent->AtomicName, parsedAtoms[i-1].ReverseDNSname);
@@ -1517,12 +1484,15 @@ void APar_PrintDataAtoms(const char *path, bool extract_pix, char* pic_output_pa
 					APar_ExtractAAC_Artwork(thisAtom->AtomicNumber, pic_output_path, artwork_count);
 				}
 			}
+			if ( thisAtom->AtomicLength <= 12 ) {
+				fprintf(stdout, "\n"); // (corrupted atom); libmp4v2 touching a file with copyright
+			}
 		} else if (thisAtom->AtomicClassification == EXTENDED_ATOM) {
 			memset(twenty_byte_buffer, 0, sizeof(char)*20);
 			//converts iso8859 © in '©foo' to a 2byte utf8 © glyph; replaces libiconv conversion
 			isolat1ToUTF8((unsigned char*)twenty_byte_buffer, 10, (unsigned char*)thisAtom->AtomicName, 4);
 
-			if ( thisAtom->AtomicVerFlags == (uint32_t)AtomicDataClass_Text && !pic_output_path) {
+			if ( thisAtom->AtomicVerFlags == (uint32_t)AtomFlags_Data_Text && !pic_output_path) {
 #if defined (_MSC_VER) && defined (UTF16_ENABLED)
 				fprintf(stdout, "Atom uuid=\"");
 				APar_fprintf_UTF8_data(twenty_byte_buffer);
@@ -1659,11 +1629,12 @@ void APar_PrintAtomicTree() {
 	}
 	
 	fprintf(stdout, "------------------------------------------------------\n");
-	fprintf(stdout, "Total size: %i bytes; %i atoms total. ", (int)file_size, atom_number-1);
+	fprintf(stdout, "Total size: %llu bytes; ", (uint64_t)file_size);
+	fprintf(stdout, "%i atoms total. ", atom_number-1);
 	ShowVersionInfo();
-	fprintf(stdout, "Media data: %u bytes; %u bytes all other atoms (%2.3f%% atom overhead).\n", 
-												mdatData, (uint32_t)(file_size - mdatData), (float)(file_size - mdatData)/(float)file_size * 100 );
-	fprintf(stdout, "Total free atom space: %u bytes; %2.3f%% waste.", freeSpace, (float)freeSpace/(float)file_size * 100 );
+	fprintf(stdout, "Media data: %u bytes; %u bytes all other atoms (%2.3lf%% atom overhead).\n", 
+												mdatData, (uint32_t)(file_size - mdatData), (double)(file_size - mdatData)/(double)file_size * 100.0 );
+	fprintf(stdout, "Total free atom space: %u bytes; %2.3lf%% waste.", freeSpace, (double)freeSpace/(double)file_size * 100.0 );
 	if (freeSpace) {
 		udta_dynamics.dynamic_updating = false;
 		APar_DetermineDynamicUpdate(true); //gets the size of the padding
@@ -1818,7 +1789,7 @@ void APar_IdentifyBrand(char* file_brand ) {
 void APar_Extract_stsd_codec(FILE* file, uint32_t midJump) {
 	char *codec_data = (char *) malloc(12 +1);
 	memset(codec_data, 0, 12 + 1);
-	fseek(file, midJump, SEEK_SET);
+	fseeko(file, midJump, SEEK_SET);
 	fread(codec_data, 1, 12, file);
 	parsedAtoms[atom_number-1].stsd_codec = UInt32FromBigEndian( extractAtomName(codec_data, 1) );
 	
@@ -1832,7 +1803,7 @@ uint64_t APar_64bitAtomRead(FILE *file, uint32_t jump_point) {
 	char *sixtyfour_bit_data = (char *) malloc(8 + 1);
 	memset(sixtyfour_bit_data, 0, 8 + 1);
 	
-	fseek(file, jump_point+8, SEEK_SET); //this will seek back to the last jump point and...
+	fseeko(file, jump_point+8, SEEK_SET); //this will seek back to the last jump point and...
 	fread(sixtyfour_bit_data, 1, 8, file); //read in 16 bytes so we can do a valid extraction and do a nice atom data printout
 	
 	extended_dataSize = UInt64FromBigEndian(sixtyfour_bit_data);
@@ -1858,7 +1829,7 @@ APar_MatchToKnownAtom
 		The final test is the one most atoms will go through. Some atoms can have different parents - up to 5 different parents are allowed by this version of AP
 		Iterate through the known parents, and test it against atom_container. If they match, return the properties of the known atom
 ----------------------*/
-int APar_MatchToKnownAtom(const char* atom_name, const char* atom_container, bool fromFile) {
+int APar_MatchToKnownAtom(const char* atom_name, const char* atom_container, bool fromFile, const char* find_atom_path) {
 	uint32_t total_known_atoms = (uint32_t)(sizeof(KnownAtoms)/sizeof(*KnownAtoms));
 	uint32_t return_known_atom = 0;
 	
@@ -1868,15 +1839,23 @@ int APar_MatchToKnownAtom(const char* atom_name, const char* atom_container, boo
 		//fprintf(stdout, "found iTunes parent %s = atom %s\n", KnownAtoms[return_known_atom].known_atom_name, atom_name);
 	
 	//if this atom is "data" get the full path to it; we will take any atom under 'ilst' and consider it an iTunes metadata parent atom
-	} else if (memcmp(atom_name, "data", 4) == 0 ) {
-		int path_size = (parsedAtoms[atom_number-1].AtomicLevel+1 ) * 6;
+	} else if (memcmp(atom_name, "data", 4) == 0 && find_atom_path != NULL) {
+		if (memcmp(find_atom_path, "moov.udta.meta.ilst.", 20) == 0) {
+			return_known_atom = total_known_atoms-1; //last KnowAtoms is a generic placeholder iTunes-data atom
+			//fprintf(stdout, "found iTunes data child\n");
+		}
 	
-		char* fullpath = (char *)malloc(sizeof(char) * path_size);
-		memset(fullpath, 0, sizeof(char) * path_size);
+	} else if (memcmp(atom_name, "data", 4) == 0) {
+		char* fullpath = (char *)malloc(sizeof(char) * 200);
+		memset(fullpath, 0, sizeof(char) * 200);
 		
-		APar_ProvideAtomPath(parsedAtoms[atom_number-1].AtomicNumber, fullpath, fromFile);
+		if (fromFile) {
+			APar_ProvideAtomPath(parsedAtoms[atom_number-1].AtomicNumber, fullpath, fromFile);
+		} else { //find_atom_path only is NULL in APar_ScanAtoms (where fromFile is true) and in APar_CreateSparseAtom, where atom_number was just filled
+			APar_ProvideAtomPath(parsedAtoms[atom_number].AtomicNumber, fullpath, fromFile);
+		}
 		
-		//fprintf(stdout, "APar_ProvideAtomPath gives %s\n", fullpath);
+		//fprintf(stdout, "APar_ProvideAtomPath gives %s (%s-%s)\n", fullpath, atom_name, atom_container);
 		if (memcmp(fullpath, "moov.udta.meta.ilst.", 20) == 0) {
 			return_known_atom = total_known_atoms-1; //last KnowAtoms is a generic placeholder iTunes-data atom
 			//fprintf(stdout, "found iTunes data child\n");
@@ -1886,10 +1865,8 @@ int APar_MatchToKnownAtom(const char* atom_name, const char* atom_container, boo
 	
 	//if this atom is "esds" get the full path to it; take any atom under 'stsd' as a parent to esds (that parent would be a 4CC codec; not all do have 'esds'...)
 	} else if (memcmp(atom_name, "esds", 4) == 0 ) {
-		int path_size = (parsedAtoms[atom_number-1].AtomicLevel+1 ) * 6;
-	
-		char* fullpath = (char *)malloc(sizeof(char) * path_size);
-		memset(fullpath, 0, sizeof(char) * path_size);
+		char* fullpath = (char *)malloc(sizeof(char) * 300);
+		memset(fullpath, 0, sizeof(char) * 200);
 		
 		APar_ProvideAtomPath(parsedAtoms[atom_number-1].AtomicNumber, fullpath, fromFile);
 		
@@ -1995,6 +1972,7 @@ void APar_ScanAtoms(const char *path, bool scan_for_tree_ONLY) {
 			char *container = (char *) malloc(20);
 			memset(container, 0, 20);
 			memcpy(container, "FILE_LEVEL", 10);
+			bool corrupted_data_atom = false;
 			
 			if (data == NULL) return;
 			uint32_t dataSize = 0;
@@ -2020,12 +1998,25 @@ void APar_ScanAtoms(const char *path, bool scan_for_tree_ONLY) {
 					char *atom = extractAtomName(data , 1);
 					dataSize = UInt32FromBigEndian(data);
 					
-					if ( (off_t)dataSize > file_size) {
+					if ( dataSize > (uint64_t)file_size) {
 						dataSize = (uint32_t)(file_size - jump);
 					}
 					
+					//diagnose damage to 'cprt' by libmp4v2 in 1.4.1 & 1.5.0.1
+					//typically, the length of this atom (dataSize) will exceeed it parent (which is reported as 17)
+					//true length ot this data will be 9 - impossible for iTunes-style 'data' atom.
+					if (memcmp(atom, "data", 4) == 0 && parsedAtoms[ atom_number-1].AtomicContainerState == PARENT_ATOM) {
+						if (dataSize > parsedAtoms[ atom_number-1].AtomicLength) {
+							dataSize = parsedAtoms[ atom_number-1].AtomicLength -8; //force its length to its true length
+							fprintf(stdout, "AtomicParsley warning: the 'data' child of the '%s' atom seems to be corrupted.\n", parsedAtoms[ atom_number-1].AtomicName);
+							corrupted_data_atom = true;
+						}
+					}
+					//end diagnosis; APar_Manually_Determine_Parent will still determine it to be a versioned atom (it tests by names), but at file write out,
+					//it will write with a length of 9 bytes
+					
 					APar_Manually_Determine_Parent(jump, dataSize, container);
-					int filtered_known_atom = APar_MatchToKnownAtom(atom, container, true);
+					int filtered_known_atom = APar_MatchToKnownAtom(atom, container, true, NULL);
 					
 					uint32_t atom_verflags = 0;
 					uint16_t atom_language = 0;
@@ -2037,22 +2028,22 @@ void APar_ScanAtoms(const char *path, bool scan_for_tree_ONLY) {
 						memset(uuid_data, 0, sizeof(char)*16 + 1);
 						
 						atom_verflags = APar_read32(uuid_data, file, jump+12);
-						if (atom_verflags > (uint32_t)AtomicDataClass_UInt8_Binary) {
+						if (atom_verflags > (uint32_t)AtomFlags_Data_UInt) {
 							atom_verflags = 0;
 						}
 						free(uuid_data);
 						uuid_data=NULL;
 					}
 					
-					if (KnownAtoms[filtered_known_atom].box_type == VERSIONED_ATOM) {
+					if (KnownAtoms[filtered_known_atom].box_type == VERSIONED_ATOM && !corrupted_data_atom) {
 						atom_verflags = UInt32FromBigEndian(data+8); //flags & versioning were already read in with the original 12 bytes
 					}
 					
 					if (KnownAtoms[filtered_known_atom].box_type == PACKED_LANG_ATOM) {
 						//the problem with storing the language is that the uint16_t 2 bytes that carry the actual language are in different places on different atoms
 						//some atoms have it right after the atom version/flags; some like rating/classification have it 8 bytes later; yrrc doesn't have it at all
-						char* bitpacked_lang = (char*)malloc(sizeof(char)*3);
-						memset(bitpacked_lang, 0, sizeof(char)*3);
+						char bitpacked_lang[4];
+						memset(bitpacked_lang, 0, 4);
 						
 						uint32_t userdata_box = UInt32FromBigEndian(atom);
 						
@@ -2087,8 +2078,6 @@ void APar_ScanAtoms(const char *path, bool scan_for_tree_ONLY) {
 								break; //which means that any new/unknown packed language atoms will have their language of 0; AP will only support 1 of this atom name then
 							}
 						}
-						free(bitpacked_lang);
-						bitpacked_lang = NULL;
 					}
 					
 					//mdat.length=1; and ONLY supported for mdat atoms - no idea if the spec says "only mdat", but that's what I'm doing for now
@@ -2097,8 +2086,10 @@ void APar_ScanAtoms(const char *path, bool scan_for_tree_ONLY) {
 						APar_AtomizeFileInfo(jump, 1, extended_dataSize, atom, generalAtomicLevel, KnownAtoms[filtered_known_atom].container_state, KnownAtoms[filtered_known_atom].box_type, atom_verflags, atom_language );
 						
 					} else {
-						APar_AtomizeFileInfo(jump, dataSize, 0, atom, generalAtomicLevel, KnownAtoms[filtered_known_atom].container_state, KnownAtoms[filtered_known_atom].box_type, atom_verflags, atom_language );
+						APar_AtomizeFileInfo(jump, dataSize, 0, atom, generalAtomicLevel, KnownAtoms[filtered_known_atom].container_state, 
+																	corrupted_data_atom ? SIMPLE_ATOM : KnownAtoms[filtered_known_atom].box_type, atom_verflags, atom_language );
 					}
+					corrupted_data_atom = false;
 					
 					//read in the name of an iTunes-style internal reverseDNS directly into parsedAtoms
 					if (memcmp(atom, "name", 4) == 0 && 
@@ -2108,7 +2099,7 @@ void APar_ScanAtoms(const char *path, bool scan_for_tree_ONLY) {
 							parsedAtoms[atom_number-1].ReverseDNSname = (char *)malloc(sizeof(char) * dataSize);
 							memset(parsedAtoms[atom_number-1].ReverseDNSname, 0, sizeof(char) * dataSize);
 							
-							fseek(file, jump + 12, SEEK_SET); //'name' atom is the 2nd child
+							fseeko(file, jump + 12, SEEK_SET); //'name' atom is the 2nd child
 							fread(parsedAtoms[atom_number-1].ReverseDNSname, 1, dataSize - 12, file);
 					}
 					
@@ -2213,7 +2204,7 @@ void APar_ScanAtoms(const char *path, bool scan_for_tree_ONLY) {
 						break;
 					}
 					
-					fseek(file, jump, SEEK_SET); 
+					fseeko(file, jump, SEEK_SET); 
 				}
 				
 			} else {
@@ -2223,6 +2214,8 @@ void APar_ScanAtoms(const char *path, bool scan_for_tree_ONLY) {
 			}
 			free(data);
 			data=NULL;
+			free(container);
+			container=NULL;
 			fclose(file);
 		}
 		parsedfile = true;
@@ -2475,6 +2468,13 @@ AtomicInfo* APar_CreateSparseAtom(AtomicInfo* surrogate_atom, AtomicInfo* parent
 	new_atom->AtomicLevel = surrogate_atom->AtomicLevel;
 	new_atom->AtomicLanguage = surrogate_atom->AtomicLanguage;
 	
+	//this is almost assuredly wrong for everything except a simple parent atom & needs to be handled properly afterwards; Note the use of 'Sparse'
+	new_atom->AtomicVerFlags = 0;
+	new_atom->AtomicLength = 8;
+
+	new_atom->NextAtomNumber = parsedAtoms[ preceding_atom ].NextAtomNumber;
+	parsedAtoms[ preceding_atom ].NextAtomNumber = atom_number;
+
 	//if 'uuid' atom, copy the info directly, otherwise use KnownAtoms to get the info
 	if (surrogate_atom->AtomicClassification == EXTENDED_ATOM) {
 		new_atom->AtomicContainerState = CHILD_ATOM;
@@ -2482,18 +2482,13 @@ AtomicInfo* APar_CreateSparseAtom(AtomicInfo* surrogate_atom, AtomicInfo* parent
 		
 	} else {
 		//determine the type of atom from our array of KnownAtoms; this is a worst case scenario; it should be handled properly afterwards
-		known_atom = APar_MatchToKnownAtom(surrogate_atom->AtomicName, parent_atom->AtomicName, false);
+		//make sure the level & the atom gets integrated into NextAtomNumber before APar_MatchToKnownAtom because getting the fullpath will rely on that
+		known_atom = APar_MatchToKnownAtom(surrogate_atom->AtomicName, parent_atom->AtomicName, false, NULL);
 		
 		new_atom->AtomicContainerState = KnownAtoms[known_atom].container_state;
 		new_atom->AtomicClassification = KnownAtoms[known_atom].box_type;
 	}
-	
-	//this is almost assuredly wrong for everything except a simple parent atom & needs to be handled properly afterwards; Note the use of 'Sparse'
-	new_atom->AtomicVerFlags = 0;
-	new_atom->AtomicLength = 8;
 
-	new_atom->NextAtomNumber = parsedAtoms[ preceding_atom ].NextAtomNumber;
-	parsedAtoms[ preceding_atom ].NextAtomNumber = atom_number;
 	atom_number++;
 	
 	return new_atom;
@@ -2718,7 +2713,7 @@ void APar_MetaData_atomGenre_Set(const char* atomPayload) {
 				
 				genreAtom = APar_FindAtom(std_genre_data_atom, true, VERSIONED_ATOM, 0);
 				//genreAtom = APar_FindAtom(std_genre_data_atom, true, VERSIONED_ATOM, true, false, 0);
-				APar_MetaData_atom_QuickInit(genreAtom->AtomicNumber, AtomicDataClass_UInteger, 0);
+				APar_MetaData_atom_QuickInit(genreAtom->AtomicNumber, AtomFlags_Data_Binary, 0);
 				APar_Unified_atom_Put(genreAtom->AtomicNumber, NULL, UTF8_iTunesStyle_256byteLimited, 0, 8);
 				APar_Unified_atom_Put(genreAtom->AtomicNumber, NULL, UTF8_iTunesStyle_256byteLimited, (uint32_t)genre_number, 8);
 
@@ -2736,7 +2731,7 @@ void APar_MetaData_atomGenre_Set(const char* atomPayload) {
 				}
 				genreAtom = APar_FindAtom(cstm_genre_data_atom, true, VERSIONED_ATOM, 0);
 				//genreAtom = APar_FindAtom(cstm_genre_data_atom, true, VERSIONED_ATOM, true, false, 0);
-				APar_MetaData_atom_QuickInit(genreAtom->AtomicNumber, AtomicDataClass_Text, 0);
+				APar_MetaData_atom_QuickInit(genreAtom->AtomicNumber, AtomFlags_Data_Text, 0);
 				APar_Unified_atom_Put(genreAtom->AtomicNumber, atomPayload, UTF8_iTunesStyle_256byteLimited, 0, 0);
 			}
 		}
@@ -2793,23 +2788,19 @@ void APar_MetaData_atomArtwork_Set(const char* artworkPath, char* env_PicOptions
 			short parent_atom = desiredAtom->AtomicNumber; //used on Darwin adding a 2nd image (the original)
 			APar_CreateSurrogateAtom(&sample_data_atom, "data", 6, VERSIONED_ATOM, 0, NULL, 0);
 			desiredAtom = APar_CreateSparseAtom(&sample_data_atom, desiredAtom, APar_FindLastChild_of_ParentAtom(desiredAtom->AtomicNumber) );
-			//AtomicInfo* desiredAtom = APar_FindAtom(artwork_atom, true, SIMPLE_ATOM, true, false, 0);
-			//desiredAtom = APar_CreateSparseAtom(artwork_atom, "data", NULL, 6, true, 0);
 			
 			//determine if any picture preferences will impact the picture file in any way
 			myPicturePrefs = ExtractPicPrefs(env_PicOptions);
 
 	#if defined (DARWIN_PLATFORM)
 			char* resized_filepath = ResizeGivenImage(artworkPath , myPicturePrefs);
-			if ( strncmp(resized_filepath, "/", 1) == 0 ) {
+			if ( resized_filepath != NULL ) {
 				APar_MetaData_atomArtwork_Init(desiredAtom->AtomicNumber, resized_filepath);
 				parsedAtoms[desiredAtom->AtomicNumber].tempFile = true; //THIS desiredAtom holds the temp pic file path
 			
 				if (myPicturePrefs.addBOTHpix) {
 					//create another sparse atom to hold the new file path (otherwise the 2nd will just overwrite the 1st in EncapsulateData
 					desiredAtom = APar_CreateSparseAtom(&sample_data_atom, desiredAtom, APar_FindLastChild_of_ParentAtom(parent_atom) );
-					//desiredAtom = APar_FindAtom(artwork_atom, true, SIMPLE_ATOM, true, false, 0);
-					//desiredAtom = APar_CreateSparseAtom(artwork_atom, "data", NULL, 6, true, 0);
 					APar_MetaData_atomArtwork_Init(desiredAtom->AtomicNumber, artworkPath);
 				}
 			} else {
@@ -2921,7 +2912,7 @@ short APar_uuid_atom_Init(const char* atom_path, char* uuidName, const uint32_t 
 		//uuid atoms won't have 'data' child atoms - they will carry the data directly as opposed to traditional iTunes-style metadata that does store the information on 'data' atoms. But user-defined is user-defined, so that is how it will be defined here.
 		desiredAtom = APar_FindAtom(uuid_path, true, EXTENDED_ATOM, 0);
 		
-		if (dataType == (uint32_t)AtomicDataClass_Text) {
+		if (dataType == (uint32_t)AtomFlags_Data_Text) {
 			APar_MetaData_atom_QuickInit(desiredAtom->AtomicNumber, dataType, 4); //+4 because 'uuid' takes 4 bytes
 			parsedAtoms[desiredAtom->AtomicNumber].AtomicClassification = EXTENDED_ATOM;
 		}
@@ -3122,6 +3113,7 @@ bool APar_Readjust_CO64_atom(uint32_t mdat_position, short co64_number) {
 	bool co64_changed = false;
 	APar_AtomicRead(co64_number);
 	parsedAtoms[co64_number].AtomicVerFlags = 0;
+	bool deduct = false;
 	//readjust
 	
 	char* co64_entries = (char *)malloc(sizeof(char)*4 + 1);
@@ -3142,9 +3134,14 @@ bool APar_Readjust_CO64_atom(uint32_t mdat_position, short co64_number) {
 		uint64_t this_entry = UInt64FromBigEndian(a_64bit_entry);
 		
 		if (i == 1 && mdat_supplemental_offset == 0) { //for the first chunk, and only for the first *ever* entry, make the global mdat supplemental offset
-			
-			mdat_supplemental_offset = mdat_position - (this_entry - removed_bytes_tally);
-			bytes_into_mdat = this_entry - bytes_before_mdat - removed_bytes_tally;
+			if (this_entry - removed_bytes_tally > mdat_position) {
+				mdat_supplemental_offset = (uint64_t)mdat_position - ((uint64_t)this_entry - (uint64_t)removed_bytes_tally);
+				bytes_into_mdat = this_entry - bytes_before_mdat - removed_bytes_tally;
+				deduct=true;
+			} else {
+				mdat_supplemental_offset = mdat_position - (this_entry - removed_bytes_tally);
+				bytes_into_mdat = this_entry - bytes_before_mdat - removed_bytes_tally;
+			}
 			
 			if (mdat_supplemental_offset == 0) {
 				break;
@@ -3155,7 +3152,11 @@ bool APar_Readjust_CO64_atom(uint32_t mdat_position, short co64_number) {
 			co64_changed = true;
 		}
 		
-		this_entry += mdat_supplemental_offset + bytes_into_mdat; //this is where we add our new mdat offset difference
+		if (deduct) { //crap, uint32_t's were so nice to flip over by themselves to subtract nicely. going from 32-bit to 64-bit prevents that flipping
+			this_entry += mdat_supplemental_offset - (bytes_into_mdat * -1); // + bytes_into_mdat;
+		} else {
+			this_entry += mdat_supplemental_offset + bytes_into_mdat; //this is where we add our new mdat offset difference
+		}
 		char8TOuint64(this_entry, a_64bit_entry);
 		//and put the data back into AtomicData...
 		for (int d = 0; d <=7; d++ ) {
@@ -3280,6 +3281,9 @@ void APar_ForcePadding(uint32_t padding_amount) {
 }
 
 void APar_ConsilidatePadding(uint32_t force_padding_amount) {
+	if (force_padding_amount <= 8) { //prevent having an atom of length 0 (which means it goes to EOF)
+		return;
+	}
 	short primary_repository = 0;
 	if (udta_dynamics.free_atom_repository) {
 		primary_repository = udta_dynamics.free_atom_repository;
@@ -3329,7 +3333,6 @@ APar_DetermineDynamicUpdate
 void APar_DetermineDynamicUpdate(bool initial_pass) {
 	
 	AtomicInfo* udtaAtom = APar_FindAtom("moov.udta", false, SIMPLE_ATOM, 0);
-	//AtomicInfo* udtaAtom = APar_FindAtom("moov.udta", false, SIMPLE_ATOM, false, true, 0);
 	
 	//if there is no 'udta' atom, but we still want any available padding listed - there is none
 	if (udtaAtom == NULL && !modified_atoms) {
@@ -3698,7 +3701,6 @@ void APar_DetermineAtomLengths() {
 void APar_ValidateAtoms() {
 	bool atom_name_with_4_characters = true;
 	short iter = 0;
-	short next_atom = 0;
 	uint64_t simple_tally = 0;
 	
 	if (atom_number > MAX_ATOMS) {
@@ -3725,13 +3727,11 @@ void APar_ValidateAtoms() {
 			}
 		}
 		
-		next_atom=parsedAtoms[iter].NextAtomNumber;
-		if (parsedAtoms[next_atom].AtomicLevel <= parsedAtoms[iter].AtomicLevel) {
-			if (parsedAtoms[iter].AtomicData == NULL) {
-				(parsedAtoms[iter].AtomicLength == 1 ? simple_tally += parsedAtoms[iter].AtomicLengthExtended : simple_tally += parsedAtoms[iter].AtomicLength);
-				if (parsedAtoms[iter].AtomicLength == 0 && strncmp(parsedAtoms[iter].AtomicName, "mdat", 4) == 0) {
-					simple_tally = (uint64_t)file_size - parsedAtoms[iter].AtomicStart;
-				}
+		if (parsedAtoms[iter].AtomicLevel == 1) {
+			if (parsedAtoms[iter].AtomicLength == 0 && strncmp(parsedAtoms[iter].AtomicName, "mdat", 4) == 0) {
+				simple_tally = (uint64_t)file_size - parsedAtoms[iter].AtomicStart;
+			} else {
+				simple_tally += parsedAtoms[iter].AtomicLength == 1 ? parsedAtoms[iter].AtomicLengthExtended : parsedAtoms[iter].AtomicLength;
 			}
 		}
 		
@@ -3746,21 +3746,8 @@ void APar_ValidateAtoms() {
 		}
 	}
 	
-	int percentage_difference = 0;
-	
-	if (simple_tally > (uint64_t)file_size) {
-#if defined (_MSC_VER) /* seems a uint64_t can't be cast to a double under Windows */
-		percentage_difference = (int)lroundf( (float)(file_size-removed_bytes_tally)/(float)((uint32_t)simple_tally) * 100 );	
-	} else {
-		percentage_difference = (int)lroundf( (float)((uint32_t)simple_tally)/(float)(file_size-removed_bytes_tally) * 100 );
-		
-#else
-
-		percentage_difference = (int)lroundf( (float)(file_size-removed_bytes_tally)/(float)simple_tally * 100 );	
-	} else {
-		percentage_difference = (int)lroundf( (float)simple_tally/(float)(file_size-removed_bytes_tally) * 100 );
-#endif
-	}
+	double perdiff = (float)((float)((uint32_t)simple_tally) * 100.0 / (double)file_size);
+	int percentage_difference = (int)lroundf((float)perdiff);
 	
 	if (percentage_difference < 90 && file_size > 300000) { //only kick in when files are over 300k & 90% of the size
 		fprintf(stderr, "AtomicParsley error: total existing atoms present as larger than filesize. Aborting. %c\n", '\a');
@@ -3915,7 +3902,7 @@ void APar_MetadataFileDump(const char* m4aFile) {
 		if (dump_file != NULL) {
 			//body of atom writing here
 			
-			fseek(source_file, ilst_atom->AtomicStart, SEEK_SET);
+			fseeko(source_file, ilst_atom->AtomicStart, SEEK_SET);
 			fread(dump_buffer, 1, (size_t)ilst_atom->AtomicLength, source_file);
 			
 			fwrite(dump_buffer, (size_t)ilst_atom->AtomicLength, 1, dump_file);
@@ -3939,8 +3926,10 @@ void APar_ShellProgressBar(uint32_t bytes_written) {
 	}
 	strcpy(file_progress_buffer, " Progress: ");
 	
-	int display_progress = (int)lroundf( (float)bytes_written/(float)new_file_size * 100 *( (float)max_display_width/100) );
-	int percentage_complete = (int)lroundf( (float)bytes_written/(float)new_file_size * 100 );
+	double dispprog = (double)bytes_written/(double)new_file_size * 100.0 *( (double)max_display_width/100.0);
+	int display_progress = (int)lroundf((float)dispprog);
+	double percomp = 100.0 * (double)((double)bytes_written/ (double)new_file_size);
+	int percentage_complete = (int)lroundf((float)percomp);
 		
 	for (int i = 0; i <= max_display_width; i++) {
 		if (i < display_progress ) {
@@ -3969,7 +3958,7 @@ void APar_MergeTempFile(FILE* dest_file, FILE *src_file, uint32_t src_file_size,
 	uint32_t file_pos = 0;
 	while (file_pos <= src_file_size) {
 		if (file_pos + max_buffer <= src_file_size ) {
-			fseek(src_file, file_pos, SEEK_SET);
+			fseeko(src_file, file_pos, SEEK_SET);
 			fread(buffer, 1, (size_t)max_buffer, src_file);
 			
 			//fseek(dest_file, dest_position + file_pos, SEEK_SET);
@@ -3983,7 +3972,7 @@ void APar_MergeTempFile(FILE* dest_file, FILE *src_file, uint32_t src_file_size,
 			file_pos += max_buffer;
 			
 		} else {
-			fseek(src_file, file_pos, SEEK_SET);
+			fseeko(src_file, file_pos, SEEK_SET);
 			fread(buffer, 1, (size_t)(src_file_size - file_pos), src_file);
 			//fprintf(stdout, "buff starts with %s\n", buffer+4);
 #if defined (_MSC_VER)
@@ -4012,7 +4001,7 @@ uint32_t APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file
 	
 	//write the length of the atom first... taken from our tree in memory
 	char4TOuint32(parsedAtoms[this_atom].AtomicLength, conv_buffer);
-	fseek(temp_file, bytes_written_tally, SEEK_SET);
+	fseeko(temp_file, bytes_written_tally, SEEK_SET);
 	fwrite(conv_buffer, 4, 1, temp_file);
 	bytes_written += 4;
 	
@@ -4030,11 +4019,11 @@ uint32_t APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file
 		AtomicInfo parentAtom = parsedAtoms[ APar_FindParentAtom(parsedAtoms[this_atom].AtomicNumber, parsedAtoms[this_atom].AtomicLevel) ];
 		fprintf(stdout, "Parent atom %s has child with data %s\n", parentAtom.AtomicName, parsedAtoms[this_atom].AtomicData);
 	}*/
-	if ( ((parsedAtoms[this_atom].AtomicVerFlags == (uint32_t)AtomicDataClass_JPEGBinary) || 
-				(parsedAtoms[this_atom].AtomicVerFlags == (uint32_t)AtomicDataClass_PNGBinary)) && 
+	if ( ((parsedAtoms[this_atom].AtomicVerFlags == (uint32_t)AtomFlags_Data_JPEGBinary) || 
+				(parsedAtoms[this_atom].AtomicVerFlags == (uint32_t)AtomFlags_Data_PNGBinary)) && 
 				(parsedAtoms[this_atom].AtomicData != NULL) && (memcmp(parsedAtoms[this_atom].AtomicName, "data" , 4) == 0) ) {
 							
-		fseek(temp_file, (bytes_written_tally + bytes_written), SEEK_SET);
+		fseeko(temp_file, (bytes_written_tally + bytes_written), SEEK_SET);
 		
 		if (parsedAtoms[this_atom].AtomicClassification == EXTENDED_ATOM) {
 			fwrite("uuid", 4, 1, temp_file);
@@ -4059,10 +4048,10 @@ uint32_t APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file
 			//...and the actual transfer of the picture
 			while (bytes_written <= parsedAtoms[this_atom].AtomicLength) {
 				if (bytes_written + max_buffer <= parsedAtoms[this_atom].AtomicLength ) {
-					fseek(pic_file, bytes_written - 16, SEEK_SET);
+					fseeko(pic_file, bytes_written - 16, SEEK_SET);
 					fread(buffer, 1, (size_t)max_buffer, pic_file);
 				
-					fseek(temp_file, (bytes_written_tally + bytes_written), SEEK_SET);
+					fseeko(temp_file, (bytes_written_tally + bytes_written), SEEK_SET);
 					fwrite(buffer, (size_t)max_buffer, 1, temp_file);
 					bytes_written += max_buffer;
 					
@@ -4070,10 +4059,10 @@ uint32_t APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file
 				
 				} else { //we either came up on a short atom (most are), or the last bit of a really long atom
 					//fprintf(stdout, "Writing atom %s from file directly into buffer\n", parsedAtoms[this_atom].AtomicName);
-					fseek(pic_file, bytes_written - 16, SEEK_SET);
+					fseeko(pic_file, bytes_written - 16, SEEK_SET);
 					fread(buffer, 1, (size_t)(parsedAtoms[this_atom].AtomicLength - bytes_written), pic_file);
 				
-					fseek(temp_file, (bytes_written_tally + bytes_written), SEEK_SET);
+					fseeko(temp_file, (bytes_written_tally + bytes_written), SEEK_SET);
 					fwrite(buffer, (size_t)(parsedAtoms[this_atom].AtomicLength - bytes_written), 1, temp_file);
 					bytes_written += parsedAtoms[this_atom].AtomicLength - bytes_written;
 					
@@ -4115,10 +4104,10 @@ uint32_t APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file
 				//fprintf(stdout, "Writing atom %s from file looping into buffer\n", parsedAtoms[this_atom].AtomicName);
 //fprintf(stdout, "Writing atom %s from file looping into buffer %u - %u | %u\n", parsedAtoms[this_atom].AtomicName, parsedAtoms[this_atom].AtomicLength, bytes_written_tally, bytes_written);
 				//read&write occurs from & including atom name through end of atom
-				fseek(source_file, (bytes_written + parsedAtoms[this_atom].AtomicStart), SEEK_SET);
+				fseeko(source_file, (bytes_written + parsedAtoms[this_atom].AtomicStart), SEEK_SET);
 				fread(buffer, 1, (size_t)max_buffer, source_file);
 				
-				fseek(temp_file, (bytes_written_tally + bytes_written), SEEK_SET);
+				fseeko(temp_file, (bytes_written_tally + bytes_written), SEEK_SET);
 				fwrite(buffer, (size_t)max_buffer, 1, temp_file);
 				bytes_written += max_buffer;
 				
@@ -4126,10 +4115,10 @@ uint32_t APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file
 				
 			} else { //we either came up on a short atom (most are), or the last bit of a really long atom
 				//fprintf(stdout, "Writing atom %s from file directly into buffer\n", parsedAtoms[this_atom].AtomicName);
-				fseek(source_file, (bytes_written + parsedAtoms[this_atom].AtomicStart), SEEK_SET);
+				fseeko(source_file, (bytes_written + parsedAtoms[this_atom].AtomicStart), SEEK_SET);
 				fread(buffer, 1, (size_t)(parsedAtoms[this_atom].AtomicLength - bytes_written), source_file);
 				
-				fseek(temp_file, (bytes_written_tally + bytes_written), SEEK_SET);
+				fseeko(temp_file, (bytes_written_tally + bytes_written), SEEK_SET);
 				fwrite(buffer, (size_t)(parsedAtoms[this_atom].AtomicLength - bytes_written), 1, temp_file);
 				bytes_written += parsedAtoms[this_atom].AtomicLength - bytes_written;
 				
@@ -4142,7 +4131,7 @@ uint32_t APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file
 	} else { // we are going to be writing not from the file, but directly from the tree (in memory).
 
 		//fprintf(stdout, "Writing atom %s from memory %u\n", parsedAtoms[this_atom].AtomicName, parsedAtoms[this_atom].AtomicClassification);
-		fseek(temp_file, (bytes_written_tally + bytes_written), SEEK_SET);
+		fseeko(temp_file, (bytes_written_tally + bytes_written), SEEK_SET);
 		
 		if (parsedAtoms[this_atom].AtomicClassification == EXTENDED_ATOM) {
 			fwrite("uuid", 4, 1, temp_file);
@@ -4366,7 +4355,7 @@ void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_origi
 		
 		//update moov's length
 		char4TOuint32(parsedAtoms[udta_dynamics.moov_atom].AtomicLength, twenty_byte_buffer);
-		fseek(source_file, parsedAtoms[udta_dynamics.moov_atom].AtomicStart, SEEK_SET);
+		fseeko(source_file, parsedAtoms[udta_dynamics.moov_atom].AtomicStart, SEEK_SET);
 		fwrite(twenty_byte_buffer, 4, 1, source_file);
 		
 		//pesky (psp only) files that don't even have 'udta' in them, force appending after file length
@@ -4379,7 +4368,7 @@ void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_origi
 		
 		if (!psp_brand) {
 			//psp files with no 'udta' atom will have whacked free_padding_size - which isn't required at EOF in any event
-			fseek(source_file, parsedAtoms[udta_dynamics.udta_atom].AtomicStart + temp_file_bytes_written, SEEK_SET);
+			fseeko(source_file, parsedAtoms[udta_dynamics.udta_atom].AtomicStart + temp_file_bytes_written, SEEK_SET);
 		
 			uint32_t free_padding_size = parsedAtoms[udta_dynamics.first_postfree_level1_atom].AtomicStart - (parsedAtoms[udta_dynamics.udta_atom].AtomicStart + temp_file_bytes_written);
 		

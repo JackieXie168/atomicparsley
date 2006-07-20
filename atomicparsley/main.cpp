@@ -229,6 +229,7 @@ static const char* longHelp_text =
 "  --podcastGUID      ,  -J   (URL)    Set the episode's URL tag on the \"egid\" atom\n"
 "  --purchaseDate     ,  -D   (UTC)    Set Universal Coordinated Time of purchase on a \"purd\" atom\n"
 "                                       (use \"timestamp\" to set UTC to now; can be akin to id3v2 TDTG tag)\n"
+"  --encodingTool     ,       (str)    Set the name of the encoder on the \"©too\" atom\n"
 "\n"
 " To delete a single atom, set the tag to null (except artwork):\n"
 "  --artist \"\" --lyrics \"\"\n"
@@ -357,7 +358,7 @@ static const char* _3gpHelp_text =
 "  tags that support the language attribute (all except year), more than one tag of the same name (3 titles\n"
 "  for example) differing in the language code is supported.\n"
 "\n"
-"  iTunes-style metadata is not supported by the 3GPP TS 26.444 version 6.4.0 Release 6 specification.\n"
+"  iTunes-style metadata is not supported by the 3GPP TS 26.244 version 6.4.0 Release 6 specification.\n"
 "  3GPP tags are set in a different hierarchy: moov.udta (versus iTunes moov.udta.meta.ilst). Other 3rd\n"
 "  party utilities may allow setting iTunes-style metadata in 3gp files. When a 3gp file is detected\n"
 "  (file extension doesn't matter), only 3gp spec-compliant metadata will be read & written.\n"
@@ -663,7 +664,10 @@ int main( int argc, char *argv[]) {
 			openSomeFile(m4afile, true);
 			APar_PrintDataAtoms(m4afile, true, base_path); //exportPix to stripped m4afile path
 			openSomeFile(m4afile, false);
-			break;;
+			
+			free(base_path);
+			base_path = NULL;
+			break;
 		}
 		
 		case OPT_ExtractPixToPath: {
@@ -671,7 +675,7 @@ int main( int argc, char *argv[]) {
 			openSomeFile(m4afile, true);
 			APar_PrintDataAtoms(m4afile, true, optarg); //exportPix to a different path
 			openSomeFile(m4afile, false);
-			break;;
+			break;
 		}
 				
 		case Meta_artist : {
@@ -682,7 +686,7 @@ int main( int argc, char *argv[]) {
 				APar_assert(false, 4, &*major_brand);
 				break;
 			}
-			short artistData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©ART.data", optarg, AtomicDataClass_Text);
+			short artistData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©ART.data", optarg, AtomFlags_Data_Text);
 			APar_Unified_atom_Put(artistData_atom, optarg, UTF8_iTunesStyle_256byteLimited, 0, 0);
 			break;
 		}
@@ -693,7 +697,7 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			short titleData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©nam.data", optarg, AtomicDataClass_Text);
+			short titleData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©nam.data", optarg, AtomFlags_Data_Text);
 			APar_Unified_atom_Put(titleData_atom, optarg, UTF8_iTunesStyle_256byteLimited, 0, 0);
 			break;
 		}
@@ -704,7 +708,7 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			short albumData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©alb.data", optarg, AtomicDataClass_Text);
+			short albumData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©alb.data", optarg, AtomFlags_Data_Text);
 			APar_Unified_atom_Put(albumData_atom, optarg, UTF8_iTunesStyle_256byteLimited, 0, 0);
 			break;
 		}
@@ -725,26 +729,26 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			uint8_t pos_in_total = 0;
-			uint8_t the_total = 0; 
+			uint16_t pos_in_total = 0;
+			uint16_t the_total = 0; 
 			if (strrchr(optarg, '/') != NULL) {
 
 				char* duplicate_info = optarg;
 				char* item_stat = strsep(&duplicate_info,"/");
-				sscanf(item_stat, "%hhu", &pos_in_total); //sscanf into a an unsigned char (uint8_t is typedef'ed to a unsigned char by gcc)
+				sscanf(item_stat, "%hu", &pos_in_total); //sscanf into a an unsigned char (uint8_t is typedef'ed to a unsigned char by gcc)
 				item_stat = strsep(&duplicate_info,"/");
-				sscanf(item_stat, "%hhu", &the_total);
+				sscanf(item_stat, "%hu", &the_total);
 			} else {
-				sscanf(optarg, "%hhu", &pos_in_total);
+				sscanf(optarg, "%hu", &pos_in_total);
 			}
 			
-			short tracknumData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.trkn.data", optarg, AtomicDataClass_UInteger);
+			short tracknumData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.trkn.data", optarg, AtomFlags_Data_Binary);
 			//tracknum: [0, 0, 0, 0,   0, 0, 0, pos_in_total, 0, the_total, 0, 0]; BUT that first uint32_t is already accounted for in APar_MetaData_atom_Init
 			APar_Unified_atom_Put(tracknumData_atom, NULL, UTF8_iTunesStyle_256byteLimited, 0, 16);
-			APar_Unified_atom_Put(tracknumData_atom, NULL, UTF8_iTunesStyle_256byteLimited, 0, 8);
-			APar_Unified_atom_Put(tracknumData_atom, NULL, UTF8_iTunesStyle_256byteLimited, pos_in_total, 8);
-			APar_Unified_atom_Put(tracknumData_atom, NULL, UTF8_iTunesStyle_256byteLimited, 0, 8);
-			APar_Unified_atom_Put(tracknumData_atom, NULL, UTF8_iTunesStyle_256byteLimited, the_total, 8);
+			//APar_Unified_atom_Put(tracknumData_atom, NULL, UTF8_iTunesStyle_256byteLimited, 0, 8);
+			APar_Unified_atom_Put(tracknumData_atom, NULL, UTF8_iTunesStyle_256byteLimited, pos_in_total, 16);
+			//APar_Unified_atom_Put(tracknumData_atom, NULL, UTF8_iTunesStyle_256byteLimited, 0, 8);
+			APar_Unified_atom_Put(tracknumData_atom, NULL, UTF8_iTunesStyle_256byteLimited, the_total, 16);
 			APar_Unified_atom_Put(tracknumData_atom, NULL, UTF8_iTunesStyle_256byteLimited, 0, 16);
 			break;
 		}
@@ -755,27 +759,27 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			uint8_t pos_in_total = 0;
-			uint8_t the_total = 0;
+			uint16_t pos_in_total = 0;
+			uint16_t the_total = 0;
 			if (strrchr(optarg, '/') != NULL) {
 				
 				char* duplicate_info = optarg;
 				char* item_stat = strsep(&duplicate_info,"/");
-				sscanf(item_stat, "%hhu", &pos_in_total); //sscanf into a an unsigned char (uint8_t is typedef'ed to a unsigned char by gcc)
+				sscanf(item_stat, "%hu", &pos_in_total); //sscanf into a an unsigned char (uint8_t is typedef'ed to a unsigned char by gcc)
 				item_stat = strsep(&duplicate_info,"/");
-				sscanf(item_stat, "%hhu", &the_total);
+				sscanf(item_stat, "%hu", &the_total);
 			
 			} else {
-				sscanf(optarg, "%hhu", &pos_in_total);
+				sscanf(optarg, "%hu", &pos_in_total);
 			}
 			
-			short disknumData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.disk.data", optarg, AtomicDataClass_UInteger);
+			short disknumData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.disk.data", optarg, AtomFlags_Data_Binary);
 			//disknum: [0, 0, 0, 0,   0, 0, 0, pos_in_total, 0, the_total]; BUT that first uint32_t is already accounted for in APar_MetaData_atom_Init
 			APar_Unified_atom_Put(disknumData_atom, NULL, UTF8_iTunesStyle_256byteLimited, 0, 16);
-			APar_Unified_atom_Put(disknumData_atom, NULL, UTF8_iTunesStyle_256byteLimited, 0, 8);
-			APar_Unified_atom_Put(disknumData_atom, NULL, UTF8_iTunesStyle_256byteLimited, pos_in_total, 8);
-			APar_Unified_atom_Put(disknumData_atom, NULL, UTF8_iTunesStyle_256byteLimited, 0, 8);
-			APar_Unified_atom_Put(disknumData_atom, NULL, UTF8_iTunesStyle_256byteLimited, the_total, 8);
+			//APar_Unified_atom_Put(disknumData_atom, NULL, UTF8_iTunesStyle_256byteLimited, 0, 8);
+			APar_Unified_atom_Put(disknumData_atom, NULL, UTF8_iTunesStyle_256byteLimited, pos_in_total, 16);
+			//APar_Unified_atom_Put(disknumData_atom, NULL, UTF8_iTunesStyle_256byteLimited, 0, 8);
+			APar_Unified_atom_Put(disknumData_atom, NULL, UTF8_iTunesStyle_256byteLimited, the_total, 16);
 			break;
 		}
 		
@@ -785,7 +789,7 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			short commentData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©cmt.data", optarg, AtomicDataClass_Text);
+			short commentData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©cmt.data", optarg, AtomFlags_Data_Text);
 			APar_Unified_atom_Put(commentData_atom, optarg, UTF8_iTunesStyle_256byteLimited, 0, 0);
 			break;
 		}
@@ -796,7 +800,7 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			short yearData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©day.data", optarg, AtomicDataClass_Text);
+			short yearData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©day.data", optarg, AtomFlags_Data_Text);
 			APar_Unified_atom_Put(yearData_atom, optarg, UTF8_iTunesStyle_256byteLimited, 0, 0);
 			break;
 		}
@@ -807,7 +811,7 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			short lyricsData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©lyr.data", optarg, AtomicDataClass_Text);
+			short lyricsData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©lyr.data", optarg, AtomFlags_Data_Text);
 			APar_Unified_atom_Put(lyricsData_atom, optarg, UTF8_iTunesStyle_Unlimited, 0, 0);
 			break;
 		}
@@ -818,7 +822,7 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			short composerData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©wrt.data", optarg, AtomicDataClass_Text);
+			short composerData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©wrt.data", optarg, AtomFlags_Data_Text);
 			APar_Unified_atom_Put(composerData_atom, optarg, UTF8_iTunesStyle_256byteLimited, 0, 0);
 			break;
 		}
@@ -829,7 +833,7 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			short copyrightData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.cprt.data", optarg, AtomicDataClass_Text);
+			short copyrightData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.cprt.data", optarg, AtomFlags_Data_Text);
 			APar_Unified_atom_Put(copyrightData_atom, optarg, UTF8_iTunesStyle_256byteLimited, 0, 0);
 			break;
 		}
@@ -840,7 +844,7 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			short groupingData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©grp.data", optarg, AtomicDataClass_Text);
+			short groupingData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©grp.data", optarg, AtomFlags_Data_Text);
 			APar_Unified_atom_Put(groupingData_atom, optarg, UTF8_iTunesStyle_256byteLimited, 0, 0);
 			break;
 		}
@@ -855,7 +859,7 @@ int main( int argc, char *argv[]) {
 				APar_RemoveAtom("moov.udta.meta.ilst.cpil.data", VERSIONED_ATOM, 0);
 			} else {
 				//compilation: [0, 0, 0, 0,   boolean_value]; BUT that first uint32_t is already accounted for in APar_MetaData_atom_Init
-				short compilationData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.cpil.data", optarg, AtomicDataClass_UInt8_Binary);
+				short compilationData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.cpil.data", optarg, AtomFlags_Data_UInt);
 				APar_Unified_atom_Put(compilationData_atom, NULL, UTF8_iTunesStyle_256byteLimited, 1, 8); //a hard coded uint8_t of: 1 is compilation
 			}
 			break;
@@ -870,12 +874,12 @@ int main( int argc, char *argv[]) {
 			if (strncmp(optarg, "0", 1) == 0 || strlen(optarg) == 0) {
 				APar_RemoveAtom("moov.udta.meta.ilst.tmpo.data", VERSIONED_ATOM, 0);
 			} else {
-				uint8_t bpm_value = 0;
-				sscanf(optarg, "%hhu", &bpm_value );
+				uint16_t bpm_value = 0;
+				sscanf(optarg, "%hu", &bpm_value );
 				//bpm is [0, 0, 0, 0,   0, bpm_value]; BUT that first uint32_t is already accounted for in APar_MetaData_atom_Init
-				short bpmData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.tmpo.data", optarg, AtomicDataClass_UInt8_Binary);
-				APar_Unified_atom_Put(bpmData_atom, NULL, UTF8_iTunesStyle_256byteLimited, 0, 8);
-				APar_Unified_atom_Put(bpmData_atom, NULL, UTF8_iTunesStyle_256byteLimited, bpm_value, 8);
+				short bpmData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.tmpo.data", optarg, AtomFlags_Data_UInt);
+				//APar_Unified_atom_Put(bpmData_atom, NULL, UTF8_iTunesStyle_256byteLimited, 0, 8);
+				APar_Unified_atom_Put(bpmData_atom, NULL, UTF8_iTunesStyle_256byteLimited, bpm_value, 16);
 			}
 			break;
 		}
@@ -896,7 +900,7 @@ int main( int argc, char *argv[]) {
 					rating_value = 4; //most non \00, \02 numbers are allowed
 				}
 				//rating is [0, 0, 0, 0,   rating_value]; BUT that first uint32_t is already accounted for in APar_MetaData_atom_Init
-				short advisoryData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.rtng.data", optarg, AtomicDataClass_UInt8_Binary);
+				short advisoryData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.rtng.data", optarg, AtomFlags_Data_UInt);
 				APar_Unified_atom_Put(advisoryData_atom, NULL, UTF8_iTunesStyle_256byteLimited, rating_value, 8);
 			}
 			break;
@@ -935,7 +939,7 @@ int main( int argc, char *argv[]) {
 					}
 				}
 				//stik is [0, 0, 0, 0,   stik_value]; BUT that first uint32_t is already accounted for in APar_MetaData_atom_Init
-				short stikData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.stik.data", optarg, AtomicDataClass_UInt8_Binary);
+				short stikData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.stik.data", optarg, AtomFlags_Data_UInt);
 				APar_Unified_atom_Put(stikData_atom, NULL, UTF8_iTunesStyle_256byteLimited, stik_value, 8);
 			}
 			break;
@@ -947,7 +951,7 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			short encodingtoolData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©too.data", optarg, AtomicDataClass_Text);
+			short encodingtoolData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©too.data", optarg, AtomFlags_Data_Text);
 			APar_Unified_atom_Put(encodingtoolData_atom, optarg, UTF8_iTunesStyle_256byteLimited, 0, 0);
 			break;
 		}
@@ -958,7 +962,7 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			short descriptionData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.desc.data", optarg, AtomicDataClass_Text);
+			short descriptionData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.desc.data", optarg, AtomFlags_Data_Text);
 			APar_Unified_atom_Put(descriptionData_atom, optarg, UTF8_iTunesStyle_256byteLimited, 0, 0);
 			break;
 		}
@@ -969,7 +973,7 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			short tvnetworkData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.tvnn.data", optarg, AtomicDataClass_Text);
+			short tvnetworkData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.tvnn.data", optarg, AtomFlags_Data_Text);
 			APar_Unified_atom_Put(tvnetworkData_atom, optarg, UTF8_iTunesStyle_256byteLimited, 0, 0);
 			break;
 		}
@@ -980,7 +984,7 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			short tvshownameData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.tvsh.data", optarg, AtomicDataClass_Text);
+			short tvshownameData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.tvsh.data", optarg, AtomFlags_Data_Text);
 			APar_Unified_atom_Put(tvshownameData_atom, optarg, UTF8_iTunesStyle_256byteLimited, 0, 0);
 			break;
 		}
@@ -991,7 +995,7 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			short tvepisodeData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.tven.data", optarg, AtomicDataClass_Text);
+			short tvepisodeData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.tven.data", optarg, AtomFlags_Data_Text);
 			APar_Unified_atom_Put(tvepisodeData_atom, optarg, UTF8_iTunesStyle_256byteLimited, 0, 0);
 			break;
 		}
@@ -1002,14 +1006,14 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			uint8_t data_value = 0;
-			sscanf(optarg, "%hhu", &data_value );
+			uint16_t data_value = 0;
+			sscanf(optarg, "%hu", &data_value );
 			
-			short tvseasonData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.tvsn.data", optarg, AtomicDataClass_UInt8_Binary);
+			short tvseasonData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.tvsn.data", optarg, AtomFlags_Data_UInt);
 			//season is [0, 0, 0, 0,   0, 0, 0, data_value]; BUT that first uint32_t is already accounted for in APar_MetaData_atom_Init
 			APar_Unified_atom_Put(tvseasonData_atom, NULL, UTF8_iTunesStyle_256byteLimited, 0, 16);
-			APar_Unified_atom_Put(tvseasonData_atom, NULL, UTF8_iTunesStyle_256byteLimited, 0, 8);
-			APar_Unified_atom_Put(tvseasonData_atom, NULL, UTF8_iTunesStyle_256byteLimited, data_value, 8);
+			//APar_Unified_atom_Put(tvseasonData_atom, NULL, UTF8_iTunesStyle_256byteLimited, 0, 8);
+			APar_Unified_atom_Put(tvseasonData_atom, NULL, UTF8_iTunesStyle_256byteLimited, data_value, 16);
 			break;
 		}
 		
@@ -1019,14 +1023,14 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			uint8_t data_value = 0;
-			sscanf(optarg, "%hhu", &data_value );
+			uint16_t data_value = 0;
+			sscanf(optarg, "%hu", &data_value );
 			
-			short tvepisodenumData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.tves.data", optarg, AtomicDataClass_UInt8_Binary);
+			short tvepisodenumData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.tves.data", optarg, AtomFlags_Data_UInt);
 			//episodenumber is [0, 0, 0, 0,   0, 0, 0, data_value]; BUT that first uint32_t is already accounted for in APar_MetaData_atom_Init
 			APar_Unified_atom_Put(tvepisodenumData_atom, NULL, UTF8_iTunesStyle_256byteLimited, 0, 16);
-			APar_Unified_atom_Put(tvepisodenumData_atom, NULL, UTF8_iTunesStyle_256byteLimited, 0, 8);
-			APar_Unified_atom_Put(tvepisodenumData_atom, NULL, UTF8_iTunesStyle_256byteLimited, data_value, 8);
+			//APar_Unified_atom_Put(tvepisodenumData_atom, NULL, UTF8_iTunesStyle_256byteLimited, 0, 8);
+			APar_Unified_atom_Put(tvepisodenumData_atom, NULL, UTF8_iTunesStyle_256byteLimited, data_value, 16);
 			break;
 		}
 		
@@ -1036,7 +1040,7 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			short albumartistData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.aART.data", optarg, AtomicDataClass_Text);
+			short albumartistData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.aART.data", optarg, AtomFlags_Data_Text);
 			APar_Unified_atom_Put(albumartistData_atom, optarg, UTF8_iTunesStyle_256byteLimited, 0, 0);
 			break;
 		}
@@ -1051,7 +1055,7 @@ int main( int argc, char *argv[]) {
 				APar_RemoveAtom("moov.udta.meta.ilst.pcst.data", VERSIONED_ATOM, 0);
 			} else {
 				//podcastflag: [0, 0, 0, 0,   boolean_value]; BUT that first uint32_t is already accounted for in APar_MetaData_atom_Init
-				short podcastFlagData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.pcst.data", optarg, AtomicDataClass_UInt8_Binary);
+				short podcastFlagData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.pcst.data", optarg, AtomFlags_Data_UInt);
 				APar_Unified_atom_Put(podcastFlagData_atom, NULL, UTF8_iTunesStyle_256byteLimited, 1, 8); //a hard coded uint8_t of: 1 denotes podcast flag
 			}
 			
@@ -1064,7 +1068,7 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			short keywordData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.keyw.data", optarg, AtomicDataClass_Text);
+			short keywordData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.keyw.data", optarg, AtomFlags_Data_Text);
 			APar_Unified_atom_Put(keywordData_atom, optarg, UTF8_iTunesStyle_256byteLimited, 0, 0);
 			break;
 		}
@@ -1075,7 +1079,7 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			short categoryData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.catg.data", optarg, AtomicDataClass_Text);
+			short categoryData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.catg.data", optarg, AtomFlags_Data_Text);
 			APar_Unified_atom_Put(categoryData_atom, optarg, UTF8_iTunesStyle_256byteLimited, 0, 0);
 			break;
 		}
@@ -1086,7 +1090,7 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			short podcasturlData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.purl.data", optarg, AtomicDataClass_UInteger);
+			short podcasturlData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.purl.data", optarg, AtomFlags_Data_Binary);
 			APar_Unified_atom_Put(podcasturlData_atom, optarg, UTF8_iTunesStyle_Binary, 0, 0);
 			break;
 		}
@@ -1097,7 +1101,7 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			short globalidData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.egid.data", optarg, AtomicDataClass_UInteger);
+			short globalidData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.egid.data", optarg, AtomFlags_Data_Binary);
 			APar_Unified_atom_Put(globalidData_atom, optarg, UTF8_iTunesStyle_Binary, 0, 0);
 			break;
 		}
@@ -1108,9 +1112,11 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			char* purd_time;
+			bool free_memory = false;
 			if (optarg != NULL) {
 				if (strncmp(optarg, "timestamp", 9) == 0) {
 					purd_time = (char *)malloc(sizeof(char)*255);
+					free_memory = true;
 					APar_StandardTime(purd_time);
 				} else {
 					purd_time = optarg;
@@ -1119,8 +1125,12 @@ int main( int argc, char *argv[]) {
 				purd_time = optarg;
 			}
 			
-			short globalidData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.purd.data", optarg, AtomicDataClass_Text);
+			short globalidData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.purd.data", optarg, AtomFlags_Data_Text);
 			APar_Unified_atom_Put(globalidData_atom, purd_time, UTF8_iTunesStyle_256byteLimited, 0, 0);
+			if (free_memory) {
+				free(purd_time);
+				purd_time = NULL;
+			}
 			break;
 		}
 		
@@ -1130,9 +1140,9 @@ int main( int argc, char *argv[]) {
 			APar_ScanAtoms(m4afile);
 			char* formed_time = (char *)malloc(sizeof(char)*110);
 			APar_StandardTime(formed_time);
-			//APar_Add_uuid_atom(m4afile, "moov.udta.meta.ilst.uuid=%s", "tdtg", AtomicDataClass_Text, formed_time, false); //filed apple bug report
-			//APar_Add_uuid_atom(m4afile, "moov.udta.meta.uuid=%s", "tdtg", AtomicDataClass_Text, formed_time, false);
-			short tdtgUUID = APar_uuid_atom_Init("moov.udta.meta.uuid=%s", "tdtg", AtomicDataClass_Text, formed_time, false);
+			//APar_Add_uuid_atom(m4afile, "moov.udta.meta.ilst.uuid=%s", "tdtg", AtomFlags_Data_Text, formed_time, false); //filed apple bug report
+			//APar_Add_uuid_atom(m4afile, "moov.udta.meta.uuid=%s", "tdtg", AtomFlags_Data_Text, formed_time, false);
+			short tdtgUUID = APar_uuid_atom_Init("moov.udta.meta.uuid=%s", "tdtg", AtomFlags_Data_Text, formed_time, false);
 			APar_Unified_atom_Put(tdtgUUID, formed_time, UTF8_iTunesStyle_Unlimited, 0, 0);
 			free(formed_time);
 			break;
@@ -1140,18 +1150,18 @@ int main( int argc, char *argv[]) {
 		
 		case Meta_URL : {
 			APar_ScanAtoms(m4afile);
-			//APar_Add_uuid_atom(m4afile, "moov.udta.meta.ilst.uuid=%s", "©url", AtomicDataClass_Text, optarg, false); //apple iTunes bug; not allowed
-			//APar_Add_uuid_atom(m4afile, "moov.udta.meta.uuid=%s", "©url", AtomicDataClass_Text, optarg, false);
-			short urlUUID = APar_uuid_atom_Init("moov.udta.meta.uuid=%s", "©url", AtomicDataClass_Text, optarg, false);
+			//APar_Add_uuid_atom(m4afile, "moov.udta.meta.ilst.uuid=%s", "©url", AtomFlags_Data_Text, optarg, false); //apple iTunes bug; not allowed
+			//APar_Add_uuid_atom(m4afile, "moov.udta.meta.uuid=%s", "©url", AtomFlags_Data_Text, optarg, false);
+			short urlUUID = APar_uuid_atom_Init("moov.udta.meta.uuid=%s", "©url", AtomFlags_Data_Text, optarg, false);
 			APar_Unified_atom_Put(urlUUID, optarg, UTF8_iTunesStyle_Unlimited, 0, 0);
 			break;
 		}
 		
 		case Meta_Information : {
 			APar_ScanAtoms(m4afile);
-			//APar_Add_uuid_atom(m4afile, "moov.udta.meta.ilst.uuid=%s", "©inf", AtomicDataClass_Text, optarg, false); //apple iTunes bug; not allowed
-			//APar_Add_uuid_atom(m4afile, "moov.udta.meta.uuid=%s", "©inf", AtomicDataClass_Text, optarg, false);
-			short infoUUID = APar_uuid_atom_Init("moov.udta.meta.uuid=%s", "©inf", AtomicDataClass_Text, optarg, false);
+			//APar_Add_uuid_atom(m4afile, "moov.udta.meta.ilst.uuid=%s", "©inf", AtomFlags_Data_Text, optarg, false); //apple iTunes bug; not allowed
+			//APar_Add_uuid_atom(m4afile, "moov.udta.meta.uuid=%s", "©inf", AtomFlags_Data_Text, optarg, false);
+			short infoUUID = APar_uuid_atom_Init("moov.udta.meta.uuid=%s", "©inf", AtomFlags_Data_Text, optarg, false);
 			APar_Unified_atom_Put(infoUUID, optarg, UTF8_iTunesStyle_Unlimited, 0, 0);
 			break;
 		}
@@ -1165,10 +1175,10 @@ int main( int argc, char *argv[]) {
 			
 			// --meta-uuid "©foo" 1 'http://www.url.org'
 			
-			//APar_Add_uuid_atom(m4afile, "moov.udta.meta.ilst.uuid=%s", optarg, AtomicDataClass_Text, argv[optind +1], true); //apple iTunes bug; not allowed
-			//APar_Add_uuid_atom(m4afile, "moov.udta.meta.uuid=%s", optarg, AtomicDataClass_Text, argv[optind +1], true);
+			//APar_Add_uuid_atom(m4afile, "moov.udta.meta.ilst.uuid=%s", optarg, AtomFlags_Data_Text, argv[optind +1], true); //apple iTunes bug; not allowed
+			//APar_Add_uuid_atom(m4afile, "moov.udta.meta.uuid=%s", optarg, AtomFlags_Data_Text, argv[optind +1], true);
 			
-			short genericUUID = APar_uuid_atom_Init("moov.udta.meta.uuid=%s", optarg, AtomicDataClass_Text, argv[optind +1], true);
+			short genericUUID = APar_uuid_atom_Init("moov.udta.meta.uuid=%s", optarg, AtomFlags_Data_Text, argv[optind +1], true);
 			APar_Unified_atom_Put(genericUUID, argv[optind +1], UTF8_iTunesStyle_Unlimited, 0, 0);
 			break;
 		}

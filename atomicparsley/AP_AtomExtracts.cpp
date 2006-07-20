@@ -51,82 +51,13 @@ uint8_t APar_skip_filler(FILE* m4afile, uint32_t start_position) {
 //                       Time / Language / Channel specifics                         //
 ///////////////////////////////////////////////////////////////////////////////////////
 
-void determine_MonthDay(int literal_day, int &month, int &day) {
-	if (literal_day <= 31) {
-		month = 1; day = literal_day;
-	
-	} else if (literal_day <= 59) {
-		month = 2; day = literal_day - 31;
-	
-	} else if (literal_day <= 90) {
-		month = 3; day = literal_day - 59;
-	
-	} else if (literal_day <= 120) {
-		month = 4; day = literal_day - 90;
-	
-	} else if (literal_day <= 151) {
-		month = 5; day = literal_day - 120;
-	
-	} else if (literal_day <= 181) {
-		month = 6; day = literal_day - 151;
-	
-	} else if (literal_day <= 212) {
-		month = 7; day = literal_day - 181;
-		
-	} else if (literal_day <= 243) {
-		month = 8; day = literal_day - 212;
-	
-	} else if (literal_day <= 273) {
-		month = 9; day = literal_day - 243;
-	
-	} else if (literal_day <= 304) {
-		month = 10; day = literal_day - 273;
-	
-	} else if (literal_day <= 334) {
-		month = 11; day = literal_day - 304;
-	
-	} else if (literal_day <= 365) {
-		month = 12; day = literal_day - 334;
-	}
-	return;
-}
-
-char* APar_ExtractUTC(uint32_t total_secs) {
-	//this will probably be off between Jan 1 & Feb 28 on a leap year by a day.... I'm somehow cope & deal.
-	struct tm timeinfo = {0,0,0,0,0};
-
-	int offset_year = (int)( (double)total_secs / 31536000 ); //60 * 60 * 24 * 365 (ordinary year in seconds; doesn't account for leap year)
-	int literal_year = 1904 + offset_year;
-	int literal_days_into_year = ((total_secs % 31536000) / 86400) - (offset_year / 4); //accounts for the leap year
-	
-	uint32_t literal_seconds_into_day = total_secs % 86400;
-	
-	int month =  0;
-	int days = 0;
-	
-	determine_MonthDay(literal_days_into_year, month, days);
-	
-	if (literal_days_into_year < 0 ) {
-		literal_year -=1;
-		literal_days_into_year = 31 +literal_days_into_year;
-		month = 12;
-		days = literal_days_into_year;
-	}
-	
-	int hours = literal_seconds_into_day / 3600;
-	
-	timeinfo.tm_year = literal_year - 1900;
-	timeinfo.tm_yday = literal_days_into_year;
-	timeinfo.tm_mon = month - 1;
-	timeinfo.tm_mday = days;
-	timeinfo.tm_wday = (((total_secs / 86400) - (offset_year / 4)) - 5 ) % 7;
-	
-	timeinfo.tm_hour = hours;
-	timeinfo.tm_min = (literal_seconds_into_day - (hours * 3600)) / 60;
-	timeinfo.tm_sec = (int)(literal_seconds_into_day % 60);
-		
-	
-	return asctime(&timeinfo);
+char *ExtractUTC(uint32_t total_secs) {
+	//2082844800 seconds between 01/01/1904 & 01/01/1970
+	//  2,081,376,000 (60 seconds * 60 minutes * 24 hours * 365 days * 66 years)
+	//    + 1,468,800 (60 * 60 * 24 * 17 leap days in 01/01/1904 to 01/01/1970 duration) 
+	//= 2,082,672,000
+	time_t time_point = (uint32_t) (total_secs - 2082844800);
+	return asctime(gmtime(&time_point));
 }
 
 uint8_t APar_ExtractChannelInfo(FILE* m4afile, uint32_t pos) {
@@ -136,7 +67,7 @@ uint8_t APar_ExtractChannelInfo(FILE* m4afile, uint32_t pos) {
 	return unpacked_channels;
 }
 
-esds_AudioInfo* APar_Extract_audio_esds_Info(char* &uint32_buffer, FILE* m4afile, short track_level_atom) {
+esds_AudioInfo* APar_Extract_audio_esds_Info(char* uint32_buffer, FILE* m4afile, short track_level_atom) {
 	static esds_AudioInfo this_esds_info;
 	esds_AudioInfo* esds_ptr = &this_esds_info;
 	memset ( &this_esds_info, 0, sizeof (esds_AudioInfo) );	
@@ -351,9 +282,9 @@ void APar_ExtractDetails(FILE* m4afile) {
 			APar_TrackLevelInfo(total_tracks, track_num, track_level_atom, "tkhd");
 			if ( APar_read8(m4afile, parsedAtoms[track_level_atom].AtomicStart + 8) == 0) {
 				four_bytes = APar_read32(uint32_buffer, m4afile, parsedAtoms[track_level_atom].AtomicStart + 12);
-				fprintf(stdout, "    Creation Date (UTC):      %s", APar_ExtractUTC(four_bytes));
+				fprintf(stdout, "    Creation Date (UTC):      %s", ExtractUTC(four_bytes) ); //APar_ExtractUTC(four_bytes));
 				four_bytes = APar_read32(uint32_buffer, m4afile, parsedAtoms[track_level_atom].AtomicStart + 16);
-				fprintf(stdout, "    Modification Date (UTC):  %s\n", APar_ExtractUTC(four_bytes));
+				fprintf(stdout, "    Modification Date (UTC):  %s\n", ExtractUTC(four_bytes) ); //APar_ExtractUTC(four_bytes));
 				
 			}
 		}
@@ -369,7 +300,7 @@ void APar_ExtractBrands(char* filepath) {
 	memset(buffer, 0, 5);
 	uint32_t atom_length = 0;
 	
-	fseek(_file, 4, SEEK_SET);
+	fseek(_file, 4, SEEK_SET); //this fseek will to.... the first 30 or so bytes; fseeko isn't required
 	fread(buffer, 1, 4, _file);
 	if (memcmp(buffer, "ftyp", 4) == 0) {
 		atom_length = APar_read32(buffer, _file, 0);

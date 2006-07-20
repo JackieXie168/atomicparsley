@@ -23,6 +23,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <sys/time.h>
 #include <string.h>
 
 #include "AP_NSImage.h"
@@ -42,7 +43,8 @@ void findPicFileSize(const char *path) {
 }
 
 void DetermineType(const char *picfilePath) {
-	char* picHeader=(char *)malloc(sizeof(char)*8);;
+	char picHeader[9];
+	memset(picHeader, 0, 9);
 	u_int64_t r;
 	
 	FILE *pic_file = NULL;
@@ -75,7 +77,10 @@ char* DeriveNewPath(const char *filePath, PicPrefs myPicPrefs) {
 	}
 	
 	char randstring[5];
-	srand((int) time(NULL)); //Seeds rand()
+	struct timeval tv;
+	gettimeofday (&tv, NULL);
+		
+	srand( (int) tv.tv_usec / 1000 ); //Seeds rand()
 	int randNum = rand()%10000;
 	sprintf(randstring, "%i", randNum);
 	strcat(newpath, randstring);
@@ -97,17 +102,13 @@ char* DeriveNewPath(const char *filePath, PicPrefs myPicPrefs) {
 }
 
 char* ResizeGivenImage(const char* filePath, PicPrefs myPicPrefs) {
-	char* new_path=(char*)malloc(sizeof(char)*1024);
+	char* new_path = NULL;
 	BOOL resize = false;
 	NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
 	
-	char* aFile = strdup(filePath);	
-	NSString *inFile;
-	inFile = [NSString stringWithUTF8String: aFile];
-	free(aFile); //<-----NEWNEWNEW
-	aFile=NULL; //<-----NEWNEWNEW
+	//NSString *inFile = [NSString stringWithUTF8String: filePath];
 	
-	NSImage* source = [ [NSImage alloc] initWithContentsOfFile: inFile ];
+	NSImage* source = [ [NSImage alloc] initWithContentsOfFile: [NSString stringWithUTF8String: filePath] ];
 	[source setScalesWhenResized: YES];
 	if ( source == nil ) {
 		fprintf( stderr, "Image '%s' could not be loaded.\n", filePath );
@@ -255,6 +256,7 @@ char* ResizeGivenImage(const char* filePath, PicPrefs myPicPrefs) {
 		//fprintf(stdout, "lasting path %s\n", stringToBeHashed);
 		new_path = (char*)[outFile cStringUsingEncoding: NSNonLossyASCIIStringEncoding];
 	}
+	[source release];
 	[pool release];
 	return new_path;
 }

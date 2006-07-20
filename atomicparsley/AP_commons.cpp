@@ -30,10 +30,28 @@
 #include <stdlib.h>
 #include <time.h>
 #include <wchar.h>
-		 
+
 #include "AP_commons.h"
 #include "AP_iconv.h"
 #include "AtomicParsley.h"
+
+
+#if defined (_MSC_VER)
+
+///////////////////////////////////////////////////////////////////////////////////////
+//                 Win32 function to support 2-4GB large files                       //
+///////////////////////////////////////////////////////////////////////////////////////
+
+int fseeko(FILE *stream, uint64_t pos, int whence) { //only using SEEK_SET here
+	if (whence == SEEK_SET) {
+		fpos_t fpos = pos;
+		return fsetpos(stream, &fpos);
+	} else {
+		return -1;
+	}
+	return -1;
+}
+#endif
 
 ///////////////////////////////////////////////////////////////////////////////////////
 //                             File reading routines                                 //
@@ -41,30 +59,30 @@
 
 uint8_t APar_read8(FILE* m4afile, uint32_t pos) {
 	uint8_t a_byte = 0;
-	fseek(m4afile, pos, SEEK_SET);
+	fseeko(m4afile, pos, SEEK_SET);
 	fread(&a_byte, 1, 1, m4afile);
 	return a_byte;
 }
 
-uint16_t APar_read16(char* &buffer, FILE* m4afile, uint32_t pos) {
-	fseek(m4afile, pos, SEEK_SET);
+uint16_t APar_read16(char* buffer, FILE* m4afile, uint32_t pos) {
+	fseeko(m4afile, pos, SEEK_SET);
 	fread(buffer, 1, 2, m4afile);
 	return UInt16FromBigEndian(buffer);
 }
 
-uint32_t APar_read32(char* &buffer, FILE* m4afile, uint32_t pos) {
-	fseek(m4afile, pos, SEEK_SET);
+uint32_t APar_read32(char* buffer, FILE* m4afile, uint32_t pos) {
+	fseeko(m4afile, pos, SEEK_SET);
 	fread(buffer, 1, 4, m4afile);
 	return UInt32FromBigEndian(buffer);
 }
 
-void APar_readX(char* &buffer, FILE* m4afile, uint32_t pos, uint32_t length) {
-	fseek(m4afile, pos, SEEK_SET);
+void APar_readX(char* buffer, FILE* m4afile, uint32_t pos, uint32_t length) {
+	fseeko(m4afile, pos, SEEK_SET);
 	fread(buffer, 1, length, m4afile);
 	return;
 }
 
-uint32_t APar_FindValueInAtom(char* &uint32_buffer, FILE* m4afile, short an_atom, uint32_t start_position, uint32_t eval_number) {
+uint32_t APar_FindValueInAtom(char* uint32_buffer, FILE* m4afile, short an_atom, uint32_t start_position, uint32_t eval_number) {
 	uint32_t current_pos = start_position;
 	memset(uint32_buffer, 0, 5);
 	while (current_pos <= parsedAtoms[an_atom].AtomicLength) {
