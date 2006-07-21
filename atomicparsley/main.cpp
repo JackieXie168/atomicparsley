@@ -30,7 +30,6 @@
 #include <string.h>
 #include <signal.h>
 
-//TODO: At some point, cvs commit the getopt.x files and then switch to a unified release; then uncomment this stuff
 #if defined (_MSC_VER)
 #include "getopt.h"
 #else
@@ -280,10 +279,10 @@ static const char* longHelp_text =
 "------------------------------------------------------------------------------------------------\n"
 " Padding & 'free' atoms:\n"
 "\n"
-"  A special type of atom called a 'free' atom is used for padding (all 'free' atoms contain empty NULL space.\n"
-"  When changes to a file need to occur, this 'free' atom is used. It grows or shinks, but the relative locations\n"
+"  A special type of atom called a 'free' atom is used for padding (all 'free' atoms contain NULL space).\n"
+"  When changes to occur, these 'free' atom are used. They grows or shink, but the relative locations\n"
 "  of certain other atoms (stco/mdat) remain the same. If there is no 'free' space, a full rewrite will occur.\n"
-"  The locations of 'free' atom(s) that AP can use as padding must be follow 'moov.udta' and come before 'mdat'.\n"
+"  The locations of 'free' atom(s) that AP can use as padding must be follow 'moov.udta' & come before 'mdat'.\n"
 "  A 'free' preceding 'moov' or following 'mdat' won't be used as padding for example. \n"
 "\n"
 "  Set the shell variable AP_PADDING with these values, separated by colons to alter padding behavior:\n"
@@ -621,6 +620,7 @@ int main( int argc, char *argv[]) {
 		}
 					
 		case OPT_TEST: {
+			tree_display_only = true;
 			APar_ScanAtoms(m4afile, true);
 			APar_PrintAtomicTree();
 			if (argv[optind]) {
@@ -632,6 +632,7 @@ int main( int argc, char *argv[]) {
 		case OPT_ShowTextData: {
 			if (argv[optind]) { //for utilities that write iTunes-style metadata into 3gp branded files
 				APar_ExtractBrands(m4afile);
+				tree_display_only=true;
 				APar_ScanAtoms(m4afile);
 				
 				openSomeFile(m4afile, true);
@@ -642,6 +643,7 @@ int main( int argc, char *argv[]) {
 				fprintf(stdout, "---------------------------\n");
 				
 			} else {
+				tree_display_only=true;
 				APar_ScanAtoms(m4afile);
 				openSomeFile(m4afile, true);
 				
@@ -745,9 +747,7 @@ int main( int argc, char *argv[]) {
 			short tracknumData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.trkn.data", optarg, AtomFlags_Data_Binary);
 			//tracknum: [0, 0, 0, 0,   0, 0, 0, pos_in_total, 0, the_total, 0, 0]; BUT that first uint32_t is already accounted for in APar_MetaData_atom_Init
 			APar_Unified_atom_Put(tracknumData_atom, NULL, UTF8_iTunesStyle_256byteLimited, 0, 16);
-			//APar_Unified_atom_Put(tracknumData_atom, NULL, UTF8_iTunesStyle_256byteLimited, 0, 8);
 			APar_Unified_atom_Put(tracknumData_atom, NULL, UTF8_iTunesStyle_256byteLimited, pos_in_total, 16);
-			//APar_Unified_atom_Put(tracknumData_atom, NULL, UTF8_iTunesStyle_256byteLimited, 0, 8);
 			APar_Unified_atom_Put(tracknumData_atom, NULL, UTF8_iTunesStyle_256byteLimited, the_total, 16);
 			APar_Unified_atom_Put(tracknumData_atom, NULL, UTF8_iTunesStyle_256byteLimited, 0, 16);
 			break;
@@ -776,9 +776,7 @@ int main( int argc, char *argv[]) {
 			short disknumData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.disk.data", optarg, AtomFlags_Data_Binary);
 			//disknum: [0, 0, 0, 0,   0, 0, 0, pos_in_total, 0, the_total]; BUT that first uint32_t is already accounted for in APar_MetaData_atom_Init
 			APar_Unified_atom_Put(disknumData_atom, NULL, UTF8_iTunesStyle_256byteLimited, 0, 16);
-			//APar_Unified_atom_Put(disknumData_atom, NULL, UTF8_iTunesStyle_256byteLimited, 0, 8);
 			APar_Unified_atom_Put(disknumData_atom, NULL, UTF8_iTunesStyle_256byteLimited, pos_in_total, 16);
-			//APar_Unified_atom_Put(disknumData_atom, NULL, UTF8_iTunesStyle_256byteLimited, 0, 8);
 			APar_Unified_atom_Put(disknumData_atom, NULL, UTF8_iTunesStyle_256byteLimited, the_total, 16);
 			break;
 		}
@@ -878,7 +876,6 @@ int main( int argc, char *argv[]) {
 				sscanf(optarg, "%hu", &bpm_value );
 				//bpm is [0, 0, 0, 0,   0, bpm_value]; BUT that first uint32_t is already accounted for in APar_MetaData_atom_Init
 				short bpmData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.tmpo.data", optarg, AtomFlags_Data_UInt);
-				//APar_Unified_atom_Put(bpmData_atom, NULL, UTF8_iTunesStyle_256byteLimited, 0, 8);
 				APar_Unified_atom_Put(bpmData_atom, NULL, UTF8_iTunesStyle_256byteLimited, bpm_value, 16);
 			}
 			break;
@@ -1012,7 +1009,6 @@ int main( int argc, char *argv[]) {
 			short tvseasonData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.tvsn.data", optarg, AtomFlags_Data_UInt);
 			//season is [0, 0, 0, 0,   0, 0, 0, data_value]; BUT that first uint32_t is already accounted for in APar_MetaData_atom_Init
 			APar_Unified_atom_Put(tvseasonData_atom, NULL, UTF8_iTunesStyle_256byteLimited, 0, 16);
-			//APar_Unified_atom_Put(tvseasonData_atom, NULL, UTF8_iTunesStyle_256byteLimited, 0, 8);
 			APar_Unified_atom_Put(tvseasonData_atom, NULL, UTF8_iTunesStyle_256byteLimited, data_value, 16);
 			break;
 		}
@@ -1029,7 +1025,6 @@ int main( int argc, char *argv[]) {
 			short tvepisodenumData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.tves.data", optarg, AtomFlags_Data_UInt);
 			//episodenumber is [0, 0, 0, 0,   0, 0, 0, data_value]; BUT that first uint32_t is already accounted for in APar_MetaData_atom_Init
 			APar_Unified_atom_Put(tvepisodenumData_atom, NULL, UTF8_iTunesStyle_256byteLimited, 0, 16);
-			//APar_Unified_atom_Put(tvepisodenumData_atom, NULL, UTF8_iTunesStyle_256byteLimited, 0, 8);
 			APar_Unified_atom_Put(tvepisodenumData_atom, NULL, UTF8_iTunesStyle_256byteLimited, data_value, 16);
 			break;
 		}

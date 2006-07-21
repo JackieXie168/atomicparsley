@@ -55,7 +55,7 @@ char *ExtractUTC(uint32_t total_secs) {
 	//2082844800 seconds between 01/01/1904 & 01/01/1970
 	//  2,081,376,000 (60 seconds * 60 minutes * 24 hours * 365 days * 66 years)
 	//    + 1,468,800 (60 * 60 * 24 * 17 leap days in 01/01/1904 to 01/01/1970 duration) 
-	//= 2,082,672,000
+	//= 2,082,844,800
 	time_t time_point = (uint32_t) (total_secs - 2082844800);
 	return asctime(gmtime(&time_point));
 }
