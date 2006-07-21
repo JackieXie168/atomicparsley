@@ -73,6 +73,7 @@ bool complete_free_space_erasure = false;
 bool initial_optimize_pass = true;
 bool psp_brand = false;
 int metadata_style = UNDEFINED_STYLE;
+bool tree_display_only = false;
 
 uint32_t max_buffer = 4096*125; // increased to 512KB
 
@@ -2220,6 +2221,10 @@ void APar_ScanAtoms(const char *path, bool scan_for_tree_ONLY) {
 		}
 		parsedfile = true;
 	}
+	if (!tree_display_only && !parsedfile && APar_FindAtom("moov", false, SIMPLE_ATOM, 0) == NULL) {
+		fprintf(stderr, "\nAtomicParsley error: bad mpeg4 file (no 'moov' atom).\n\n");
+		exit(1);
+	}
 	return;
 }
 
@@ -2243,9 +2248,9 @@ void APar_EliminateAtom(short this_atom_number, int resume_atom_number) {
 }
 
 void APar_RemoveAtom(const char* atom_path, uint8_t atom_type, uint16_t UD_lang) {
-	if (initial_optimize_pass) {
-		APar_Optimize(false);
-	}
+	//if (initial_optimize_pass) {
+	//	APar_Optimize(false);
+	//}
 	
 	AtomicInfo* desiredAtom = APar_FindAtom(atom_path, false, atom_type, UD_lang);
 	
@@ -2520,7 +2525,7 @@ void APar_Unified_atom_Put(short atom_num, const char* unicode_data, uint8_t tex
 			break;
 		}
 		
-		case 8 : { //tracknum
+		case 8 : { //compilation, podcast flag, advisory
 			parsedAtoms[atom_num].AtomicData[atom_data_pos] = (uint8_t)ancillary_data;
 			parsedAtoms[atom_num].AtomicLength++;
 			atom_data_pos++;
@@ -2701,7 +2706,6 @@ void APar_MetaData_atomGenre_Set(const char* atomPayload) {
 				//first find if a custom genre atom ("©gen") exists; erase the custom-string genre atom in favor of the standard genre atom
 				
 				AtomicInfo* verboten_genre_atom = APar_FindAtom(custom_genre_atom, false, SIMPLE_ATOM, 0);
-				//AtomicInfo* verboten_genre_atom = APar_FindAtom(custom_genre_atom, false, SIMPLE_ATOM, true, false, 0);
 				
 				if (verboten_genre_atom != NULL) {
 					if (strlen(verboten_genre_atom->AtomicName) > 0) {
@@ -2712,7 +2716,6 @@ void APar_MetaData_atomGenre_Set(const char* atomPayload) {
 				}
 				
 				genreAtom = APar_FindAtom(std_genre_data_atom, true, VERSIONED_ATOM, 0);
-				//genreAtom = APar_FindAtom(std_genre_data_atom, true, VERSIONED_ATOM, true, false, 0);
 				APar_MetaData_atom_QuickInit(genreAtom->AtomicNumber, AtomFlags_Data_Binary, 0);
 				APar_Unified_atom_Put(genreAtom->AtomicNumber, NULL, UTF8_iTunesStyle_256byteLimited, 0, 8);
 				APar_Unified_atom_Put(genreAtom->AtomicNumber, NULL, UTF8_iTunesStyle_256byteLimited, (uint32_t)genre_number, 8);
@@ -2720,7 +2723,6 @@ void APar_MetaData_atomGenre_Set(const char* atomPayload) {
 			} else {
 				
 				AtomicInfo* verboten_genre_atom = APar_FindAtom(standard_genre_atom, false, SIMPLE_ATOM, 0);
-				//AtomicInfo* verboten_genre_atom = APar_FindAtom(standard_genre_atom, false, SIMPLE_ATOM, true, false, 0);
 				
 				if (verboten_genre_atom != NULL) {
 					if (verboten_genre_atom->AtomicNumber > 5 && verboten_genre_atom->AtomicNumber < atom_number) {
@@ -2730,7 +2732,6 @@ void APar_MetaData_atomGenre_Set(const char* atomPayload) {
 					}
 				}
 				genreAtom = APar_FindAtom(cstm_genre_data_atom, true, VERSIONED_ATOM, 0);
-				//genreAtom = APar_FindAtom(cstm_genre_data_atom, true, VERSIONED_ATOM, true, false, 0);
 				APar_MetaData_atom_QuickInit(genreAtom->AtomicNumber, AtomFlags_Data_Text, 0);
 				APar_Unified_atom_Put(genreAtom->AtomicNumber, atomPayload, UTF8_iTunesStyle_256byteLimited, 0, 0);
 			}
@@ -3331,6 +3332,10 @@ APar_DetermineDynamicUpdate
 			TODO: only 'free' is used here; the free_type is defined as 'free' or 'skip' - 'skip isn't used as padding here
 ----------------------*/
 void APar_DetermineDynamicUpdate(bool initial_pass) {
+	if (!move_moov_atom) {
+		udta_dynamics.max_usable_free_space = 0;
+		return;
+	}
 	
 	AtomicInfo* udtaAtom = APar_FindAtom("moov.udta", false, SIMPLE_ATOM, 0);
 	
@@ -3480,7 +3485,9 @@ void APar_DetermineDynamicUpdate(bool initial_pass) {
 		//	APar_ForcePadding(pad_prefs.default_padding_size);
 		//}
 	}
-	APar_DetermineAtomLengths();
+	if (!tree_display_only) { //APar_DetermineAtomLengths doesn't handle the atoms under 'stsd' any more; for atom setting/removal, 'stsd' parsing is skipped
+		APar_DetermineAtomLengths();
+	}
 	return;
 }
 
@@ -3575,7 +3582,7 @@ void APar_Optimize(bool mdat_test_only) {
 			}
 		}
 		
-		if (any_child_atom > udta_atom) {
+		if (any_child_atom > udta_atom && !tree_display_only) { //memcmp(parsedAtoms[udta_atom].AtomicName, "udta", 4) == 0 works too
 			APar_MoveAtom(udta_atom, any_child_atom);
 		}
 	}
