@@ -180,7 +180,9 @@ static const char* longHelp_text =
 " Atom contents (printing on screen & extracting artwork(s) to files)\n"
 "\n"
 "  --textdata         ,  -t      show user data text metadata relevant to brand (inc. # of any pics).\n"
-"                                show metadata regardless of brand with \"-t 1\" (1 can be anything)\n"
+"                        -t 1    show metadata regardless of brand with (1 can be anything)\n"
+"                        -t +    show supplemental info like free space, available padding, user data\n"
+"                                length & media data length\n"
 "\n"
 "  Extract any pictures in user data \"covr\" atoms to separate files. \n"
 "  --extractPix       ,  -E                     Extract to same folder (basename derived from file).\n"
@@ -636,11 +638,16 @@ int main( int argc, char *argv[]) {
 				APar_ScanAtoms(m4afile);
 				
 				openSomeFile(m4afile, true);
-				fprintf(stdout, "  3GPP assets:\n");
-				APar_PrintUserDataAssests();
-				fprintf(stdout, "---------------------------\n  iTunes-style metadata tags:\n");
-				APar_PrintDataAtoms(m4afile, false, NULL);
-				fprintf(stdout, "---------------------------\n");
+				
+				if (memcmp(argv[optind], "+", 1) == 0) {
+					APar_PrintDataAtoms(m4afile, false, NULL, PRINT_FREE_SPACE + PRINT_PADDING_SPACE + PRINT_USER_DATA_SPACE + PRINT_MEDIA_SPACE );
+				} else {
+					fprintf(stdout, "  3GPP assets:\n");
+					APar_PrintUserDataAssests();
+					fprintf(stdout, "---------------------------\n  iTunes-style metadata tags:\n");
+					APar_PrintDataAtoms(m4afile, false, NULL, PRINT_FREE_SPACE + PRINT_PADDING_SPACE + PRINT_USER_DATA_SPACE + PRINT_MEDIA_SPACE );
+					fprintf(stdout, "---------------------------\n");
+				}
 				
 			} else {
 				tree_display_only=true;
@@ -650,7 +657,7 @@ int main( int argc, char *argv[]) {
 				if (metadata_style >= THIRD_GEN_PARTNER) {
 					APar_PrintUserDataAssests();
 				} else if (metadata_style == ITUNES_STYLE) {
-					APar_PrintDataAtoms(m4afile, false, NULL); //false, don't try to extractPix
+					APar_PrintDataAtoms(m4afile, false, NULL, 0); //false, don't try to extractPix
 				}
 			}
 			openSomeFile(m4afile, false);
@@ -664,7 +671,7 @@ int main( int argc, char *argv[]) {
 			GetBasePath( m4afile, base_path );
 			APar_ScanAtoms(m4afile);
 			openSomeFile(m4afile, true);
-			APar_PrintDataAtoms(m4afile, true, base_path); //exportPix to stripped m4afile path
+			APar_PrintDataAtoms(m4afile, true, base_path, 0); //exportPix to stripped m4afile path
 			openSomeFile(m4afile, false);
 			
 			free(base_path);
@@ -675,7 +682,7 @@ int main( int argc, char *argv[]) {
 		case OPT_ExtractPixToPath: {
 			APar_ScanAtoms(m4afile);
 			openSomeFile(m4afile, true);
-			APar_PrintDataAtoms(m4afile, true, optarg); //exportPix to a different path
+			APar_PrintDataAtoms(m4afile, true, optarg, 0); //exportPix to a different path
 			openSomeFile(m4afile, false);
 			break;
 		}

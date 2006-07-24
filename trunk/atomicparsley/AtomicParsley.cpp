@@ -68,7 +68,8 @@ bool file_opened = false;
 bool parsedfile = false;
 bool move_moov_atom = true;
 bool moov_atom_was_mooved = false;
-AtomicInfo* hdlr_atom = NULL;
+AtomicInfo* hdlrAtom = NULL;
+AtomicInfo* udtaAtom = NULL;
 bool complete_free_space_erasure = false;
 bool initial_optimize_pass = true;
 bool psp_brand = false;
@@ -441,6 +442,28 @@ void APar_TrackInfo(uint8_t &total_tracks, uint8_t &track_num, short &codec_atom
 ///////////////////////////////////////////////////////////////////////////////////////
 //                            Locating/Finding Atoms                                 //
 ///////////////////////////////////////////////////////////////////////////////////////
+
+uint32_t APar_ProvideTallyForAtom(char* atom_name) {
+	uint32_t tally_for_atom = 0;
+	short iter = parsedAtoms[0].NextAtomNumber;
+	while (true) {
+		if (memcmp(parsedAtoms[iter].AtomicName, atom_name, 4) == 0) {
+			if (parsedAtoms[iter].AtomicLength == 0) {
+				tally_for_atom += (uint32_t)file_size - parsedAtoms[iter].AtomicStart;
+			} else if (parsedAtoms[iter].AtomicLength == 1) {
+				tally_for_atom += (uint32_t)parsedAtoms[iter].AtomicLengthExtended;
+			} else {
+				tally_for_atom += parsedAtoms[iter].AtomicLength;
+			}
+		}
+		if (iter == 0) {
+			break;
+		} else {
+			iter=parsedAtoms[iter].NextAtomNumber;
+		}
+	}
+	return tally_for_atom;
+}
 
 short APar_FindPrecedingAtom(short an_atom_num) {
 	short precedingAtom = 0;
@@ -1435,7 +1458,7 @@ void APar_ExtractDataAtom(int this_atom_number) {
 	return;
 }
 
-void APar_PrintDataAtoms(const char *path, bool extract_pix, char* pic_output_path) {
+void APar_PrintDataAtoms(const char *path, bool extract_pix, char* pic_output_path, uint8_t supplemental_info) {
 
 #if defined (UTF8_ENABLED)
 	fprintf(stdout, "\xEF\xBB\xBF"); //Default to output of a UTF-8 BOM (except under win32's WriteConsoleW where it gets transparently eliminated)
@@ -1513,6 +1536,30 @@ void APar_PrintDataAtoms(const char *path, bool extract_pix, char* pic_output_pa
 			fprintf(stdout, "Atom \"covr\" contains: %i pieces of artwork\n", artwork_count);
 		}
 	}
+	
+	if (supplemental_info) {
+		udta_dynamics.dynamic_updating = false;
+		APar_DetermineDynamicUpdate(true); //gets the size of the padding
+		APar_Optimize(true); //just to know if 'free' atoms can be considered padding, or (in the case of say a faac file) it's *just* 'free'
+		
+		if (supplemental_info && 0x02) { //PRINT_FREE_SPACE
+			fprintf(stdout, "free atom space: %u\n", APar_ProvideTallyForAtom("free") );
+		}
+		if (supplemental_info && 0x04) { //PRINT_PADDING_SPACE
+			if (!moov_atom_was_mooved) {
+				fprintf(stdout, "padding available: %u bytes\n", udta_dynamics.max_usable_free_space);
+			} else {
+				fprintf(stdout, "padding available: 0 (reorg)\n");
+			}
+		}
+		if (supplemental_info && 0x08 && udtaAtom != NULL) { //PRINT_USER_DATA_SPACE
+			fprintf(stdout, "user data space: %u\n", udtaAtom->AtomicLength);
+		}
+		if (supplemental_info && 0x10) { //PRINT_USER_DATA_SPACE
+			fprintf(stdout, "media data space: %u\n", APar_ProvideTallyForAtom("mdat") );
+		}
+	}
+	
 	return;
 }
 
@@ -2427,6 +2474,10 @@ APar_InterjectNewAtom
 short APar_InterjectNewAtom(char* atom_name, uint8_t cntr_state, uint8_t atom_class, uint32_t atom_length, 
 														uint32_t atom_verflags, uint16_t packed_lang, uint8_t atom_level,
 														short preceding_atom) {
+														
+	if (tree_display_only) {
+		return 0;
+	}
 
 	AtomicInfo* new_atom = &parsedAtoms[atom_number];
 	new_atom->AtomicNumber = atom_number;
@@ -2651,9 +2702,9 @@ APar_Verify__udta_meta_hdlr__atom
 void APar_Verify__udta_meta_hdlr__atom() {
 	bool Create__udta_meta_hdlr__atom = false;
 	
-	if (metadata_style == ITUNES_STYLE && hdlr_atom == NULL) {
-		hdlr_atom = APar_FindAtom("moov.udta.meta.hdlr", false, VERSIONED_ATOM, 0);
-		if (hdlr_atom == NULL) {
+	if (metadata_style == ITUNES_STYLE && hdlrAtom == NULL) {
+		hdlrAtom = APar_FindAtom("moov.udta.meta.hdlr", false, VERSIONED_ATOM, 0);
+		if (hdlrAtom == NULL) {
 			Create__udta_meta_hdlr__atom = true;
 		}
 	}
@@ -2663,14 +2714,14 @@ void APar_Verify__udta_meta_hdlr__atom() {
 		//this "moov.udta.meta.hdlr" atom (and its data), it refuses to let any information be changed & the dreaded "Album Artwork Not Modifiable"
 		//shows up. It's because this atom is missing. Oddly, QT Player can see the info, but this only works for mp4/m4a files.
 		
-		hdlr_atom = APar_FindAtom("moov.udta.meta.hdlr", true, VERSIONED_ATOM, 0);
+		hdlrAtom = APar_FindAtom("moov.udta.meta.hdlr", true, VERSIONED_ATOM, 0);
 		
-		APar_MetaData_atom_QuickInit(hdlr_atom->AtomicNumber, 0, 0);
-		APar_Unified_atom_Put(hdlr_atom->AtomicNumber, NULL, UTF8_iTunesStyle_256byteLimited, 0x6D646972, 32); //'mdir'
-		APar_Unified_atom_Put(hdlr_atom->AtomicNumber, NULL, UTF8_iTunesStyle_256byteLimited, 0x6170706C, 32); //'appl'
-		APar_Unified_atom_Put(hdlr_atom->AtomicNumber, NULL, UTF8_iTunesStyle_256byteLimited, 0, 32);
-		APar_Unified_atom_Put(hdlr_atom->AtomicNumber, NULL, UTF8_iTunesStyle_256byteLimited, 0, 32);
-		APar_Unified_atom_Put(hdlr_atom->AtomicNumber, NULL, UTF8_iTunesStyle_256byteLimited, 0, 16);
+		APar_MetaData_atom_QuickInit(hdlrAtom->AtomicNumber, 0, 0);
+		APar_Unified_atom_Put(hdlrAtom->AtomicNumber, NULL, UTF8_iTunesStyle_256byteLimited, 0x6D646972, 32); //'mdir'
+		APar_Unified_atom_Put(hdlrAtom->AtomicNumber, NULL, UTF8_iTunesStyle_256byteLimited, 0x6170706C, 32); //'appl'
+		APar_Unified_atom_Put(hdlrAtom->AtomicNumber, NULL, UTF8_iTunesStyle_256byteLimited, 0, 32);
+		APar_Unified_atom_Put(hdlrAtom->AtomicNumber, NULL, UTF8_iTunesStyle_256byteLimited, 0, 32);
+		APar_Unified_atom_Put(hdlrAtom->AtomicNumber, NULL, UTF8_iTunesStyle_256byteLimited, 0, 16);
 	}
 	return;
 }
@@ -3265,6 +3316,10 @@ bool APar_Readjust_STCO_atom(uint32_t mdat_position, short stco_number) {
 ///////////////////////////////////////////////////////////////////////////////////////
 
 void APar_ForcePadding(uint32_t padding_amount) {
+	if (tree_display_only) {
+		return;
+	}
+	
 	if (udta_dynamics.free_atom_repository) {
 		parsedAtoms[udta_dynamics.free_atom_repository].AtomicLength = padding_amount;
 		
@@ -3282,7 +3337,7 @@ void APar_ForcePadding(uint32_t padding_amount) {
 }
 
 void APar_ConsilidatePadding(uint32_t force_padding_amount) {
-	if (force_padding_amount <= 8) { //prevent having an atom of length 0 (which means it goes to EOF)
+	if (force_padding_amount <= 8 || tree_display_only) { //prevent having an atom of length 0 (which means it goes to EOF)
 		return;
 	}
 	short primary_repository = 0;
@@ -3322,12 +3377,15 @@ void APar_ConsilidatePadding(uint32_t force_padding_amount) {
 
 /*----------------------
 APar_DetermineDynamicUpdate
-  initial_pass - if not the initial pass, consolidate 'free' atoms into one globbed 'free' repository
+  initial_pass - inital pass = consolidate 'free' atoms into one globbed 'free' repository; 2nd pass to determine the filler amount
 
     Find 'udta' & the last child of udta; work through all the atoms from udta to the end of udta (and past) as long as its a 'free' atom; a 'free' atom will
-		have its length noted in the initial pass. In a subsequent pass, those same 'free' atoms will get eliminated, and a new globbed top/level 1 'free' atom
-		of properly adjusted length will get created. Run the atom hierarchy through APar_DetermineAtomLengths to adjust ilst, meta, udta & moov lengths. A
-		specific exception for psp mpeg4 files is made to allow non-optimized files, but still have metadata dynamically updated (at the end of the file).
+		have its length noted in the initial pass. In the initial pass, if padding does not fall within the padding pref parameters, it is forced. The entire tree
+		will have its atom lengths redetermined due to adding & removing of atoms & data. If the file is found to warrant dynamic updating via padding, a second
+		visit to this function will be issued. In the 2nd pass (and having udta's length adjusted), figure out the appropriate length of the missing space between
+		the last thing in 'udta' (which has already been reordered to be last in 'moov') and the first level 1 atom. Either adjust length, or make a new 'free'
+		atom to hold that filler. Run the atom hierarchy through APar_DetermineAtomLengths to adjust ilst, meta, udta & moov lengths. A specific exception for
+		psp mpeg4 files is made to allow non-optimized files, but still have metadata dynamically updated (at the end of the file).
 		
 			TODO: only 'free' is used here; the free_type is defined as 'free' or 'skip' - 'skip isn't used as padding here
 ----------------------*/
@@ -3337,7 +3395,7 @@ void APar_DetermineDynamicUpdate(bool initial_pass) {
 		return;
 	}
 	
-	AtomicInfo* udtaAtom = APar_FindAtom("moov.udta", false, SIMPLE_ATOM, 0);
+	udtaAtom = APar_FindAtom("moov.udta", false, SIMPLE_ATOM, 0);
 	
 	//if there is no 'udta' atom, but we still want any available padding listed - there is none
 	if (udtaAtom == NULL && !modified_atoms) {
@@ -4219,6 +4277,10 @@ void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_origi
 	
 	if (!complete_free_space_erasure) {
 		APar_DetermineDynamicUpdate(true); //test whether it can happen
+	}
+	
+	if (!rewrite_original) {
+		udta_dynamics.dynamic_updating = false;
 	}
 	
 	APar_ValidateAtoms();

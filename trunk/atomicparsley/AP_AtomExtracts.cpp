@@ -305,9 +305,13 @@ void APar_ExtractBrands(char* filepath) {
 	if (memcmp(buffer, "ftyp", 4) == 0) {
 		atom_length = APar_read32(buffer, _file, 0);
 		APar_readX(buffer, _file, 8, 4);
-		fprintf(stdout, "Major Brand: %s\n", buffer);
+		fprintf(stdout, " Major Brand: %s", buffer);
 		APar_IdentifyBrand(buffer);
-		fprintf(stdout, "Minor Brands:");
+		
+		uint32_t minor_version = APar_read32(buffer, _file, 12);
+		fprintf(stdout, "  -  version %u\n", minor_version);
+		
+		fprintf(stdout, " Compatible Brands:");
 		for (uint32_t i = 16; i < atom_length; i+=4) {
 			APar_readX(buffer, _file, i, 4);
 			if (UInt32FromBigEndian(buffer) != 0) {
@@ -319,16 +323,16 @@ void APar_ExtractBrands(char* filepath) {
 	
 	switch(metadata_style) {
 		case ITUNES_STYLE: {
-			fprintf(stdout, "iTunes-style metadata allowed.\n");
+			fprintf(stdout, " iTunes-style metadata allowed.\n");
 			break;
 		}
 		case THIRD_GEN_PARTNER: {
-			fprintf(stdout, "3GP-style asset metadata allowed - except 'albm' album tag. 3gp6 or later major brand required.\n");
+			fprintf(stdout, " 3GP-style asset metadata allowed - except 'albm' album tag. 3gp6 or later major brand required.\n");
 			break;
 		}
 		case THIRD_GEN_PARTNER_VER1_REL6:
 		case THIRD_GEN_PARTNER_VER2: {
-			fprintf(stdout, "3GP-style asset metadata allowed.\n");
+			fprintf(stdout, " 3GP-style asset metadata allowed.\n");
 			break;
 		}
 	}
