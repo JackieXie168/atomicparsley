@@ -77,7 +77,8 @@ stiks stikArray[] = {
 	{ "Whacked Bookmark", 5 },
 	{ "Music Video", 6 },
 	{ "Short Film", 9 },
-	{ "TV Show", 10 }
+	{ "TV Show", 10 },
+	{ "Booklet", 11 }
 };
 
 // from William Herrera: http://search.cpan.org/src/BILLH/LWP-UserAgent-iTMS_Client-0.16/lib/LWP/UserAgent/iTMS_Client.pm

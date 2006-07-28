@@ -282,9 +282,9 @@ void APar_ExtractDetails(FILE* m4afile) {
 			APar_TrackLevelInfo(total_tracks, track_num, track_level_atom, "tkhd");
 			if ( APar_read8(m4afile, parsedAtoms[track_level_atom].AtomicStart + 8) == 0) {
 				four_bytes = APar_read32(uint32_buffer, m4afile, parsedAtoms[track_level_atom].AtomicStart + 12);
-				fprintf(stdout, "    Creation Date (UTC):      %s", ExtractUTC(four_bytes) ); //APar_ExtractUTC(four_bytes));
+				fprintf(stdout, "    Creation Date (GMT):      %s", ExtractUTC(four_bytes) ); //APar_ExtractUTC(four_bytes));
 				four_bytes = APar_read32(uint32_buffer, m4afile, parsedAtoms[track_level_atom].AtomicStart + 16);
-				fprintf(stdout, "    Modification Date (UTC):  %s\n", ExtractUTC(four_bytes) ); //APar_ExtractUTC(four_bytes));
+				fprintf(stdout, "    Modification Date (GMT):  %s\n", ExtractUTC(four_bytes) ); //APar_ExtractUTC(four_bytes));
 				
 			}
 		}

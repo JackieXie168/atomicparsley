@@ -482,6 +482,112 @@ int UTF16LEToUTF8(unsigned char* out, int outlen, const unsigned char* inb, int 
     return(outlen);
 }
 
+/**
+ * UTF8ToUTF16LE:
+ * @outb:  a pointer to an array of bytes to store the result
+ * @outlen:  the length of @outb
+ * @in:  a pointer to an array of UTF-8 chars
+ * @inlen:  the length of @in
+ *
+ * Take a block of UTF-8 chars in and try to convert it to an UTF-16LE
+ * block of chars out.
+ *
+ * Returns the number of bytes written, or -1 if lack of space, or -2
+ *     if the transcoding failed. 
+ */
+int UTF8ToUTF16LE(unsigned char* outb, int outlen, const unsigned char* in, int inlen)
+{
+    unsigned short* out = (unsigned short*) outb;
+    const unsigned char* processed = in;
+    const unsigned char *const instart = in;
+    unsigned short* outstart= out;
+    unsigned short* outend;
+    const unsigned char* inend= in+inlen;
+    unsigned int c, d;
+    int trailing;
+    unsigned char *tmp;
+    unsigned short tmp1, tmp2;
+
+    /* UTF16LE encoding has no BOM */
+    if ((out == NULL) || (outlen == 0) || (inlen == 0)) return(-1);
+    if (in == NULL) {
+		outlen = 0;
+		inlen = 0;
+		return(0);
+    }
+    outend = out + (outlen / 2);
+    while (in < inend) {
+      d= *in++;
+      if      (d < 0x80)  { c= d; trailing= 0; }
+      else if (d < 0xC0) {
+          /* trailing byte in leading position */
+	  outlen = (out - outstart) * 2;
+	  inlen = processed - instart;
+	  return(-2);
+      } else if (d < 0xE0)  { c= d & 0x1F; trailing= 1; }
+      else if (d < 0xF0)  { c= d & 0x0F; trailing= 2; }
+      else if (d < 0xF8)  { c= d & 0x07; trailing= 3; }
+      else {
+	/* no chance for this in UTF-16 */
+	outlen = (out - outstart) * 2;
+	inlen = processed - instart;
+	return(-2);
+      }
+
+      if (inend - in < trailing) {
+          break;
+      } 
+
+      for ( ; trailing; trailing--) {
+          if ((in >= inend) || (((d= *in++) & 0xC0) != 0x80))
+	      break;
+          c <<= 6;
+          c |= d & 0x3F;
+      }
+
+      /* assertion: c is a single UTF-4 value */
+        if (c < 0x10000) {
+            if (out >= outend)
+	        break;
+	    if (xmlLittleEndian) {
+		*out++ = c;
+	    } else {
+		tmp = (unsigned char *) out;
+		*tmp = c ;
+		*(tmp + 1) = c >> 8 ;
+		out++;
+	    }
+        }
+        else if (c < 0x110000) {
+            if (out+1 >= outend)
+	        break;
+            c -= 0x10000;
+	    if (xmlLittleEndian) {
+		*out++ = 0xD800 | (c >> 10);
+		*out++ = 0xDC00 | (c & 0x03FF);
+	    } else {
+		tmp1 = 0xD800 | (c >> 10);
+		tmp = (unsigned char *) out;
+		*tmp = (unsigned char) tmp1;
+		*(tmp + 1) = tmp1 >> 8;
+		out++;
+
+		tmp2 = 0xDC00 | (c & 0x03FF);
+		tmp = (unsigned char *) out;
+		*tmp  = (unsigned char) tmp2;
+		*(tmp + 1) = tmp2 >> 8;
+		out++;
+	    }
+        }
+        else
+	    break;
+	processed = in;
+    }
+    outlen = (out - outstart) * 2;
+    inlen = processed - instart;
+    return(outlen);
+}
+
 int isUTF8(const char* in_string) {
 	//fprintf(stdout, "utf8 test-> %s\n", in_string);
 	int str_bytes = 0;
@@ -541,4 +647,26 @@ int isUTF8(const char* in_string) {
 	} else {
 		return 0;
 	}
+}
+
+int strip_bogusUTF16toRawUTF8 (unsigned char* out, int inlen, wchar_t* in, int outlen) {
+
+    unsigned char* outstart = out;
+    unsigned char* outend;
+    const wchar_t* inend;
+    const wchar_t* instop;
+
+    if ((out == NULL) || (in == NULL) || (outlen == 0) || (inlen == 0))
+	return(-1);
+
+    outend = out + outlen;
+    inend = in + (inlen);
+    instop = inend;
+    
+    while (in < inend && out < outend - 1) {
+    	*out++ = *in << 0;
+	    ++in;
+	}
+    outlen = out - outstart;
+    return(outlen);
 }

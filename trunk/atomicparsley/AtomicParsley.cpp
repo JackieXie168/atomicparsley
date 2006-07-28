@@ -103,26 +103,34 @@ char* twenty_byte_buffer = (char *)malloc(sizeof(char)*20);
 
 EmployedCodecs track_codecs = {false, false, false, false, false, false, false, false, false, false};
 
+uint8_t UnicodeOutputStatus = UNIVERSAL_UTF8; //on windows, controls whether input/output strings are utf16 or raw utf8; reset in wmain()
+
 ///////////////////////////////////////////////////////////////////////////////////////
 //                                Versioning                                         //
 ///////////////////////////////////////////////////////////////////////////////////////
 
 void ShowVersionInfo() {
 
-#if defined (UTF8_ENABLED)
-#define unicode_enabled	"(utf8)"
-#else
+#if defined (_MSC_VER)
+	char unicode_enabled[12];
+	memset(unicode_enabled, 0, 12);
+	if (UnicodeOutputStatus == WIN32_UTF16) {
+		memcpy(unicode_enabled, "(utf16)", 7);
 
-#if defined (UTF16_ENABLED)
-#define unicode_enabled	"(utf16)"
 //its utf16 in the sense that any text entering on a modern Win32 system enters as utf16le - but gets converted immediately after AP.exe starts to utf8
 //all arguments, strings, filenames, options are sent around as utf8. For modern Win32 systems, filenames get converted to utf16 for output as needed.
 //Any strings to be set as utf16 in 3gp assets are converted to utf16be as needed (true for all OS implementations).
 //Printing out to the console is a mixed bag of vanilla ascii & utf16le. Redirected output should be utf8. TODO: Win32 output should be uniformly utf16le.
-#else
-#define unicode_enabled	""
-#endif
+	} else if (UnicodeOutputStatus == UNIVERSAL_UTF8) {
+		memcpy(unicode_enabled, "(raw utf8)", 10);
+		
+//utf8 in the sense that any text entered had its utf16 upper byte stripped and reduced to (unchecked) raw utf8 for utilities that work in utf8. Any
+//unicode (utf16) filenames were clobbered in that processes are invalid now. Any intermediate folder with unicode in it will now likely cause an error of
+//some sort.
+	}
 
+#else
+#define unicode_enabled	"(utf8)"
 #endif
 
 	if (cvs_build) {  //below is the versioning from cvs if used; remember to switch to AtomicParsley_version for a release
@@ -158,11 +166,11 @@ findFileSize
   utf8_filepath - a pointer to a string (possibly utf8) of the full path to the file
 
     take an ascii/utf8 filepath (which if under a unicode enabled Win32 OS was already converted from utf16le to utf8 at program start) and test if
-		AP is running on a unicode enabled Win32 OS. If it is, convert the utf8 filepath to a utf16 (native-endian) filepath & pass that to a wide stat.
-		Or stat it with a utf8 filepath on Unixen.
+		AP is running on a unicode enabled Win32 OS. If it is and converted to utf8 (rather than just stripped), convert the utf8 filepath to a utf16 
+		(native-endian) filepath & pass that to a wide stat. Or stat it with a utf8 filepath on Unixen & win32 (stripped utf8).
 ----------------------*/
 off_t findFileSize(const char *utf8_filepath) {
-	if ( IsUnicodeWinOS() ) {
+	if ( IsUnicodeWinOS() && UnicodeOutputStatus == WIN32_UTF16) {
 #if defined (_MSC_VER)
 		wchar_t* utf16_filepath = Convert_multibyteUTF8_to_wchar(utf8_filepath);
 		
@@ -178,7 +186,7 @@ off_t findFileSize(const char *utf8_filepath) {
 		stat(utf8_filepath, &fileStats);
 		return fileStats.st_size;
 	}
-	return 0; //won't ever get here
+	return 0; //won't ever get here.... unless this is win32, set to utf8 and the folder/file had unicode.... TODO (? use isUTF8() for high ascii?)
 }
 
 /*----------------------
@@ -192,7 +200,7 @@ APar_OpenFile
 ----------------------*/
 FILE* APar_OpenFile(const char* utf8_filepath, const char* file_flags) {
 	FILE* aFile = NULL;
-	if ( IsUnicodeWinOS() ) {
+	if ( IsUnicodeWinOS() && UnicodeOutputStatus == WIN32_UTF16) {
 #if defined (_MSC_VER)
 		wchar_t* Lfile_flags = (wchar_t *)malloc(sizeof(wchar_t)*4);
 		memset(Lfile_flags, 0, sizeof(wchar_t)*4);
@@ -938,8 +946,8 @@ void APar_unicode_win32Printout(wchar_t* unicode_out) { //based on http://blogs.
 #endif
 
 void APar_fprintf_UTF8_data(char* utf8_encoded_data) {
-#if defined (_MSC_VER) && defined (UTF16_ENABLED)
-	if (GetVersion() & 0x80000000) {
+#if defined (_MSC_VER)
+	if (GetVersion() & 0x80000000 || UnicodeOutputStatus == UNIVERSAL_UTF8) {
 		fprintf(stdout, "%s", utf8_encoded_data); //just printout the raw utf8 bytes (not characters) under pre-NT windows
 	} else {
 		wchar_t* utf16_data = Convert_multibyteUTF8_to_wchar(utf8_encoded_data);
@@ -962,7 +970,7 @@ void APar_PrintUnicodeAssest(char* unicode_string, int asset_length) { //3gp fil
 		fprintf(stdout, " (utf16)] : ");
 
 #if defined (_MSC_VER)
-		if (GetVersion() & 0x80000000) { //pre-NT (pish, thats my win98se, and without unicows support convert utf16toutf8 and output raw bytes)
+		if (GetVersion() & 0x80000000 || UnicodeOutputStatus == UNIVERSAL_UTF8) { //pre-NT or AP-utf8.exe (pish, thats my win98se, and without unicows support convert utf16toutf8 and output raw bytes)
 			unsigned char* utf8_data = Convert_multibyteUTF16_to_UTF8(unicode_string, (asset_length -13) * 6, asset_length-14);
 			fprintf(stdout, "%s", utf8_data);
 		
@@ -1006,7 +1014,7 @@ void APar_SimplePrintUnicodeAssest(char* unicode_string, int asset_length, bool 
 		}
 
 #if defined (_MSC_VER)
-		if (GetVersion() & 0x80000000) { //pre-NT (pish, thats my win98se, and without unicows support convert utf16toutf8 and output raw bytes)
+		if (GetVersion() & 0x80000000 || UnicodeOutputStatus == UNIVERSAL_UTF8) { //pre-NT or AP-utf8.exe (pish, thats my win98se, and without unicows support convert utf16toutf8 and output raw bytes)
 			unsigned char* utf8_data = Convert_multibyteUTF16_to_UTF8(unicode_string, asset_length * 6, asset_length-14);
 			fprintf(stdout, "%s", utf8_data);
 		
@@ -1044,8 +1052,10 @@ void APar_PrintUserDataAssests() { //3gp files
 
 #if defined (UTF8_ENABLED)
 	fprintf(stdout, "\xEF\xBB\xBF"); //Default to output of a UTF-8 BOM (except under win32's WriteConsoleW where it gets transparently eliminated)
-#elif defined (_MSC_VER) && defined (UTF16_ENABLED)
-	APar_unicode_win32Printout(L"\xEF\xBB\xBF");
+#elif defined (_MSC_VER)
+	if (UnicodeOutputStatus == WIN32_UTF16) {
+		APar_unicode_win32Printout(L"\xEF\xBB\xBF"); //TODO: is this necessary? was it ever???
+	}
 #endif
 	
 	AtomicInfo* udtaAtom = APar_FindAtom("moov.udta", false, SIMPLE_ATOM, 0);
@@ -1462,8 +1472,10 @@ void APar_PrintDataAtoms(const char *path, bool extract_pix, char* pic_output_pa
 
 #if defined (UTF8_ENABLED)
 	fprintf(stdout, "\xEF\xBB\xBF"); //Default to output of a UTF-8 BOM (except under win32's WriteConsoleW where it gets transparently eliminated)
-#elif defined (_MSC_VER) && defined (UTF16_ENABLED)
-	APar_unicode_win32Printout(L"\xEF\xBB\xBF");
+#elif defined (_MSC_VER)
+	if (UnicodeOutputStatus == WIN32_UTF16) {
+		APar_unicode_win32Printout(L"\xEF\xBB\xBF"); //TODO: is this necessary? was it ever???
+	}
 #endif
 
 	short artwork_count=0;
@@ -1492,13 +1504,14 @@ void APar_PrintDataAtoms(const char *path, bool extract_pix, char* pic_output_pa
 					memset(twenty_byte_buffer, 0, sizeof(char)*20);
 					isolat1ToUTF8((unsigned char*)twenty_byte_buffer, 10, (unsigned char*)parent->AtomicName, 4);
 
-#if defined (_MSC_VER) && defined (UTF16_ENABLED)
-					fprintf(stdout, "Atom \"");
-					APar_fprintf_UTF8_data(twenty_byte_buffer);
-					fprintf(stdout, "\" contains: ");
-#else
-					fprintf(stdout, "Atom \"%s\" contains: ", twenty_byte_buffer);
-#endif
+					if (UnicodeOutputStatus == WIN32_UTF16) {
+						fprintf(stdout, "Atom \"");
+						APar_fprintf_UTF8_data(twenty_byte_buffer);
+						fprintf(stdout, "\" contains: ");
+					} else {
+						fprintf(stdout, "Atom \"%s\" contains: ", twenty_byte_buffer);
+					}
+					
 					APar_ExtractDataAtom(i);
 				}
 								
@@ -1517,13 +1530,15 @@ void APar_PrintDataAtoms(const char *path, bool extract_pix, char* pic_output_pa
 			isolat1ToUTF8((unsigned char*)twenty_byte_buffer, 10, (unsigned char*)thisAtom->AtomicName, 4);
 
 			if ( thisAtom->AtomicVerFlags == (uint32_t)AtomFlags_Data_Text && !pic_output_path) {
-#if defined (_MSC_VER) && defined (UTF16_ENABLED)
-				fprintf(stdout, "Atom uuid=\"");
-				APar_fprintf_UTF8_data(twenty_byte_buffer);
-				fprintf(stdout, "\" contains: ");
-#else
-				fprintf(stdout, "Atom uuid=\"%s\" contains: ", twenty_byte_buffer);
-#endif
+				
+				if (UnicodeOutputStatus == WIN32_UTF16) {
+					fprintf(stdout, "Atom uuid=\"");
+					APar_fprintf_UTF8_data(twenty_byte_buffer);
+					fprintf(stdout, "\" contains: ");
+				} else {
+					fprintf(stdout, "Atom uuid=\"%s\" contains: ", twenty_byte_buffer);
+				}
+
 				APar_ExtractDataAtom(i);
 			}
 		}
@@ -1573,8 +1588,10 @@ void APar_PrintAtomicTree() {
 
 #if defined (UTF8_ENABLED)
 	fprintf(stdout, "\xEF\xBB\xBF"); //Default to output of a UTF-8 BOM (except under win32's WriteConsoleW where it gets transparently eliminated)
-#elif defined (_MSC_VER) && defined (UTF16_ENABLED)
-	APar_unicode_win32Printout(L"\xEF\xBB\xBF");
+#elif defined (_MSC_VER)
+	if (UnicodeOutputStatus == WIN32_UTF16) {
+		APar_unicode_win32Printout(L"\xEF\xBB\xBF"); //TODO: is this necessary? was it ever???
+	}
 #endif
 
 	char* tree_padding = (char*)malloc(sizeof(char)*126); //for a 25-deep atom tree (4 spaces per atom)+single space+term.
@@ -1609,37 +1626,37 @@ void APar_PrintAtomicTree() {
 		//uuid atoms of any sort
 		} else if (thisAtom->AtomicClassification == EXTENDED_ATOM) {
 
-#if defined (_MSC_VER) && defined (UTF16_ENABLED)
-			fprintf(stdout, "%sAtom uuid=", tree_padding);
-			APar_fprintf_UTF8_data(twenty_byte_buffer);
-			fprintf(stdout, " @ %u of size: %u, ends @ %u\n", thisAtom->AtomicStart, thisAtom->AtomicLength, (thisAtom->AtomicStart + thisAtom->AtomicLength) );
-#else
-			fprintf(stdout, "%sAtom uuid=%s @ %u of size: %u, ends @ %u\n", tree_padding, twenty_byte_buffer, thisAtom->AtomicStart, thisAtom->AtomicLength, (thisAtom->AtomicStart + thisAtom->AtomicLength) );
-#endif
+			if (UnicodeOutputStatus == WIN32_UTF16) {
+				fprintf(stdout, "%sAtom uuid=", tree_padding);
+				APar_fprintf_UTF8_data(twenty_byte_buffer);
+				fprintf(stdout, " @ %u of size: %u, ends @ %u\n", thisAtom->AtomicStart, thisAtom->AtomicLength, (thisAtom->AtomicStart + thisAtom->AtomicLength) );
+			} else {
+				fprintf(stdout, "%sAtom uuid=%s @ %u of size: %u, ends @ %u\n", tree_padding, twenty_byte_buffer, thisAtom->AtomicStart, thisAtom->AtomicLength, (thisAtom->AtomicStart + thisAtom->AtomicLength) );
+			}
 
 		//3gp assets (most of them anyway)
 		} else if (thisAtom->AtomicClassification == PACKED_LANG_ATOM) {
 			unsigned char unpacked_lang[3];
 			APar_UnpackLanguage(unpacked_lang, thisAtom->AtomicLanguage);
 
-#if defined (_MSC_VER) && defined (UTF16_ENABLED)
-			fprintf(stdout, "%sAtom ", tree_padding);
-			APar_fprintf_UTF8_data(twenty_byte_buffer);
-			fprintf(stdout, " [%s] @ %u of size: %u, ends @ %u\n", unpacked_lang, thisAtom->AtomicStart, thisAtom->AtomicLength, (thisAtom->AtomicStart + thisAtom->AtomicLength) );
-#else
-			fprintf(stdout, "%sAtom %s [%s] @ %u of size: %u, ends @ %u\n", tree_padding, twenty_byte_buffer, unpacked_lang, thisAtom->AtomicStart, thisAtom->AtomicLength, (thisAtom->AtomicStart + thisAtom->AtomicLength) );
-#endif
+			if (UnicodeOutputStatus == WIN32_UTF16) {
+				fprintf(stdout, "%sAtom ", tree_padding);
+				APar_fprintf_UTF8_data(twenty_byte_buffer);
+				fprintf(stdout, " [%s] @ %u of size: %u, ends @ %u\n", unpacked_lang, thisAtom->AtomicStart, thisAtom->AtomicLength, (thisAtom->AtomicStart + thisAtom->AtomicLength) );
+			} else {
+				fprintf(stdout, "%sAtom %s [%s] @ %u of size: %u, ends @ %u\n", tree_padding, twenty_byte_buffer, unpacked_lang, thisAtom->AtomicStart, thisAtom->AtomicLength, (thisAtom->AtomicStart + thisAtom->AtomicLength) );
+			}
 
 		//all other atoms (the bulk of them will fall here)
 		} else {
 		
-#if defined (_MSC_VER) && defined (UTF16_ENABLED)
-			fprintf(stdout, "%sAtom ", tree_padding);
-			APar_fprintf_UTF8_data(twenty_byte_buffer);
-			fprintf(stdout, " @ %u of size: %u, ends @ %u", thisAtom->AtomicStart, thisAtom->AtomicLength, (thisAtom->AtomicStart + thisAtom->AtomicLength) );
-#else
-			fprintf(stdout, "%sAtom %s @ %u of size: %u, ends @ %u", tree_padding, twenty_byte_buffer, thisAtom->AtomicStart, thisAtom->AtomicLength, (thisAtom->AtomicStart + thisAtom->AtomicLength) );
-#endif
+			if (UnicodeOutputStatus == WIN32_UTF16) {
+				fprintf(stdout, "%sAtom ", tree_padding);
+				APar_fprintf_UTF8_data(twenty_byte_buffer);
+				fprintf(stdout, " @ %u of size: %u, ends @ %u", thisAtom->AtomicStart, thisAtom->AtomicLength, (thisAtom->AtomicStart + thisAtom->AtomicLength) );
+			} else {
+				fprintf(stdout, "%sAtom %s @ %u of size: %u, ends @ %u", tree_padding, twenty_byte_buffer, thisAtom->AtomicStart, thisAtom->AtomicLength, (thisAtom->AtomicStart + thisAtom->AtomicLength) );
+			}
 
 			if (thisAtom->AtomicContainerState == UNKNOWN_ATOM_TYPE) {
 				for (uint8_t i = 0; i < (5-thisAtom->AtomicLevel); i ++) {
@@ -1703,8 +1720,10 @@ void APar_SimpleAtomPrintout() { //loop through each atom in the struct array (w
 
 #if defined (UTF8_ENABLED)
 	fprintf(stdout, "\xEF\xBB\xBF"); //Default to output of a UTF-8 BOM (except under win32's WriteConsoleW where it gets transparently eliminated)
-#elif defined (_MSC_VER) && defined (UTF16_ENABLED)
-	APar_unicode_win32Printout(L"\xEF\xBB\xBF");
+#elif defined (_MSC_VER)
+	if (UnicodeOutputStatus == WIN32_UTF16) {
+		APar_unicode_win32Printout(L"\xEF\xBB\xBF"); //TODO: is this necessary? was it ever???
+	}
 #endif
 
  	for (int i=0; i < atom_number; i++) { 
@@ -2295,9 +2314,6 @@ void APar_EliminateAtom(short this_atom_number, int resume_atom_number) {
 }
 
 void APar_RemoveAtom(const char* atom_path, uint8_t atom_type, uint16_t UD_lang) {
-	//if (initial_optimize_pass) {
-	//	APar_Optimize(false);
-	//}
 	
 	AtomicInfo* desiredAtom = APar_FindAtom(atom_path, false, atom_type, UD_lang);
 	
@@ -2741,7 +2757,6 @@ void APar_MetaData_atomGenre_Set(const char* atomPayload) {
 		const char* std_genre_data_atom = "moov.udta.meta.ilst.gnre.data";
 		const char* custom_genre_atom = "moov.udta.meta.ilst.©gen";
 		const char* cstm_genre_data_atom = "moov.udta.meta.ilst.©gen.data";
-		modified_atoms = true;
 		
 		if ( strlen(atomPayload) == 0) {
 			APar_RemoveAtom(std_genre_data_atom, VERSIONED_ATOM, 0); //find the atom; don't create if it's "" to remove
@@ -2752,6 +2767,7 @@ void APar_MetaData_atomGenre_Set(const char* atomPayload) {
 			AtomicInfo* genreAtom;
 			
 			APar_Verify__udta_meta_hdlr__atom();
+			modified_atoms = true;
 			
 			if (genre_number != 0) {
 				//first find if a custom genre atom ("©gen") exists; erase the custom-string genre atom in favor of the standard genre atom
@@ -2807,7 +2823,7 @@ void APar_MetaData_atomArtwork_Init(short atom_num, const char* artworkPath) {
 	if (picture_size > 0) {
 		APar_MetaData_atom_QuickInit(atom_num, APar_TestArtworkBinaryData(artworkPath), 0 );
 		parsedAtoms[atom_num].AtomicLength += (uint32_t)picture_size;
-		if (IsUnicodeWinOS() ) {
+		if (IsUnicodeWinOS() && UnicodeOutputStatus == WIN32_UTF16) {
 			memcpy(parsedAtoms[atom_num].AtomicData, artworkPath, wcslen( (wchar_t*)artworkPath ) * 2);
 		} else {
 			parsedAtoms[atom_num].AtomicData = strdup(artworkPath);
@@ -2827,7 +2843,6 @@ APar_MetaData_atomArtwork_Set
 ----------------------*/
 void APar_MetaData_atomArtwork_Set(const char* artworkPath, char* env_PicOptions) {
 	if (metadata_style == ITUNES_STYLE) {
-		modified_atoms = true;
 		const char* artwork_atom = "moov.udta.meta.ilst.covr";
 		if (memcmp(artworkPath, "REMOVE_ALL", 10) == 0) {
 			APar_RemoveAtom(artwork_atom, SIMPLE_ATOM, 0);
@@ -2835,6 +2850,7 @@ void APar_MetaData_atomArtwork_Set(const char* artworkPath, char* env_PicOptions
 		} else {
 			APar_Verify__udta_meta_hdlr__atom();
 			
+			modified_atoms = true;
 			AtomicInfo* desiredAtom = APar_FindAtom(artwork_atom, true, SIMPLE_ATOM, 0);
 			AtomicInfo sample_data_atom = { 0 };
 			short parent_atom = desiredAtom->AtomicNumber; //used on Darwin adding a 2nd image (the original)
@@ -2928,7 +2944,6 @@ APar_uuid_atom_Init
 		acutal uuidpath itself. Once created however, placing information on it is very much like any other atom - done via APar_Unified_atom_Put
 ----------------------*/
 short APar_uuid_atom_Init(const char* atom_path, char* uuidName, const uint32_t dataType, const char* uuidValue, bool shellAtom) {
-	modified_atoms = true;
 	char uuid_path[256];
 	memset(uuid_path, 0, sizeof(uuid_path));
 	AtomicInfo* desiredAtom = NULL;
@@ -2962,6 +2977,7 @@ short APar_uuid_atom_Init(const char* atom_path, char* uuidName, const uint32_t 
 		
 	} else {
 		//uuid atoms won't have 'data' child atoms - they will carry the data directly as opposed to traditional iTunes-style metadata that does store the information on 'data' atoms. But user-defined is user-defined, so that is how it will be defined here.
+		modified_atoms = true;
 		desiredAtom = APar_FindAtom(uuid_path, true, EXTENDED_ATOM, 0);
 		
 		if (dataType == (uint32_t)AtomFlags_Data_Text) {
@@ -3008,7 +3024,6 @@ short APar_MetaData_atom_Init(const char* atom_path, const char* MD_Payload, con
 	if (metadata_style != ITUNES_STYLE) {
 		return 0;
 	}
-	modified_atoms = true;
 	bool retain_atom = true;
 		
 	if ( strlen(MD_Payload) == 0 ) {
@@ -3020,6 +3035,8 @@ short APar_MetaData_atom_Init(const char* atom_path, const char* MD_Payload, con
 	}
 	
 	AtomicInfo* desiredAtom = APar_FindAtom(atom_path, retain_atom, VERSIONED_ATOM, 0); //finds the atom; if not present, creates the atom
+	if (desiredAtom == NULL) return -1;
+	modified_atoms = true;
 		
 	if (! retain_atom) {
 		AtomicInfo* parent_atom = &parsedAtoms[ APar_FindParentAtom(desiredAtom->AtomicNumber, desiredAtom->AtomicLevel) ];
@@ -3062,7 +3079,6 @@ short APar_UserData_atom_Init(const char* atom_path, const char* UD_Payload, uin
 	//the problem occurs using unicode.org's ConvertUTF8toUTF16 or using libxmls's UTF8ToUTF16BE (when converting to utf16) in the same places - except for the copyright symbol which unicode.org's ConvertUTF16toUTF8 didn't properly convert - which was the reason why libxml's functions are now used. And at no point can I get the audio protected P-in-a-circle glyph to show up in utf8 or utf16.
 	//to summarize, either I am completely overlooking some interplay (of lang somehow changing the utf8 or utf16 standard), the unicode translations are off (which in the case of utf8 is embedded directly on Mac OS X, so that can't be it), or Apple's 3gp implementation is off.
 	
-	modified_atoms = true;
 	bool retain_atom = true;
 	AtomicInfo* desiredAtom = NULL;
 	
@@ -3078,6 +3094,7 @@ short APar_UserData_atom_Init(const char* atom_path, const char* UD_Payload, uin
 		APar_RemoveAtom(atom_path, atom_type, UD_lang); //find the atom; don't create if it's "" to remove
 		return -1;
 	} else {
+		modified_atoms = true;
 		desiredAtom = APar_FindAtom(atom_path, true, atom_type, UD_lang);
 		
 		parsedAtoms[desiredAtom->AtomicNumber].AtomicData = (char*)malloc(sizeof(char)* MAXDATA_PAYLOAD ); //puts a hard limit on the length of strings (the spec doesn't)
@@ -4144,7 +4161,7 @@ uint32_t APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file
 			//reopen the picture file to delete if this IS a temp file (and the env pref was given)
 			pic_file = APar_OpenFile(parsedAtoms[this_atom].AtomicData, "wb");
 			
-			if ( IsUnicodeWinOS() ) {
+			if ( IsUnicodeWinOS() && UnicodeOutputStatus == WIN32_UTF16) {
 #if defined (_MSC_VER)
 				wchar_t* utf16_pic_path = Convert_multibyteUTF8_to_wchar(parsedAtoms[this_atom].AtomicData);
 		
@@ -4297,7 +4314,7 @@ void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_origi
 		memcpy( invisi_command, "ATTRIB +S +H ", 13);
 		memcpy( invisi_command + strlen(invisi_command), temp_file_name, strlen(temp_file_name) );
 		
-		if ( IsUnicodeWinOS() ) {
+		if ( IsUnicodeWinOS() && UnicodeOutputStatus == WIN32_UTF16) {
 			wchar_t* invisi_command_long = Convert_multibyteUTF8_to_wchar(invisi_command);
 		
 			_wsystem(invisi_command_long);
@@ -4458,7 +4475,7 @@ void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_origi
 	} else if (rewrite_original && !outfile) { //disable overWrite when writing out to a specifically named file; presumably the enumerated output file was meant to be the final destination
 		fclose(source_file);
 
-		if ( IsUnicodeWinOS() ) {
+		if ( IsUnicodeWinOS() && UnicodeOutputStatus == WIN32_UTF16) {
 #if defined (_MSC_VER) /* native windows seems to require removing the file first; rename() on Mac OS X does the removing automatically as needed */
 			wchar_t* utf16_filepath = Convert_multibyteUTF8_to_wchar(m4aFile);
 		
@@ -4473,7 +4490,7 @@ void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_origi
 		
 		int err = 0;
 		
-		if ( IsUnicodeWinOS() ) {
+		if ( IsUnicodeWinOS() && UnicodeOutputStatus == WIN32_UTF16) {
 #if defined (_MSC_VER)
 			wchar_t* utf16_filepath = Convert_multibyteUTF8_to_wchar(m4aFile);
 			wchar_t* temp_utf16_filepath = Convert_multibyteUTF8_to_wchar(temp_file_name);
