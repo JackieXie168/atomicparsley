@@ -29,6 +29,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <signal.h>
+#include <wchar.h>
 
 #if defined (_MSC_VER)
 #include "getopt.h"
@@ -158,17 +159,82 @@ static void kill_signal (int sig) {
     exit(0);
 }
 
-static const char* longHelp_text =
+//less than 80 (max 78) char wide, giving a general (concise) overview
+static char* shortHelp_text =
+"\n"
+"AtomicParlsey quick help for setting iTunes-style metadata into MPEG-4 files.\n"
+"\n"
+"General usage examples:\n"
+"  AtomicParsley /path/to.mp4 -T 1\n"
+"  AtomicParsley /path/to.mp4 -t +\n"
+"  AtomicParsley /path/to.mp4 --artist \"Me\" --artwork /path/to/art.jpg\n"
+"  Atomicparsley /path/to.mp4 --albumArtist \"You\" --podcastFlag true\n"
+"  Atomicparsley /path/to.mp4 --stik \"TV Show\" --advisory explicit\n"
+"\n"
+"Getting information about the file & tags:\n"
+"  -T  --test        Test file for mpeg4-ishness & print atom tree\n"
+"  -t  --textdata    Prints tags embedded within the file\n"
+"  -E  --extractPix  Extracts pix to the same folder as the mpeg-4 file\n"
+"\n"
+"Setting iTunes-style metadata tags\n"
+"  --artist       (string)     Set the artist tag\n"
+"  --title        (string)     Set the title tag\n"
+"  --album        (string)     Set the album tag\n"
+"  --genre        (string)     Genre tag (see --longhelp for more info)\n"
+"  --tracknum     (num)[/tot]  Track number (or track number/total tracks)\n"
+"  --disk         (num)[/tot]  Disk number (or disk number/total disks)\n"
+"  --comment      (string)     Set the comment tag\n"
+"  --year         (num|UTC)    Year tag (see --longhelp for \"Release Date\")\n"
+"  --lyrics       (string)     Set lyrics (not subject to 256 byte limit)\n"
+"  --composer     (string)     Set the composer tag\n"
+"  --copyright    (string)     Set the copyright tag\n"
+"  --grouping     (string)     Set the grouping tag\n"
+"  --artwork      (/path)      Set a piece of artwork (jpeg or png only)\n"
+"  --bpm          (number)     Set the tempo/bpm\n"
+"  --albumArtist  (string)     Set the album artist tag\n"
+"  --compilation  (boolean)    Set the compilation flag (true or false)\n"
+"  --advisory     (string*)    Content advisory (*values: 'clean', 'explicit')\n"
+"  --stik         (string*)    Sets the iTunes \"stik\" atom (see --longhelp)\n"
+"  --description  (string)     Set the description tag\n"
+"  --TVNetwork    (string)     Set the TV Network name\n"
+"  --TVShowName   (string)     Set the TV Show name\n"
+"  --TVEpisode    (string)     Set the TV episode/production code\n"
+"  --TVSeasonNum  (number)     Set the TV Season number\n"
+"  --TVEpisodeNum (number)     Set the TV Episode number\n"
+"  --podcastFlag  (boolean)    Set the podcast flag (true or false)\n"
+"  --category     (string)     Sets the podcast category\n"
+"  --keyword      (string)     Sets the podcast keyword\n"
+"  --podcastURL   (URL)        Set the podcast feed URL\n"
+"  --podcastGUID  (URL)        Set the episode's URL tag\n"
+"  --purchaseDate (UTC)        Set time of purchase\n"
+"  --encodingTool (string)     Set the name of the encoder\n"
+"\n"
+"Deleting tags\n"
+"  Set the value to \"\":        --artist \"\" --stik \"\" --bpm \"\"\n"
+"  To delete (all) artwork:    --artwork REMOVE_ALL\n"
+"  manually removal:           --manualAtomRemove \"moov.udta.meta.ilst.ATOM\"\n"
+"\n"
+"More detailed help is available with AtomicParsley --longhelp\n"
+"Setting 3gp assets into 3GPP & derivative files: see --3gp-help\n"
+"----------------------------------------------------------------------";
+
+//an expansive, verbose, unconstrained (about 112 char wide) detailing of options
+static char* longHelp_text =
 "AtomicParsley help page for setting iTunes-style metadata into MPEG-4 files. \n"
 "              (3gp help available with AtomicParsley --3gp-help)\n"
 "Usage: AtomicParsley [mp4FILE]... [OPTION]... [ARGUMENT]... [ [OPTION2]...[ARGUMENT2]...] \n"
 "\n"
-"example: AtomicParsley /path/to.mp4 --E \n"
-"example: AtomicParsley /path/to.mp4 --T 1 \n"
-"example: Atomicparsley /path/to.mp4 --artist \"Me\" --artwork /path/art.jpg\n"
-"example: Atomicparsley /path/to.mp4 --albumArtist \"You\" --podcastFlag true --freefree 2\n"
-"example: Atomicparsley /path/to.mp4 --stik \"TV Show\" --advisory explicit --purchaseDate timestamp\n"
+"example: AtomicParsley /path/to.mp4 -e ~/Desktop/pix\n"
+"example: Atomicparsley /path/to.mp4 --podcastURL \"http://www.url.net\" --tracknum 45/356\n"
+"example: Atomicparsley /path/to.mp4 --copyright \"\342\204\227 \302\251 2006\"\n"
+"example: Atomicparsley /path/to.mp4 --year \"2006-07-27T14:00:43Z\" --purchaseDate timestamp\n"
 "\n"
+#if defined (_MSC_VER)
+"  Note: you can change the input/output behavior to raw 8-bit utf8 if the program name\n"
+"        is appended with \"-utf8\". AtomicParsley-utf8.exe will have problems with files/\n"
+"        folders with unicode characters in given paths.\n"
+"\n"
+#endif
 "------------------------------------------------------------------------------------------------\n"
 " Atom Tree\n"
 "\n"
@@ -202,12 +268,13 @@ static const char* longHelp_text =
 "  --tracknum         ,  -k   (num)[/tot]  Set the track number (or track number & total tracks).\n"
 "  --disk             ,  -d   (num)[/tot]  Set the disk number (or disk number & total disks).\n"
 "  --comment          ,  -c   (str)    Set the comment tag: \"moov.udta.meta.ilst.\302©cmt.data\"\n"
-"  --year             ,  -y   (num)    Set the year tag: \"moov.udta.meta.ilst.\302©day.data\"\n"
+"  --year             ,  -y   (num|UTC)    Set the year tag: \"moov.udta.meta.ilst.\302©day.data\"\n"
+"                                          set with UTC \"2006-09-11T09:00:00Z\" for Release Date\n"
 "  --lyrics           ,  -l   (str)    Set the lyrics tag: \"moov.udta.meta.ilst.\302©lyr.data\"\n"
 "  --composer         ,  -w   (str)    Set the composer tag: \"moov.udta.meta.ilst.\302©wrt.data\"\n"
 "  --copyright        ,  -x   (str)    Set the copyright tag: \"moov.udta.meta.ilst.cprt.data\"\n"
 "  --grouping         ,  -G   (str)    Set the grouping tag: \"moov.udta.meta.ilst.\302©grp.data\"\n"
-"  --artwork          ,  -A   (/path)  Set (multiple) artwork (jpeg or png) tag: \"covr.data\"\n"
+"  --artwork          ,  -A   (/path)  Set a piece of artwork (jpeg or png) on \"covr.data\"\n"
 "  --bpm              ,  -B   (num)    Set the tempo/bpm tag: \"moov.udta.meta.ilst.tmpo.data\"\n"
 "  --albumArtist      ,  -A   (str)    Set the album artist tag: \"moov.udta.meta.ilst.aART.data\"\n"
 "  --compilation      ,  -C   (bool)   Sets the \"cpil\" atom (true or false to delete the atom)\n"
@@ -225,12 +292,12 @@ static const char* longHelp_text =
 
 "  --podcastFlag      ,  -f   (bool)   Sets the podcast flag (values are \"true\" or \"false\")\n"
 "  --category         ,  -q   (str)    Sets the podcast category; typically a duplicate of its genre\n"
-"  --keyword          ,  -q   (str)    Sets the podcast keyword; invisible to MacOSX Spotlight\n"
+"  --keyword          ,  -K   (str)    Sets the podcast keyword; invisible to MacOSX Spotlight\n"
 "  --podcastURL       ,  -L   (URL)    Set the podcast feed URL on the \"purl\" atom\n"
 "  --podcastGUID      ,  -J   (URL)    Set the episode's URL tag on the \"egid\" atom\n"
 "  --purchaseDate     ,  -D   (UTC)    Set Universal Coordinated Time of purchase on a \"purd\" atom\n"
 "                                       (use \"timestamp\" to set UTC to now; can be akin to id3v2 TDTG tag)\n"
-"  --encodingTool     ,       (str)    Set the name of the encoder on the \"©too\" atom\n"
+"  --encodingTool     ,       (str)    Set the name of the encoder on the \"\302©too\" atom\n"
 "\n"
 " To delete a single atom, set the tag to null (except artwork):\n"
 "  --artist \"\" --lyrics \"\"\n"
@@ -273,7 +340,6 @@ static const char* longHelp_text =
 "                                              achieve absolutely 0 bytes 'free' space with --freefree, set\n"
 "                                              DEFAULT_PAD to 0.\n"
 "  --metaDump         ,  -Q            Dumps out all metadata out to a new file next to original\n"
-"  --metaDump         ,  -Q            Dumps out all metadata out to a new file next to original\n"
 "                                          (for diagnostic purposes, please remove artwork before sending)\n"
 "  --output           ,  -o            Specify the filename of tempfile (voids overWrite)\n"
 "  --overWrite        ,  -W            Writes to temp file; deletes original, renames temp to original\n"
@@ -312,6 +378,10 @@ static const char* longHelp_text =
 "     $ export AP_PADDING=\"DEFAULT_PAD=0\"      or    $ export AP_PADDING=\"DEFAULT_PAD=3128\"\n"
 "     $ export AP_PADDING=\"DEFAULT_PAD=5128:MIN_PAD=200:MAX_PAD=6049\"\n"
 #endif
+"\n"
+"  Note: while AtomicParsley is still in the beta stage, the original file will always remain untouched - \n"
+"        unless given the --overWrite flag when if possible, utilizing available padding to update tags\n"
+"        will be tried (falling back to a full rewrite if changes are greater than the found padding).\n"
 "------------------------------------------------------------------------------------------------\n"
 
 #if defined (DARWIN_PLATFORM)
@@ -332,11 +402,10 @@ static const char* longHelp_text =
 " export PIC_OPTIONS=\"SquareUp:removeTempPix\"\n"
 "------------------------------------------------------------------------------------------------\n"
 #endif
+;
 
-"\n";
-
-
-static const char* _3gpHelp_text =
+//detailed options for 3gp branded files
+static char* _3gpHelp_text =
 "AtomicParsley 3gp help page for setting 3GPP-style metadata.\n"
 "Usage: AtomicParsley [3gpFILE] --option [argument] [optional_arguments]  [ --option2 [argument2]...] \n"
 "\n"
@@ -466,8 +535,15 @@ void find_optional_args(char *argv[], int start_optindargs, uint16_t &packed_lan
 
 //***********************************************
 
-#if defined (_MSC_VER) && defined (UTF16_ENABLED)
+#if defined (_MSC_VER)
 int wmain( int argc, wchar_t *arguments[]) {
+	uint16_t name_len = wcslen(arguments[0]) +1;
+	if (wmemcmp(arguments[0] + (name_len-9), L"-utf8.exe", 9) == 0 || wmemcmp(arguments[0] + (name_len-9), L"-UTF8.exe", 9) == 0) {
+		UnicodeOutputStatus = UNIVERSAL_UTF8;
+	} else {
+		UnicodeOutputStatus = WIN32_UTF16;
+	}
+
 	char *argv[350];
 	//for native Win32 & full unicode support (well, cli arguments anyway), take whatever 16bit unicode windows gives (utf16le), and convert EVERYTHING
 	//that is sends to utf8; use those utf8 strings (mercifully subject to familiar standby's like strlen) to pass around the program like getopt_long
@@ -476,7 +552,11 @@ int wmain( int argc, wchar_t *arguments[]) {
 		uint32_t wchar_length = wcslen(arguments[z])+1;
 		argv[z] = (char *)malloc(sizeof(char)*8*wchar_length );
 		memset(argv[z], 0, 8*wchar_length);
-		UTF16LEToUTF8((unsigned char*) argv[z], 8*wchar_length, (unsigned char*) arguments[z], wchar_length*2);
+		if (UnicodeOutputStatus == WIN32_UTF16) {
+			UTF16LEToUTF8((unsigned char*) argv[z], 8*wchar_length, (unsigned char*) arguments[z], wchar_length*2);
+		} else {
+			strip_bogusUTF16toRawUTF8((unsigned char*) argv[z], 8*wchar_length, arguments[z], wchar_length );
+		}
 	}
 	argv[argc] = NULL;
 
@@ -484,7 +564,7 @@ int wmain( int argc, wchar_t *arguments[]) {
 int main( int argc, char *argv[]) {
 #endif
 	if (argc == 1) {
-		fprintf (stdout,"%s", longHelp_text); exit(0);
+		fprintf (stdout,"%s", shortHelp_text); exit(0);
 	} else if (argc == 2 && ((strncmp(argv[1],"-v",2) == 0) || (strncmp(argv[1],"-version",2) == 0)) ) {
 	
 		ShowVersionInfo();
@@ -493,11 +573,29 @@ int main( int argc, char *argv[]) {
 		
 	} else if (argc == 2) {
 		if ( (strncmp(argv[1],"-help",5) == 0) || (strncmp(argv[1],"--help",6) == 0) || (strncmp(argv[1],"-h",5) == 0 ) ) {
-			fprintf (stdout,"%s", longHelp_text); exit(0);
+			fprintf(stdout, "%s\n", shortHelp_text); exit(0);
+			
+		} else if ( (strncmp(argv[1],"--longhelp", 10) == 0) || (strncmp(argv[1],"-longhelp", 9) == 0) || (strncmp(argv[1],"-Lh", 3) == 0) ) {
+						if (UnicodeOutputStatus == WIN32_UTF16) {
+				int help_len = strlen(longHelp_text)+1;
+				wchar_t* Lhelp_text = (wchar_t *)malloc(sizeof(wchar_t)*help_len);
+				wmemset(Lhelp_text, 0, help_len);
+				UTF8ToUTF16LE((unsigned char*)Lhelp_text, 2*help_len, (unsigned char*)longHelp_text, help_len);
+#if defined (_MSC_VER)
+				APar_unicode_win32Printout(Lhelp_text);
+#endif
+				free(Lhelp_text);
+			} else {
+				fprintf(stdout, "%s", longHelp_text);
+			}
+			exit(0);
+			
 		} else if ( (strncmp(argv[1],"--3gp-help", 10) == 0) || (strncmp(argv[1],"-3gp-help", 9) == 0) || (strncmp(argv[1],"--3gp-h", 7) == 0) ) {
-			fprintf (stdout,"%s", _3gpHelp_text); exit(0);
+			fprintf(stdout, "%s\n", _3gpHelp_text); exit(0);
+			
 		} else if ( memcmp(argv[1], "--genre-list", 12) == 0 ) {
 			ListGenresValues(); exit(0);
+			
 		} else if ( memcmp(argv[1], "--stik-list", 11) == 0 ) {
 			ListStikValues(); exit(0);
 		}
@@ -1597,6 +1695,15 @@ int main( int argc, char *argv[]) {
 			APar_MetadataFileDump(m4afile);
 			openSomeFile(m4afile, false);
 			
+			APar_FreeMemory();
+			#if defined (_MSC_VER)
+				for(int zz=0; zz < argc; zz++) {
+					if (argv[zz] > 0) {
+						free(argv[zz]);
+						argv[zz] = NULL;
+					}
+				}
+			#endif
 			exit(0); //das right, this is a flag that doesn't get used with other flags.
 		}
 		
@@ -1617,9 +1724,13 @@ int main( int argc, char *argv[]) {
 			//The file was opened orignally as read-only; when it came time to writeback into the original file, that FILE was closed, and a new one opened with write abilities, so to close a FILE that no longer exists would.... be retarded.
 			openSomeFile(m4afile, false);
 		}
+	} else {
+		if (m4afile != NULL && argc > 3 && !tree_display_only) {
+			fprintf(stdout, "No changes.\n");
+		}
 	}
 	APar_FreeMemory();
-#if defined (_MSC_VER) && defined (UTF16_ENABLED)
+#if defined (_MSC_VER)
 	for(int zz=0; zz < argc; zz++) {
 		if (argv[zz] > 0) {
 			free(argv[zz]);
