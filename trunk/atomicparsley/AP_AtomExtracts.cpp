@@ -120,16 +120,16 @@ esds_AudioInfo* APar_Extract_audio_esds_Info(char* uint32_buffer, FILE* m4afile,
 			if ( APar_read8(m4afile, esds_start + offset_into_esds) == 0x05 ) {
 				offset_into_esds++;
 				offset_into_esds += APar_skip_filler(m4afile, esds_start + offset_into_esds);
-			}
 			
-			uint8_t section5_length = APar_read8(m4afile, esds_start + offset_into_esds);
-			if ( section5_length <= section4_length && section5_length != 0) {
-				this_esds_info.section5_length = section5_length;
-				offset_into_esds+=2;
-				this_esds_info.channels = APar_ExtractChannelInfo(m4afile, esds_start + offset_into_esds);
-				//fprintf(stdout, "channs = %u", this_esds_info.channels);
+				uint8_t section5_length = APar_read8(m4afile, esds_start + offset_into_esds);
+				if ( section5_length <= section4_length && section5_length != 0) {
+					this_esds_info.section5_length = section5_length;
+					offset_into_esds+=2;
+					this_esds_info.channels = APar_ExtractChannelInfo(m4afile, esds_start + offset_into_esds);
+					//fprintf(stdout, "channs = %u", this_esds_info.channels);
+				}
+				break; //uh, I've extracted the pertinent info
 			}
-			break; //uh, I've extracted the pertinent info
 		
 		}
 		if (offset_into_stsd > parsedAtoms[track_level_atom].AtomicLength) {
@@ -245,7 +245,11 @@ void APar_ExtractDetails(FILE* m4afile) {
 			if (is_sound_file) {
 			
 				esds_AudioInfo* this_info = APar_Extract_audio_esds_Info(uint32_buffer, m4afile, track_level_atom);
-				if (this_info->contains_esds) {
+				if (this_info->section5_length == 0) {
+					uint16_t channels = APar_read16(uint32_buffer, m4afile, parsedAtoms[track_level_atom].AtomicStart + 40);
+					fprintf(stdout, "    Channels: |%u|", channels);
+				
+				} else if (this_info->contains_esds) {
 					fprintf(stdout, "    Channels: [%u]", this_info->channels);
 					
 				} else { //alac files don't have esds; channels aren't bitpacked either; moot since Apple Lossless doesn't appear able to convert to 5.1
