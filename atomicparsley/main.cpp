@@ -537,7 +537,7 @@ void find_optional_args(char *argv[], int start_optindargs, uint16_t &packed_lan
 
 #if defined (_MSC_VER)
 int wmain( int argc, wchar_t *arguments[]) {
-	uint16_t name_len = wcslen(arguments[0]) +1;
+	uint16_t name_len = wcslen(arguments[0]);
 	if (wmemcmp(arguments[0] + (name_len-9), L"-utf8.exe", 9) == 0 || wmemcmp(arguments[0] + (name_len-9), L"-UTF8.exe", 9) == 0) {
 		UnicodeOutputStatus = UNIVERSAL_UTF8;
 	} else {
