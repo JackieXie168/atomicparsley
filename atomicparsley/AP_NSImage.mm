@@ -177,6 +177,14 @@ char* ResizeGivenImage(const char* filePath, PicPrefs myPicPrefs) {
 		}
 	}
 	
+	if (myPicPrefs.force_dimensions) {
+		if (myPicPrefs.force_height > 0 && myPicPrefs.force_width > 0) {
+			vmax = myPicPrefs.force_height;
+			hmax = myPicPrefs.force_width;
+			resize = true;
+		}
+	}
+	
 	findPicFileSize(filePath);
 	if ( ( (int)pic_file_size > myPicPrefs.max_Kbytes) && ( myPicPrefs.max_Kbytes != 0) ) {
 		resize = true;
