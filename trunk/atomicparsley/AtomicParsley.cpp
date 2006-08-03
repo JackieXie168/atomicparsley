@@ -356,6 +356,10 @@ PicPrefs ExtractPicPrefs(char* env_PicOptions) {
 		myPicturePrefs.allJPEG = false;
 		myPicturePrefs.allPNG = false;
 		myPicturePrefs.addBOTHpix = false;
+		myPicturePrefs.force_dimensions = false;
+		myPicturePrefs.force_height = 0;
+		myPicturePrefs.force_width = 0;
+		
 		char* this_pref;
 		while (env_PicOptions != NULL) {
 			this_pref = strsep(&env_PicOptions,":");
@@ -404,9 +408,18 @@ PicPrefs ExtractPicPrefs(char* env_PicOptions) {
 				
 			} else if (strncmp(a_pref,"removeTempPix",7) == 0) {
 				myPicturePrefs.removeTempPix = true;
+			
+			} else if (strncmp(a_pref,"ForceHeight=",12) == 0) {
+				strsep(&a_pref,"=");
+				myPicturePrefs.force_height = strtol(a_pref, NULL, 10);
+
+			} else if (strncmp(a_pref,"ForceWidth=",11) == 0) {
+				strsep(&a_pref,"=");
+				myPicturePrefs.force_width = strtol(a_pref, NULL, 10);
 			}
 		}
 	}
+	if (myPicturePrefs.force_height > 0 && myPicturePrefs.force_width > 0) myPicturePrefs.force_dimensions = true;
 	return myPicturePrefs;
 }
 
