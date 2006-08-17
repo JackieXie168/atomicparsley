@@ -649,6 +649,49 @@ int isUTF8(const char* in_string) {
 	}
 }
 
+/*----------------------
+utf8_length
+  in_string - pointer to location of a utf8 string
+	char_limit - either 0 (count all characters) or non-zero (limit utf8 to that character count)
+
+    Because of the lovely way utf8 is aligned, test only the first byte in each. If char_limit is 0, return the number of CHARACTERS in the string, if the
+		char_limit is not zero (the char_limit will equal utf_string_leghth because of the break), so change gears, save space and just return the byte_count.
+----------------------*/
+#include <stdio.h>
+unsigned int utf8_length(const char *in_string, unsigned int char_limit) {
+	const char *utf8_str = in_string;
+	unsigned int utf8_string_length = 0;
+	unsigned int in_str_len = strlen(in_string);
+	unsigned int byte_count = 0;
+	unsigned int bytes_in_char = 0;
+
+	if (in_string == NULL) return 0;
+
+	while ( byte_count < in_str_len) {
+		bytes_in_char = 0;
+		if ((*utf8_str & 0x80) == 0x00)
+			bytes_in_char = 1;
+		else if ((*utf8_str & 0xE0) == 0xC0)
+			bytes_in_char = 2;
+		else if ((*utf8_str & 0xF0) == 0xE0)
+			bytes_in_char = 3;
+		else if ((*utf8_str & 0xF8) == 0xF0)
+			bytes_in_char = 4;
+		
+		if (bytes_in_char > 0) {
+			utf8_string_length++;
+			utf8_str += bytes_in_char;
+			byte_count += bytes_in_char;
+		}
+				
+		if (char_limit != 0 && char_limit == utf8_string_length) {
+			utf8_string_length = byte_count;
+			break;
+		}
+	}
+	return utf8_string_length;
+}
+
 int strip_bogusUTF16toRawUTF8 (unsigned char* out, int inlen, wchar_t* in, int outlen) {
 
     unsigned char* outstart = out;

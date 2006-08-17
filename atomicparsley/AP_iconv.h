@@ -59,6 +59,9 @@ int UTF8ToUTF16BE(unsigned char* outb, int outlen, const unsigned char* in, int 
 int UTF16LEToUTF8(unsigned char* out, int outlen, const unsigned char* inb, int inlenb);
 int UTF8ToUTF16LE(unsigned char* outb, int outlen, const unsigned char* in, int inlen);
 
+/*------------- these functions are independent of any secondary licesing -------------*/
+
 int isUTF8(const char* in_string);
+unsigned int utf8_length(const char *in_string, unsigned int char_limit);
 
 int strip_bogusUTF16toRawUTF8 (unsigned char* out, int inlen, wchar_t* in, int outlen);

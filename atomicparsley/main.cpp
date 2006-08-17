@@ -240,7 +240,8 @@ static char* longHelp_text =
 "\n"
 "  --test             ,  -T      Tests file to see if its a valid MPEG-4 file.\n"
 "                                Prints out the hierarchical atom tree & some track-level info.\n"
-"                                Supplemental track level info with \"-T 1\" or \"--test foo\"\n"
+"                                Supplemental track level info with \"-T 1\"\n"
+"                                Track level creation/modified dates with \"-T +dates\"\n"
 "\n"
 "------------------------------------------------------------------------------------------------\n"
 " Atom contents (printing on screen & extracting artwork(s) to files)\n"
@@ -283,6 +284,7 @@ static char* longHelp_text =
 "                                           \"Movie\", \"Normal\", \"TV Show\" .... others: \n"
 "                                           see the full list with \"AtomicParsley --stik-list\"\n"
 "                                           or set in an integer value with --stik value=(num)\n"
+"                                      Note: --stik Audiobook will change file extension to '.m4b'\n"
 "  --description      ,  -p   (str)    Sets the description on the \"desc\" atom\n"
 "  --TVNetwork        ,  -n   (str)    Sets the TV Network name on the \"tvnn\" atom\n"
 "  --TVShowName       ,  -H   (str)    Sets the TV Show name on the \"tvsh\" atom\n"
@@ -338,11 +340,16 @@ static char* longHelp_text =
 "                                      NOTE 3: When padding falls below MIN_PAD (typically zero), a default\n"
 "                                              amount of padding (typically 2048 bytes) will be added. To\n"
 "                                              achieve absolutely 0 bytes 'free' space with --freefree, set\n"
-"                                              DEFAULT_PAD to 0.\n"
+"                                              DEFAULT_PAD to 0 via the AP_PADDING mechanism (see below).\n"
 "  --metaDump         ,  -Q            Dumps out all metadata out to a new file next to original\n"
 "                                          (for diagnostic purposes, please remove artwork before sending)\n"
-"  --output           ,  -o            Specify the filename of tempfile (voids overWrite)\n"
+"  --output           ,  -o   (/path)  Specify the filename of tempfile (voids overWrite)\n"
 "  --overWrite        ,  -W            Writes to temp file; deletes original, renames temp to original\n"
+"\n"
+"Examples: \n"
+"  --freefree 0         (deletes all top-level non-padding atoms preceding 'mooov') \n"
+"  --freefree 1         (deletes all non-padding atoms at the top most level) \n"
+"  --output ~/Desktop/newfile.mp4\n"
 
 "------------------------------------------------------------------------------------------------\n"
 " Padding & 'free' atoms:\n"
@@ -410,20 +417,6 @@ static char* longHelp_text =
 //detailed options for 3gp branded files
 static char* _3gpHelp_text =
 "AtomicParsley 3gp help page for setting 3GPP-style metadata.\n"
-"Usage: AtomicParsley [3gpFILE] --option [argument] [optional_arguments]  [ --option2 [argument2]...] \n"
-"\n"
-"example: AtomicParsley /path/to.3gp --t \n"
-"example: AtomicParsley /path/to.3gp --T 1 \n"
-"example: Atomicparsley /path/to.3gp --3gp-performer \"Enjoy Yourself\" lang=pol UTF16\n"
-"example: Atomicparsley /path/to.3gp --3gp-year 2006 --3gp-album \"White Label\" track=8 lang=fra\n"
-"\n"
-"example: Atomicparsley /path/to.3gp --3gp-keyword keywords=foo1,foo2,foo3 UTF16\n"
-"example: Atomicparsley /path/to.3gp --3gp-location 'Bethesda Terrace' latitude=40.77 longitude=73.98W \n"
-"                                                    altitude=4.3B role='real' body=Earth notes='Underground'\n"
-"\n"
-"example: Atomicparsley /path/to.3gp --3gp-title \"I see London.\" --3gp-title \"Veo Madrid.\" lang=spa \n"
-"                                    --3gp-title \"Widze Warsawa.\" lang=pol\n"
-"\n"
 "----------------------------------------------------------------------------------------------------\n"
 "  3GPP text tags can be encoded in either UTF-8 (default input encoding) or UTF-16 (converted from UTF-8)\n"
 "  Many 3GPP text tags can be set for a desired language by a 3-letter-lowercase code (default is \"eng\")\n"
@@ -462,7 +455,7 @@ static char* _3gpHelp_text =
 "  --3gp-year            (int)   ................................  Set a 3gp recording year tag (4 digit only)\n"
 "\n"
 "  --3gp-rating          (str)  [entity=4str]  [criteria=4str]  [lang=3str]  [UTF16]  Set a 3gp rating tag\n"
-"  --3gp-classification  (str)  [entity=4str]  [criteria=4str]  [lang=3str]  [UTF16]  Set classification tag\n"
+"  --3gp-classification  (str)  [entity=4str]  [index=int]      [lang=3str]  [UTF16]  Set classification tag\n"
 "\n"
 "  --3gp-keyword         (str)    [lang=3str]   [UTF16]     Format of str is 'keywords=word1,word2,word3,word4'\n"
 "\n"
@@ -473,6 +466,24 @@ static char* _3gpHelp_text =
 "                                 'role=' values: 'shooting location', 'real location', 'fictional location'\n"
 "                                         a negative value in coordinates will be seen as a cli flag\n"
 "                                         append 'S', 'W' or 'B': lat=55S, long=90.23W, alt=90.25B\n"
+"\n"
+"Note: 4str = a 4 letter string like \"PG13\"; 3str is a 3 letter string like \"eng\"; int is an integer\n"
+"----------------------------------------------------------------------------------------------------\n"
+"Usage: AtomicParsley [3gpFILE] --option [argument] [optional_arguments]  [ --option2 [argument2]...] \n"
+"\n"
+"example: AtomicParsley /path/to.3gp --t \n"
+"example: AtomicParsley /path/to.3gp --T 1 \n"
+"example: Atomicparsley /path/to.3gp --3gp-performer \"Enjoy Yourself\" lang=pol UTF16\n"
+"example: Atomicparsley /path/to.3gp --3gp-year 2006 --3gp-album \"White Label\" track=8 lang=fra\n"
+"example: Atomicparsley /path/to.3gp --3gp-album \"Cow Cod Soup For Everyone\" track=10 lang=car\n"
+"\n"
+"example: Atomicparsley /path/to.3gp --3gp-classification \"Poor Sport\" entity=\"PTA \" index=12 UTF16\n"
+"example: Atomicparsley /path/to.3gp --3gp-keyword keywords=\"foo1,foo2,foo 3\" UTF16 --3gp-keyword \"\"\n"
+"example: Atomicparsley /path/to.3gp --3gp-location 'Bethesda Terrace' latitude=40.77 longitude=73.98W \n"
+"                                                    altitude=4.3B role='real' body=Earth notes='Underground'\n"
+"\n"
+"example: Atomicparsley /path/to.3gp --3gp-title \"I see London.\" --3gp-title \"Veo Madrid.\" lang=spa \n"
+"                                    --3gp-title \"Widze Warsawa.\" lang=pol\n"
 "\n";
 
 void ExtractPaddingPrefs(char* env_padding_prefs) {
@@ -567,7 +578,7 @@ int wmain( int argc, wchar_t *arguments[]) {
 int main( int argc, char *argv[]) {
 #endif
 	if (argc == 1) {
-		fprintf (stdout,"%s", shortHelp_text); exit(0);
+		fprintf (stdout,"%s\n", shortHelp_text); exit(0);
 	} else if (argc == 2 && ((strncmp(argv[1],"-v",2) == 0) || (strncmp(argv[1],"-version",2) == 0)) ) {
 	
 		ShowVersionInfo();
@@ -727,7 +738,11 @@ int main( int argc, char *argv[]) {
 			APar_ScanAtoms(m4afile, true);
 			APar_PrintAtomicTree();
 			if (argv[optind]) {
-				APar_ExtractDetails( openSomeFile(m4afile, true) );
+				if (memcmp(argv[optind], "+dates", 6) == 0) {
+					APar_ExtractDetails( openSomeFile(m4afile, true), SHOW_TRACK_INFO + SHOW_DATE_INFO );
+				} else {
+					APar_ExtractDetails( openSomeFile(m4afile, true), SHOW_TRACK_INFO);
+				}
 			}
 			break;
 		}
@@ -1041,6 +1056,9 @@ int main( int argc, char *argv[]) {
 					stiks* return_stik = MatchStikString(optarg);
 					if (return_stik != NULL) {
 						stik_value = return_stik->stik_number;
+						if (memcmp(optarg, "Audiobook", 9) == 0) {
+							forced_suffix_type = FORCE_M4B_TYPE;
+						}
 					}
 				}
 				//stik is [0, 0, 0, 0,   stik_value]; BUT that first uint32_t is already accounted for in APar_MetaData_atom_Init
@@ -1451,8 +1469,8 @@ int main( int argc, char *argv[]) {
 			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER, 2, "rating") ) {
 				break;
 			}
-			char rating_entity[5] = { 0x20, 0x20, 0x20, 0x20, 0 }; //'    ' (4 spaces) - thats what it will be if not provided
-			char rating_criteria[5] = { 0x20, 0x20, 0x20, 0x20, 0 };
+			char rating_entity[5] = { 'N', 'O', 'N', 'E', 0 }; //'NONE' - thats what it will be if not provided
+			char rating_criteria[5] = { 'N', 'O', 'N', 'E', 0 };
 			bool set_UTF16_text = false;
 			uint16_t packed_lang = 0;
 			find_optional_args(argv, optind, packed_lang, set_UTF16_text, 4);
@@ -1484,7 +1502,7 @@ int main( int argc, char *argv[]) {
 			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER, 2, "classification") ) {
 				break;
 			}
-			char classification_entity[5] = { 0x20, 0x20, 0x20, 0x20, 0 }; //'    ' (4 spaces) - thats what it will be if not provided
+			char classification_entity[5] = { 'N', 'O', 'N', 'E', 0 }; //'NONE' - thats what it will be if not provided
 			uint16_t classification_index = 0;
 			bool set_UTF16_text = false;
 			uint16_t packed_lang = 0;
