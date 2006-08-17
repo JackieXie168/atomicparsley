@@ -65,15 +65,15 @@ char* APar_4CC_CreatorCodeCARBON(const char* filepath, const char* new_creator_c
 //
 //it might be beneficial to eval for channels and if its audio only & multichannel to NOT change the TYPE/creator codes
 
-uint32_t APar_4CC_CreatorCode(const char* filepath, uint32_t new_creator_code) {
+uint32_t APar_4CC_CreatorCode(const char* filepath, uint32_t new_type_code) {
 	uint32_t return_value = 0;
 	NSAutoreleasePool * pool = [[NSAutoreleasePool alloc] init];
 	
 	NSString *inFile = [NSString stringWithUTF8String: filepath];
 	
-	if (new_creator_code) {
+	if (new_type_code) {
 		NSNumber* creator_code = [NSNumber numberWithUnsignedLong:'hook'];
-		NSNumber* type_code = [NSNumber numberWithUnsignedLong:new_creator_code];
+		NSNumber* type_code = [NSNumber numberWithUnsignedLong:new_type_code];
 		NSDictionary* output_attributes = [NSDictionary dictionaryWithObjectsAndKeys:creator_code, NSFileHFSCreatorCode, 
 																																							type_code, NSFileHFSTypeCode, nil];
 		
@@ -95,35 +95,42 @@ uint32_t APar_4CC_CreatorCode(const char* filepath, uint32_t new_creator_code) {
 
 //there is a scenario that is as of now unsupported (or botched, depending if you use the feature), although it would be easy to implement. To make a file bookmarkable, the TYPE code is set to 'M4B ' - which can be *also* done by changing the extension to ".m4b". However, due to the way that the file is tested here, a ".mp4" with 'M4B ' type code will get changed into a normal audio file (not-bookmarkable).
 
-void APar_SupplySelectiveTypeCreatorCodes(const char *inputPath, const char *outputPath) {
+void APar_SupplySelectiveTypeCreatorCodes(const char *inputPath, const char *outputPath, uint8_t forced_type_code) {
+	if (forced_type_code != NO_TYPE_FORCING) {
+		if (forced_type_code == FORCE_M4B_TYPE) {
+			APar_4CC_CreatorCode(outputPath, 'M4B ');
+		}
+		return;
+	}
+	
 	char* input_suffix = strrchr(inputPath, '.');
 	//user-defined output paths may have the original file as ".m4a" & show up fine when output to ".m4a"
 	//output to ".mp4" and it becomes a generic (sans TYPE/CREATOR) file that defaults to Quicktime Player
 	char* output_suffix = strrchr(outputPath, '.');
 	
-	char* creatorcode = (char*)malloc( sizeof(char)* 4 );
-	memset(creatorcode, 0, sizeof(char)*4);
+	char* typecode = (char*)malloc( sizeof(char)* 4 );
+	memset(typecode, 0, sizeof(char)*4);
 	
-	uint32_t creator_code = APar_4CC_CreatorCode(inputPath, 0);
+	uint32_t type_code = APar_4CC_CreatorCode(inputPath, 0);
 	
-	char4TOuint32(creator_code, creatorcode);
+	char4TOuint32(type_code, typecode);
 	
-	//fprintf(stdout, "%s - %s\n", creatorcode, input_suffix);
+	//fprintf(stdout, "%s - %s\n", typecode, input_suffix);
 	APar_TestTracksForKind();
 	
 	if (strncasecmp(input_suffix, ".mp4", 4) == 0 || strncasecmp(output_suffix, ".mp4", 4) == 0) { //only work on the generic .mp4 extension
 		if (track_codecs.has_avc1 || track_codecs.has_mp4v || track_codecs.has_drmi) {
-			creator_code = APar_4CC_CreatorCode(outputPath, 'M4V ');
+			type_code = APar_4CC_CreatorCode(outputPath, 'M4V ');
 			
 		//for a podcast an audio track with either a text, jpeg or url track is required, otherwise it will fall through to generic m4a;
 		//files that are already .m4b or 'M4B ' don't even enter into this situation, so they are safe
 		//if the file had video with subtitles (tx3g), then it would get taken care of above in the video section - unsupported by QT currently
 		} else if (track_codecs.has_mp4a && (track_codecs.has_timed_text || track_codecs.has_timed_jpeg || track_codecs.has_timed_tx3g) ) {
-			creator_code = APar_4CC_CreatorCode(outputPath, 'M4B ');
+			type_code = APar_4CC_CreatorCode(outputPath, 'M4B ');
 			
 		//default to audio; technically so would a drms iTMS drm audio file with ".mp4". But that would also mean it was renamed. They should be 'M4P '
 		} else {
-			creator_code = APar_4CC_CreatorCode(outputPath, 'M4A ');
+			type_code = APar_4CC_CreatorCode(outputPath, 'M4A ');
 		}
 	}
 	

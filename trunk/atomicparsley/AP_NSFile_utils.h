@@ -19,5 +19,5 @@
                                                                    */
 //==================================================================//
 
-void APar_SupplySelectiveTypeCreatorCodes(const char *inputPath, const char *outputPath);
-uint32_t APar_4CC_CreatorCode(const char* filepath, uint32_t new_creator_code);
+uint32_t APar_4CC_CreatorCode(const char* filepath, uint32_t new_type_code);
+void APar_SupplySelectiveTypeCreatorCodes(const char *inputPath, const char *outputPath, uint8_t forced_type_code);

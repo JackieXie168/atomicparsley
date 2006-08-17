@@ -84,6 +84,7 @@ uint64_t mdat_supplemental_offset = 0;
 uint32_t removed_bytes_tally = 0;
 uint32_t new_file_size = 0; //used for the progressbar
 uint32_t brand = 0;
+uint32_t mdatData = 0; //now global, used in bitrate calcs
 
 struct udta_stats udta_dynamics;
 struct padding_preferences pad_prefs;
@@ -104,6 +105,8 @@ char* twenty_byte_buffer = (char *)malloc(sizeof(char)*20);
 EmployedCodecs track_codecs = {false, false, false, false, false, false, false, false, false, false};
 
 uint8_t UnicodeOutputStatus = UNIVERSAL_UTF8; //on windows, controls whether input/output strings are utf16 or raw utf8; reset in wmain()
+
+uint8_t forced_suffix_type = NO_TYPE_FORCING;
 
 ///////////////////////////////////////////////////////////////////////////////////////
 //                                Versioning                                         //
@@ -290,7 +293,7 @@ int APar_TestArtworkBinaryData(const char* artworkPath) {
 		fread(&pic_data, 1, 8, artfile);
 		if ( strncmp(&*pic_data, "\x89\x50\x4E\x47\x0D\x0A\x1A\x0A", 8) == 0 ) {
 			artwork_dataType = AtomFlags_Data_PNGBinary;
-		} else if ( strncmp(&*pic_data, "\xFF\xD8\xFF\xE0", 4) == 0 ) {
+		} else if ( strncmp(&*pic_data, "\xFF\xD8\xFF\xE0", 4) == 0 || memcmp(&*pic_data, "\xFF\xD8\xFF\xE1", 4) == 0 ) {
 			artwork_dataType = AtomFlags_Data_JPEGBinary;
 		} else {
 			fprintf(stdout, "AtomicParsley error: %s\n\t image file is not jpg/png and cannot be embedded.\n", artworkPath);
@@ -784,9 +787,10 @@ APar_FindAtom
 	atom_type - the classification of the last atom (packed language, uuid extended atom...)
 	atom_lang - the language of the 3gp asset used when atom_type is packed language type
 
-    Follow through the atom tree starting with the atom following 'ftyp'. Testing occurs on an atom level basis; a stand-in temporary skeletal atom is created
-		to evaluate. If they atoms are deemed matching, atom_name is advanced forward (it still contains the full path, but only 4bytes are typically used at a time)
-		and testing occurs until either the desired atom is found, or the last containing hiearchy with an exising atom is exhausted without making new atoms.
+    Follow through the atom tree starting with the atom following 'ftyp'. Testing occurs on an atom level basis; a stand-in temporary skeletal atom
+		is created to evaluate. If they atoms are deemed matching, atom_name is advanced forward (it still contains the full path, but only 4bytes are
+		typically used at a time) and testing occurs until either the desired atom is found, or the last containing hiearchy with an exising atom is
+		exhausted without making new atoms.
 		
 		NOTE: atom_name can come in these forms:
 			classic/vanilla/ordinary atoms:		moov.udta.meta.ilst.cprt.data
@@ -1321,9 +1325,9 @@ void APar_ExtractAAC_Artwork(short this_atom_num, char* pic_output_path, short a
 	char* suffix = (char *)malloc(sizeof(char)*5);
 	memset(suffix, 0, sizeof(char)*5);
 	
-	if (strncmp((char *)art_payload, "\x89\x50\x4E\x47\x0D\x0A\x1A\x0A", 8) == 0) {//casts uchar* to char* (2)
+	if (memcmp(art_payload, "\x89\x50\x4E\x47\x0D\x0A\x1A\x0A", 8) == 0) {
 				suffix = ".png";
-	}	else if (strncmp((char *)art_payload, "\xFF\xD8\xFF\xE0", 4) == 0) {//casts uchar* to char* (2)
+	}	else if (memcmp(art_payload, "\xFF\xD8\xFF\xE0", 4) == 0 || memcmp(art_payload, "\xFF\xD8\xFF\xE1", 4) == 0) {
 				suffix = ".jpg";
 	}
 	
@@ -1609,7 +1613,6 @@ void APar_PrintAtomicTree() {
 
 	char* tree_padding = (char*)malloc(sizeof(char)*126); //for a 25-deep atom tree (4 spaces per atom)+single space+term.
 	uint32_t freeSpace = 0;
-	uint32_t mdatData = 0;
 	short thisAtomNumber = 0;
 		
 	//loop through each atom in the struct array (which holds the offset info/data)
@@ -2273,7 +2276,13 @@ void APar_ScanAtoms(const char *path, bool scan_for_tree_ONLY) {
 							break;
 						}
 						case UNKNOWN_ATOM_TYPE : {
-							jump += dataSize;
+							short parent_atom = APar_FindParentAtom(atom_number-1, generalAtomicLevel);
+							//to accommodate the retarted utility that keeps putting in 'prjp' atoms in mpeg-4 files written QTstyle
+							if (parsedAtoms[parent_atom].AtomicContainerState == DUAL_STATE_ATOM) {
+								jump = parsedAtoms[parent_atom].AtomicStart + parsedAtoms[parent_atom].AtomicLength;
+							} else {
+								jump += dataSize;
+							}
 							break;
 						}
 					} //end swtich
@@ -2353,6 +2362,9 @@ void APar_RemoveAtom(const char* atom_path, uint8_t atom_type, uint16_t UD_lang)
 			short last_elim_atom = APar_FindLastChild_of_ParentAtom(desiredAtom->AtomicNumber);
 			APar_EliminateAtom( desiredAtom->AtomicNumber, parsedAtoms[last_elim_atom].NextAtomNumber );
 		
+		} else if (UD_lang == 1) { //yrrc
+			APar_EliminateAtom(desiredAtom->AtomicNumber, desiredAtom->NextAtomNumber);
+			
 		} else {
 			short last_elim_atom = APar_FindLastChild_of_ParentAtom(desiredAtom->AtomicNumber);
 			APar_EliminateAtom(desiredAtom->AtomicNumber, last_elim_atom );
@@ -2666,21 +2678,27 @@ void APar_Unified_atom_Put(short atom_num, const char* unicode_data, uint8_t tex
 			parsedAtoms[atom_num].AtomicLength += binary_bytes;
 		
 		} else {
-			uint32_t total_bytes = strlen(unicode_data);
+			uint32_t total_bytes = 0;
+			
 			if (text_tag_style == UTF8_3GP_Style) {
+				total_bytes = strlen(unicode_data);
 				total_bytes++;  //include the terminating NULL
 				
 			} else if (text_tag_style == UTF8_iTunesStyle_256byteLimited) {
+
+				uint32_t utf8_bytes = strlen(unicode_data);
+				total_bytes = utf8_length(unicode_data, 255);
 				
-				if (total_bytes > 255) {
-					total_bytes = 255;
+				if (utf8_bytes > total_bytes) {
 					
-					fprintf(stdout, "AtomicParsley warning: %s was trimmed to 255 bytes (%u bytes over)\n", 
-					        parsedAtoms[ APar_FindParentAtom(atom_num, parsedAtoms[atom_num].AtomicLevel) ].AtomicName, (unsigned int)total_bytes-255);
-				}
-			
+					fprintf(stdout, "AtomicParsley warning: %s was trimmed to 255 characters (%u characters over)\n", 
+					        parsedAtoms[ APar_FindParentAtom(atom_num, parsedAtoms[atom_num].AtomicLevel) ].AtomicName,
+									                                 utf8_length(unicode_data+total_bytes, 0) );
+				}			
 						
 			} else if (text_tag_style == UTF8_iTunesStyle_Unlimited) {
+				total_bytes = strlen(unicode_data);
+				
 				if (total_bytes > MAXDATA_PAYLOAD) {
 					free(parsedAtoms[atom_num].AtomicData);
 					parsedAtoms[atom_num].AtomicData = NULL;
@@ -2909,11 +2927,12 @@ APar_3GP_Keyword_atom_Format
 ----------------------*/
 uint32_t APar_3GP_Keyword_atom_Format(char* keywords_globbed, uint8_t keyword_count, bool set_UTF16_text, char* &formed_keyword_struct) {
 	uint32_t formed_string_offset = 0;
+	uint32_t string_len = 0;
 	
 	char* a_keyword = strsep(&keywords_globbed,",");
-	uint32_t string_len = strlen(a_keyword);
 	
 	for (uint8_t i=1; i <= keyword_count; i++) {
+		string_len = strlen(a_keyword);
 		if (set_UTF16_text) {
 
 			uint32_t glyphs_req_bytes = mbstowcs(NULL, a_keyword, string_len+1) * 2; //passing NULL pre-calculates the size of wchar_t needed;
@@ -3104,7 +3123,7 @@ short APar_UserData_atom_Init(const char* atom_path, const char* UD_Payload, uin
 	}
 	
 	if ( !retain_atom ) {
-		APar_RemoveAtom(atom_path, atom_type, UD_lang); //find the atom; don't create if it's "" to remove
+		APar_RemoveAtom(atom_path, atom_type, atom_type == VERSIONED_ATOM ? 1 : UD_lang); //find the atom; don't create if it's "" to remove
 		return -1;
 	} else {
 		modified_atoms = true;
@@ -3417,14 +3436,9 @@ APar_DetermineDynamicUpdate
 		atom to hold that filler. Run the atom hierarchy through APar_DetermineAtomLengths to adjust ilst, meta, udta & moov lengths. A specific exception for
 		psp mpeg4 files is made to allow non-optimized files, but still have metadata dynamically updated (at the end of the file).
 		
-			TODO: only 'free' is used here; the free_type is defined as 'free' or 'skip' - 'skip isn't used as padding here
+			TODO: only 'free' is used here; the free_type is defined as 'free' or 'skip' - 'skip' isn't used as padding here
 ----------------------*/
 void APar_DetermineDynamicUpdate(bool initial_pass) {
-	if (!move_moov_atom) {
-		udta_dynamics.max_usable_free_space = 0;
-		return;
-	}
-	
 	udtaAtom = APar_FindAtom("moov.udta", false, SIMPLE_ATOM, 0);
 	
 	//if there is no 'udta' atom, but we still want any available padding listed - there is none
@@ -3468,7 +3482,7 @@ void APar_DetermineDynamicUpdate(bool initial_pass) {
 			
 			if (initial_pass) {
 				udta_dynamics.max_usable_free_space += parsedAtoms[iter].AtomicLength;
-				//a primary preferred repository is on level 1; this is where all 'free' atoms will eventually wind in a dynamic update
+				//a primary preferred repository is on level 1; this is where all 'free' atoms will eventually wind up in a dynamic update
 				if (parsedAtoms[iter].AtomicLevel == 1 && udta_dynamics.free_atom_repository == 0) {
 					udta_dynamics.free_atom_repository = iter;
 				
@@ -3966,7 +3980,11 @@ void APar_DeriveNewPath(const char *filePath, char* temp_path, int output_type, 
 	sprintf(randstring, "%i", randNum);
 
 	memcpy(temp_path + strlen(temp_path), randstring, strlen(randstring));
-	memcpy(temp_path + strlen(temp_path), suffix, strlen(suffix) );
+	if (forced_suffix_type == FORCE_M4B_TYPE) {
+		memcpy(temp_path + strlen(temp_path), ".m4b", 5);
+	} else {
+		memcpy(temp_path + strlen(temp_path), suffix, strlen(suffix) );
+	}
 	return;
 }
 
@@ -4301,6 +4319,8 @@ void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_origi
 	FILE* temp_file;
 	uint32_t temp_file_bytes_written = 0;
 	short thisAtomNumber = 0;
+	char* originating_file = NULL;
+	bool free_modified_name = false;
 	memset(temp_file_name, 0, sizeof(char)* 3500 );
 	memset(file_buffer, 0, sizeof(char)* max_buffer + 1 );
 	memset(data, 0, sizeof(char)*4 + 1);
@@ -4347,7 +4367,7 @@ void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_origi
 		temp_file = APar_OpenFile(temp_file_name, "wb");
 		
 #if defined (DARWIN_PLATFORM)
-		APar_SupplySelectiveTypeCreatorCodes(m4aFile, temp_file_name); //provide type/creator codes for ".mp4" for randomly named temp files
+		APar_SupplySelectiveTypeCreatorCodes(m4aFile, temp_file_name, forced_suffix_type); //provide type/creator codes for ".mp4" for randomly named temp files
 #endif
 		
 	} else {
@@ -4359,14 +4379,14 @@ void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_origi
 			temp_file = APar_OpenFile(temp_file_name, "wb");
 			
 #if defined (DARWIN_PLATFORM)
-			APar_SupplySelectiveTypeCreatorCodes(m4aFile, temp_file_name); //provide type/creator codes for ".mp4" for a fall-through randomly named temp files
+			APar_SupplySelectiveTypeCreatorCodes(m4aFile, temp_file_name, forced_suffix_type); //provide type/creator codes for ".mp4" for a fall-through randomly named temp files
 #endif
 		
 		} else {
 			temp_file = APar_OpenFile(outfile, "wb");
 			
 #if defined (DARWIN_PLATFORM)
-			APar_SupplySelectiveTypeCreatorCodes(m4aFile, outfile); //provide type/creator codes for ".mp4" for a user-defined output file
+			APar_SupplySelectiveTypeCreatorCodes(m4aFile, outfile, forced_suffix_type); //provide type/creator codes for ".mp4" for a user-defined output file
 #endif
 			
 			}
@@ -4503,9 +4523,22 @@ void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_origi
 		
 		int err = 0;
 		
+		if (forced_suffix_type != NO_TYPE_FORCING) {
+			originating_file = (char*)calloc( 1, sizeof(char)* 3500 );
+			free_modified_name = true;
+			if (forced_suffix_type == FORCE_M4B_TYPE) { //using --stik Audiobook with --overWrite will change the original file's extension
+				uint16_t filename_len = strlen(m4aFile);
+				char* suffix = strrchr(m4aFile, '.');
+				memcpy(originating_file, m4aFile, filename_len+1 );
+				memcpy(originating_file + (filename_len - strlen(suffix) ), ".m4b", 5 );
+			}
+		} else {
+			originating_file = (char*)m4aFile;
+		}
+		
 		if ( IsUnicodeWinOS() && UnicodeOutputStatus == WIN32_UTF16) {
 #if defined (_MSC_VER)
-			wchar_t* utf16_filepath = Convert_multibyteUTF8_to_wchar(m4aFile);
+			wchar_t* utf16_filepath = Convert_multibyteUTF8_to_wchar(originating_file);
 			wchar_t* temp_utf16_filepath = Convert_multibyteUTF8_to_wchar(temp_file_name);
 		
 			err = _wrename(temp_utf16_filepath, utf16_filepath);
@@ -4516,7 +4549,7 @@ void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_origi
 			temp_utf16_filepath = NULL;
 #endif
 		} else {
-			err = rename(temp_file_name, m4aFile);
+			err = rename(temp_file_name, originating_file);
 		}
 		
 		if (err != 0) {
@@ -4541,9 +4574,11 @@ void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_origi
 			}
 		}
 	}
+	
 	//APar_PrintAtomicTree();
-	//APar_FreeMemory();
+	APar_FreeMemory();
 	free(temp_file_name);
+	if (free_modified_name) free(originating_file);
 	temp_file_name=NULL;
 	free(file_buffer);
 	file_buffer = NULL;
