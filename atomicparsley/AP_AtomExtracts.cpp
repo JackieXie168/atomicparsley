@@ -23,6 +23,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <time.h>
+#include <math.h>
 
 #include "AtomicParsley.h"
 #include "AP_AtomExtracts.h"
@@ -96,20 +97,43 @@ uint16_t purge_extraneous_characters(char* data) {
 ExtractUTC
   total_secs - the time in seconds (from Jan 1, 1904)
 
-    Convert the seconds to a calendar date with seconds; also with asctime (but removed in case the create/modif dates are on a single line)
+    Convert the seconds to a calendar date with seconds.
 ----------------------*/
 char* ExtractUTC(uint32_t total_secs) {
 	//2082844800 seconds between 01/01/1904 & 01/01/1970
 	//  2,081,376,000 (60 seconds * 60 minutes * 24 hours * 365 days * 66 years)
 	//    + 1,468,800 (60 * 60 * 24 * 17 leap days in 01/01/1904 to 01/01/1970 duration) 
 	//= 2,082,844,800
-	time_t time_point = (uint32_t) (total_secs - 2082844800);
-	//return asctime(gmtime(&time_point));
-	char utc_time[50];
-	char* utc = &*utc_time;
+	total_secs -= 2082844800;
+	static char utc_time[50];
 	memset(utc_time, 0, 50);
-	strftime(utc_time, 50 , "%a %b %e %k:%M:%S %Y", gmtime(&time_point));
-	return utc;
+	
+	strftime(*&utc_time, 50 , "%a %b %e %k:%M:%S %Y", gmtime((time_t*)&total_secs) );
+	return *&utc_time;
+}
+
+/*----------------------
+secsTOtime
+  seconds - duratin in seconds as a floating point number
+
+    Convert decimal seconds to hh:mm:ss.milliseconds
+----------------------*/
+char* secsTOtime(double seconds) {
+	uint32_t total_secs = lroundf(seconds);
+	uint32_t milliseconds = 1000 * (seconds - (double)total_secs);
+	static char hhmmss_time[20];
+	memset(hhmmss_time, 0, 20);
+	
+	if (total_secs < 60) {
+		strftime(*&hhmmss_time, 20 , "0:%S", gmtime((time_t*)&total_secs));
+	} else if (total_secs < 3600) {
+		strftime(*&hhmmss_time, 20 , "%M:%S", gmtime((time_t*)&total_secs));
+	} else {
+		strftime(*&hhmmss_time, 20 , "%k:%M:%S", gmtime((time_t*)&total_secs));
+	}
+	sprintf(*&hhmmss_time + strlen(hhmmss_time), ".%u", milliseconds);
+	
+	return *&hhmmss_time;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////
@@ -608,7 +632,11 @@ void APar_ExtractMovieDetails(char* uint32_buffer, FILE* isofile, AtomicInfo* mv
 	}
 	
 	movie_info->seconds = (float)movie_info->duration / (float)movie_info->timescale;
+#if defined (_MSC_VER)
+	__int64 media_bits = (__int64)mdatData * 8;
+#else
 	uint64_t media_bits = (uint64_t)mdatData * 8;
+#endif
 	movie_info->simple_bitrate_calc = ( (double)media_bits / movie_info->seconds) / 1000.0;
 
 	return;
@@ -626,7 +654,7 @@ void APar_ExtractDetails(FILE* isofile, uint8_t optional_output) {
 	AtomicInfo* mvhdAtom = APar_FindAtom("moov.mvhd", false, VERSIONED_ATOM, 0);
 	if (mvhdAtom != NULL) {
 		APar_ExtractMovieDetails(uint32_buffer, isofile, mvhdAtom, &movie_info);
-		fprintf(stdout, "Movie duration: %.3lf seconds - %.2lf* kbp/sec bitrate (*=approximate)\n", movie_info.seconds, movie_info.simple_bitrate_calc);
+		fprintf(stdout, "Movie duration: %.3lf seconds (%s) - %.2lf* kbp/sec bitrate (*=approximate)\n", movie_info.seconds, secsTOtime(movie_info.seconds), movie_info.simple_bitrate_calc);
 	}
 	
 	if (optional_output & SHOW_TRACK_INFO) {
@@ -671,8 +699,13 @@ void APar_ExtractDetails(FILE* isofile, uint8_t optional_output) {
 						if (track_info.avg_bitrate > 0) {
 							fprintf(stdout, "     %.2f kbp/s", (float)track_info.avg_bitrate/1000.0);
 						} else { //some ffmpeg encodings have avg_bitrate set to 0, but an inexact max_bitrate - actually, their esds seems a mess to me
+#if defined (_MSC_VER)
+							fprintf(stdout, "     %.2lf* kbp/s", ( (double)((__int64)track_info.sample_aggregate) /
+																											( (double)((__int64)track_info.duration) / (double)((__int64)movie_info.timescale)) ) / 1000.0 * 8);
+#else
 							fprintf(stdout, "     %.2lf* kbp/s", ( (double)track_info.sample_aggregate /
-																																 ( (double)track_info.duration / (double)movie_info.timescale) ) / 1000.0 * 8);
+																											( (double)track_info.duration / (double)movie_info.timescale) ) / 1000.0 * 8);
+#endif
 						}
 						fprintf(stdout, "  %.3f sec", (float)track_info.duration / (float)movie_info.timescale);
 											
@@ -683,16 +716,26 @@ void APar_ExtractDetails(FILE* isofile, uint8_t optional_output) {
 						}
 						
 					} else if (track_info.track_codec == 0x616C6163) { //alac - can't figure out a hardcoded bitrate either
+#if defined (_MSC_VER)
+						fprintf(stdout, "     %.2lf* kbp/s", ( (double)((__int64)track_info.sample_aggregate) /
+																									( (double)((__int64)track_info.duration) / (double)((__int64)movie_info.timescale)) ) / 1000.0 * 8);
+#else
 						fprintf(stdout, "     %.2lf* kbp/s", ( (double)track_info.sample_aggregate /
-																																 ( (double)track_info.duration / (double)movie_info.timescale) ) / 1000.0 * 8);
+																									( (double)track_info.duration / (double)movie_info.timescale) ) / 1000.0 * 8);
+#endif
 						fprintf(stdout, "  %.3f sec", (float)track_info.duration / (float)movie_info.timescale);
 						
 						fprintf(stdout, "  Apple Lossless    channels: [%u]\n", track_info.channels);
 						
 						
 					} else if (track_info.track_codec == 0x61766331  || track_info.protected_codec == 0x61766331) {
+#if defined (_MSC_VER)
+						fprintf(stdout, "     %.2lf* kbp/s", ( (double)((__int64)track_info.sample_aggregate) /
+																									( (double)((__int64)track_info.duration) / (double)((__int64)movie_info.timescale)) ) / 1000.0 * 8);
+#else
 						fprintf(stdout, "     %.2lf* kbp/s", ( (double)track_info.sample_aggregate /
-																																 ( (double)track_info.duration / (double)movie_info.timescale) ) / 1000.0 * 8);
+																									( (double)track_info.duration / (double)movie_info.timescale) ) / 1000.0 * 8);
+#endif
 						fprintf(stdout, "  %.3f sec", (float)track_info.duration / (float)movie_info.timescale);
 																											 
 						if (track_info.avc_version == 1) { //avc profile & level
@@ -701,8 +744,13 @@ void APar_ExtractDetails(FILE* isofile, uint8_t optional_output) {
 						
 					}  else {
 						//unknown everything, 0 hardcoded bitrate
+#if defined (_MSC_VER)
+						fprintf(stdout, "     %.2lf* kbp/s", ( (double)((__int64)track_info.sample_aggregate) /
+																									( (double)((__int64)track_info.duration) / (double)((__int64)movie_info.timescale)) ) / 1000.0 * 8);
+#else
 						fprintf(stdout, "     %.2lf* kbp/s", ( (double)track_info.sample_aggregate /
-																																 ( (double)track_info.duration / (double)movie_info.timescale) ) / 1000.0 * 8);
+																									( (double)track_info.duration / (double)movie_info.timescale) ) / 1000.0 * 8);
+#endif
 						fprintf(stdout, "  %.3f sec", (float)track_info.duration / (float)movie_info.timescale);
 						APar_ShowAudioObjectTypeInfo(&track_info);
 					}

@@ -36,7 +36,6 @@
 #include <math.h>
 #include <wchar.h>
 
-#include "AP_commons.h"
 #include "AtomicParsley.h"
 #include "AP_AtomDefinitions.h"
 #include "AP_iconv.h"
@@ -436,7 +435,7 @@ void APar_TrackInfo(uint8_t &total_tracks, uint8_t &track_num, short &codec_atom
 	
 	while (parsedAtoms[iter].NextAtomNumber != 0) {
 	
-		if ( strncmp(parsedAtoms[iter].AtomicName, "trak", 4) == 0) {
+		if ( memcmp(parsedAtoms[iter].AtomicName, "trak", 4) == 0 && parsedAtoms[iter].AtomicLevel == 2) {
 			track_tally += 1;
 			if (track_num == 0) {
 				total_tracks += 1;
@@ -729,8 +728,7 @@ APar_FindLastLikeNamedAtom
 		of the container atom is returned; otherwise the last like named atom is returned.
 ----------------------*/
 short APar_FindLastLikeNamedAtom(char* atom_name, short containing_hierarchy) {
-	//short last_identically_named_atom = containing_hierarchy;
-	short last_identically_named_atom = APar_FindLastChild_of_ParentAtom(containing_hierarchy); //defaultreturns the last atom in the parent, not the parent
+	short last_identically_named_atom = APar_FindLastChild_of_ParentAtom(containing_hierarchy); //default returns the last atom in the parent, not the parent
 	short eval_atom = parsedAtoms[containing_hierarchy].NextAtomNumber;
 	
 	while (true) {
@@ -1062,6 +1060,70 @@ void APar_SimplePrintUnicodeAssest(char* unicode_string, int asset_length, bool 
 		APar_fprintf_UTF8_data(unicode_string);
 	
 	}
+	return;
+}
+
+/*----------------------
+APar_print_ISO_UserData_per_track
+
+    This will only show what is under moov.trak.udta atoms (not moov.udta). Get the total number of tracks; construct the moov.trak[index].udta path to find,
+		then if the atom after udta is of a greater level, read in from the file & print out what it contains.
+----------------------*/
+void APar_print_ISO_UserData_per_track() {
+	uint8_t total_tracks = 0;
+	uint8_t a_track = 0;//unused
+	short an_atom = 0;//unused
+	short a_trak_atom = 0;
+	char iso_atom_path[400];
+	AtomicInfo* trak_udtaAtom = NULL;
+
+	APar_TrackInfo(total_tracks, a_track, an_atom); //With track_num set to 0, it will return the total trak atom into total_tracks here.
+	
+	
+	for (uint8_t i = 1; i <= total_tracks; i++) {
+		memset(&iso_atom_path, 0, 400);
+		sprintf(iso_atom_path, "moov.trak[%u].udta", i);
+		
+		trak_udtaAtom = APar_FindAtom(iso_atom_path, false, SIMPLE_ATOM, 0);
+		
+		fprintf(stdout, "Track %i:\n", i);
+	
+		if (trak_udtaAtom != NULL && parsedAtoms[trak_udtaAtom->NextAtomNumber].AtomicLevel == trak_udtaAtom->AtomicLevel+1) {
+			a_trak_atom = trak_udtaAtom->NextAtomNumber;
+			while (parsedAtoms[a_trak_atom].AtomicLevel == trak_udtaAtom->AtomicLevel+1) { //only work on moov.trak[i].udta's child atoms
+			
+				char bitpacked_lang[3];
+				memset(bitpacked_lang, 0, 3);
+				unsigned char unpacked_lang[3];
+		
+				uint32_t box_length = parsedAtoms[a_trak_atom].AtomicLength;
+				char* box_data = (char*)malloc(sizeof(char)*box_length);
+				memset(box_data, 0, sizeof(char)*box_length);
+
+				if (memcmp(parsedAtoms[a_trak_atom].AtomicName, "cprt", 4) == 0) {
+					fprintf(stdout, " Copyright ");
+				} else {
+					fprintf(stdout, " Atom \"%s\" ", parsedAtoms[a_trak_atom].AtomicName);
+				}
+				
+				uint16_t packed_lang = APar_read16(bitpacked_lang, source_file, parsedAtoms[a_trak_atom].AtomicStart + 12);
+				APar_UnpackLanguage(unpacked_lang, packed_lang);
+				
+				APar_readX(box_data, source_file, parsedAtoms[a_trak_atom].AtomicStart + 14, box_length-14); //4bytes length, 4 bytes name, 4 bytes flags, 2 bytes lang
+				fprintf(stdout, "[lang=%s", unpacked_lang);
+				APar_PrintUnicodeAssest(box_data, box_length);
+				fprintf(stdout, "\n");
+				
+				free(box_data);
+				box_data=NULL;
+				
+				a_trak_atom = parsedAtoms[a_trak_atom].NextAtomNumber;
+			}
+		} else {
+			fprintf(stdout, " No user data for this track.\n");
+		}
+	}
+	
 	return;
 }
 
@@ -1570,6 +1632,7 @@ void APar_PrintDataAtoms(const char *path, bool extract_pix, char* pic_output_pa
 	}
 	
 	if (supplemental_info) {
+		fprintf(stdout, "---------------------------\n");
 		udta_dynamics.dynamic_updating = false;
 		APar_DetermineDynamicUpdate(true); //gets the size of the padding
 		APar_Optimize(true); //just to know if 'free' atoms can be considered padding, or (in the case of say a faac file) it's *just* 'free'
@@ -3153,6 +3216,76 @@ void APar_StandardTime(char* &formed_time) {
 	return;
 }
 
+/*----------------------
+APar_ISO_UserData_Set
+	iso_atom_name - the name of the atom that will be set/removed
+	iso_payload - the information the atom is to carry (possibly of zero length, meaning remove)
+	iso_container - specifies where to place/find the atom: movie level, all tracks, or a single track
+	iso_track - if the container will be a single track, this will carry exactly which track to work on
+	packed_lang - the packed language code for the atom (defaults to packed 'eng')
+	set_UTF16_text - controls whether to set iso_payload as utf16 encoded text
+
+    Gather the number of tracks first, then based on which container (moov.udta or moov.trak.udta) construct the atom path using the index into which trak
+		atom. Loop through either once (for a specific track or at movie level) or for all tracks if setting the notification for all tracks. If whatever is
+		to be set is "", then remove that atom (removal takes the language into consideration). If the playload is not "", then find & create the sparse atom,
+		initialize its AtomicData, and send the atom off with the payload to be set in APar_Unified_atom_Put.
+		
+			TODO NOTE: the track modification date should change because of this
+----------------------*/
+void APar_ISO_UserData_Set(char* iso_atom_name, const char* iso_payload, uint8_t iso_container, uint8_t iso_track, uint16_t packed_lang, bool set_UTF16_text) {
+	uint8_t total_tracks = 0;
+	uint8_t total_settings = 0;
+	uint8_t a_track = 0;//unused
+	short an_atom = 0;//unused
+	AtomicInfo* desiredAtom = NULL;
+	
+	APar_TrackInfo(total_tracks, a_track, an_atom); //With track_num set to 0, it will return the total trak atom into total_tracks here.
+	
+	if (iso_track > total_tracks) {
+		APar_assert(false, 5, iso_atom_name);
+		return;
+	}
+	
+	if (iso_container == MOVIE_LEVEL_ATOM) {
+		total_settings = 1;
+	} else if (iso_container == ALL_TRACKS_ATOM) {
+		total_settings = total_tracks;
+	} else if (iso_container == SINGLE_TRACK_ATOM) {
+		total_settings = 1;
+	}
+	char iso_atom_path[400];
+	
+	for (uint8_t i = 1; i <= total_settings; i++) {
+		memset(&iso_atom_path, 0, 400);
+		if (iso_container == MOVIE_LEVEL_ATOM) {
+				memcpy(iso_atom_path, "moov.udta.", 10);
+				memcpy(iso_atom_path+10, iso_atom_name, 4);
+		} else if (iso_container == ALL_TRACKS_ATOM) {
+			sprintf(iso_atom_path, "moov.trak[%u].udta.%s", i, iso_atom_name);
+		} else if (iso_container == SINGLE_TRACK_ATOM) {
+			sprintf(iso_atom_path, "moov.trak[%u].udta.%s", iso_track, iso_atom_name);
+		}
+	
+		if ( strlen(iso_payload) == 0) {
+			APar_RemoveAtom(iso_atom_path, PACKED_LANG_ATOM, packed_lang); //find the atom; don't create if it's "" to remove
+		} else {
+			modified_atoms = true;
+			desiredAtom = APar_FindAtom(iso_atom_path, true, PACKED_LANG_ATOM, packed_lang);
+		
+			desiredAtom->AtomicData = (char*)malloc(sizeof(char)* MAXDATA_PAYLOAD ); //puts a hard limit on the length of strings (the spec doesn't)
+			memset(desiredAtom->AtomicData, 0, sizeof(char)* MAXDATA_PAYLOAD );
+		
+			desiredAtom->AtomicLength = 12; // 4bytes atom length, 4 bytes atom length, 4 bytes version/flags (NULLs)
+			desiredAtom->AtomicVerFlags = 0;
+			desiredAtom->AtomicContainerState = CHILD_ATOM;
+			desiredAtom->AtomicClassification = PACKED_LANG_ATOM;
+			desiredAtom->AtomicLanguage = packed_lang;
+			APar_Unified_atom_Put(desiredAtom->AtomicNumber, iso_payload, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
+		}
+	}
+	return;
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////
 //                         'stco' Atom Calculations                                  //
 ///////////////////////////////////////////////////////////////////////////////////////
@@ -3425,6 +3558,42 @@ void APar_ConsilidatePadding(uint32_t force_padding_amount) {
 }
 
 /*----------------------
+APar_ForcePadding_sans_udta
+
+    Handles adding padding to a  file without a 'udta' atom (say when using --ISO-copyright). Only handles 'free' & 'skip' atoms, but only at file level (1).
+----------------------*/
+void APar_ForcePadding_sans_udta() {
+	short total_file_level_atoms = APar_ReturnChildrenAtoms (0, 0); //'ftyp' (atom 0) is level 1, so this finds the count of level 1 atoms
+	short eval_atom = 0;
+	short moov_atom = 0;
+	short significant_atom = 0;
+	uint32_t free_padding_space = 0;
+	
+	//scan through all top level atoms; fragmented files won't be optimized
+	for(uint8_t i = 1; i <= total_file_level_atoms; i++) {
+		eval_atom = APar_ReturnChildrenAtoms (0, i);
+		if ( memcmp(parsedAtoms[eval_atom].AtomicName, "moov", 4) == 0) {
+			moov_atom = eval_atom; //note moov atom so that a 'free' or 'skip' after it can be summed
+		}
+		if ( memcmp(parsedAtoms[eval_atom].AtomicName, "mdat", 4) == 0 || memcmp(parsedAtoms[eval_atom].AtomicName, "moof", 4) == 0) {
+			significant_atom = eval_atom; //note moov atom so that a 'free' or 'skip' after it *will NOT* be summed
+		}
+		if (memcmp(parsedAtoms[eval_atom].AtomicName, "free", 4) == 0 || memcmp(parsedAtoms[eval_atom].AtomicName, "skip", 4) == 0) {
+			if (moov_atom > 0 && significant_atom == 0 && parsedAtoms[eval_atom].AtomicLength != 1) {
+				free_padding_space += parsedAtoms[eval_atom].AtomicLength;
+			}
+			if (moov_atom > 0 && significant_atom == 0 && parsedAtoms[eval_atom].AtomicLength == 1) {
+				free_padding_space += (uint32_t)parsedAtoms[eval_atom].AtomicLengthExtended;
+			}
+		}
+	}
+	if (free_padding_space <= pad_prefs.minimum_required_padding_size) {
+		APar_InterjectNewAtom("free", CHILD_ATOM, SIMPLE_ATOM, pad_prefs.default_padding_size, 0, 0, 1, APar_FindLastChild_of_ParentAtom(moov_atom) );
+	}
+	return;
+}
+
+/*----------------------
 APar_DetermineDynamicUpdate
   initial_pass - inital pass = consolidate 'free' atoms into one globbed 'free' repository; 2nd pass to determine the filler amount
 
@@ -3448,6 +3617,7 @@ void APar_DetermineDynamicUpdate(bool initial_pass) {
 	} else if (udtaAtom == NULL) {
 		//TODO: how to handle this so a full rewrite doesn't occur, because a segfault happens a few lines down with udtaAtom->AtomicNumber
 		udta_dynamics.max_usable_free_space = 0; //for now
+		APar_ForcePadding_sans_udta(); //useless currently for AP since it can't consider padding without a 'udta' atom present
 		return; //for now
 	}
 	
@@ -3675,7 +3845,7 @@ void APar_Optimize(bool mdat_test_only) {
 		
 		for(uint8_t moov_i = 1; moov_i <= total_moov_child_atoms; moov_i ++) {
 			eval_atom = APar_ReturnChildrenAtoms (moov_atom, moov_i);
-			if ( memcmp(parsedAtoms[eval_atom].AtomicName, "udta", 4) == 0 ) {
+			if ( memcmp(parsedAtoms[eval_atom].AtomicName, "udta", 4) == 0 && parsedAtoms[eval_atom].AtomicLevel == 2) {
 				udta_atom = eval_atom;
 			} else {
 				if (memcmp(parsedAtoms[eval_atom].AtomicName, "free", 4) != 0) { //don't reorder just to move udta behind free
@@ -3684,7 +3854,7 @@ void APar_Optimize(bool mdat_test_only) {
 			}
 		}
 		
-		if (any_child_atom > udta_atom && !tree_display_only) { //memcmp(parsedAtoms[udta_atom].AtomicName, "udta", 4) == 0 works too
+		if (any_child_atom > udta_atom && !tree_display_only && udta_atom > 0) { //memcmp(parsedAtoms[udta_atom].AtomicName, "udta", 4) == 0 works too
 			APar_MoveAtom(udta_atom, any_child_atom);
 		}
 	}
@@ -3989,36 +4159,26 @@ void APar_DeriveNewPath(const char *filePath, char* temp_path, int output_type, 
 }
 
 void APar_MetadataFileDump(const char* m4aFile) {
-	bool ilst_present = false;
 	char* dump_file_name=(char*)malloc( sizeof(char)* (strlen(m4aFile) +12 +1) );
 	memset(dump_file_name, 0, sizeof(char)* (strlen(m4aFile) +12 +1) );
 	
 	FILE* dump_file;
-	AtomicInfo* ilst_atom = APar_FindAtom("moov.udta.meta.ilst", false, SIMPLE_ATOM, 0);
-	//AtomicInfo* ilst_atom = APar_FindAtom("moov.udta.meta.ilst", false, SIMPLE_ATOM, false, true, 0);
+	AtomicInfo* userdata_atom = APar_FindAtom("moov.udta", false, SIMPLE_ATOM, 0);
 	
 	//make sure that the atom really exists
-	if (ilst_atom != NULL) {
-		if (strlen(ilst_atom->AtomicName) > 0) {
-			if (strncmp(ilst_atom->AtomicName, "ilst", 4) == 0) {
-				ilst_present = true;
-			}
-		}
-	}
-	
-	if (ilst_present) {
-		char* dump_buffer=(char*)malloc( sizeof(char)* ilst_atom->AtomicLength +1 );
-		memset(dump_buffer, 0, sizeof(char)* ilst_atom->AtomicLength +1 );
+	if (userdata_atom != NULL) {
+		char* dump_buffer=(char*)malloc( sizeof(char)* userdata_atom->AtomicLength +1 );
+		memset(dump_buffer, 0, sizeof(char)* userdata_atom->AtomicLength +1 );
 	
 		APar_DeriveNewPath(m4aFile, dump_file_name, 1, "-dump-");
 		dump_file = APar_OpenFile(dump_file_name, "wb");
 		if (dump_file != NULL) {
 			//body of atom writing here
 			
-			fseeko(source_file, ilst_atom->AtomicStart, SEEK_SET);
-			fread(dump_buffer, 1, (size_t)ilst_atom->AtomicLength, source_file);
+			fseeko(source_file, userdata_atom->AtomicStart, SEEK_SET);
+			fread(dump_buffer, 1, (size_t)userdata_atom->AtomicLength, source_file);
 			
-			fwrite(dump_buffer, (size_t)ilst_atom->AtomicLength, 1, dump_file);
+			fwrite(dump_buffer, (size_t)userdata_atom->AtomicLength, 1, dump_file);
 			fclose(dump_file);
 		
 			fprintf(stdout, " Metadata dumped to %s\n", dump_file_name);
@@ -4027,7 +4187,7 @@ void APar_MetadataFileDump(const char* m4aFile) {
 		dump_buffer=NULL;
 		
 	} else {
-		fprintf(stdout, "AtomicParsley error: no ilst atom was found to dump out to file.\n");
+		fprintf(stdout, "AtomicParsley error: no moov.udta atom was found to dump out to file.\n");
 	}
 	
 	return;

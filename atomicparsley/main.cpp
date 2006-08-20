@@ -97,6 +97,8 @@
 
 #define OPT_OverWrite            'W'
 
+#define ISO_Copyright            0xAA
+
 #define _3GP_Title               0xAB
 #define _3GP_Author              0xAC
 #define _3GP_Performer           0xAD
@@ -162,6 +164,9 @@ static void kill_signal (int sig) {
 //less than 80 (max 78) char wide, giving a general (concise) overview
 static char* shortHelp_text =
 "\n"
+"AtomicParlsey sets metadata into MPEG-4 files & derivatives supporting 3 tag\n"
+" schemes: iTunes-style, 3GPP assets & ISO defined copyright notifications.\n"
+"\n"
 "AtomicParlsey quick help for setting iTunes-style metadata into MPEG-4 files.\n"
 "\n"
 "General usage examples:\n"
@@ -214,50 +219,32 @@ static char* shortHelp_text =
 "  To delete (all) artwork:    --artwork REMOVE_ALL\n"
 "  manually removal:           --manualAtomRemove \"moov.udta.meta.ilst.ATOM\"\n"
 "\n"
-"More detailed help is available with AtomicParsley --longhelp\n"
+"More detailed iTunes help is available with AtomicParsley --longhelp\n"
 "Setting 3gp assets into 3GPP & derivative files: see --3gp-help\n"
-"----------------------------------------------------------------------";
+"Setting copyright notices for all files: see --ISO-help\n"
+"For file-level options & padding info: see --file-help\n"
+"Setting custom private tag extensions: see --uuid-help\n"
+"----------------------------------------------------------------------"
+;
 
 //an expansive, verbose, unconstrained (about 112 char wide) detailing of options
 static char* longHelp_text =
 "AtomicParsley help page for setting iTunes-style metadata into MPEG-4 files. \n"
 "              (3gp help available with AtomicParsley --3gp-help)\n"
+"          (ISO copyright help available with AtomicParsley --ISO-help)\n"
 "Usage: AtomicParsley [mp4FILE]... [OPTION]... [ARGUMENT]... [ [OPTION2]...[ARGUMENT2]...] \n"
 "\n"
 "example: AtomicParsley /path/to.mp4 -e ~/Desktop/pix\n"
 "example: Atomicparsley /path/to.mp4 --podcastURL \"http://www.url.net\" --tracknum 45/356\n"
 "example: Atomicparsley /path/to.mp4 --copyright \"\342\204\227 \302\251 2006\"\n"
 "example: Atomicparsley /path/to.mp4 --year \"2006-07-27T14:00:43Z\" --purchaseDate timestamp\n"
-"\n"
-#if defined (_MSC_VER)
-"  Note: you can change the input/output behavior to raw 8-bit utf8 if the program name\n"
-"        is appended with \"-utf8\". AtomicParsley-utf8.exe will have problems with files/\n"
-"        folders with unicode characters in given paths.\n"
-"\n"
-#endif
 "------------------------------------------------------------------------------------------------\n"
-" Atom Tree\n"
-"\n"
-"  --test             ,  -T      Tests file to see if its a valid MPEG-4 file.\n"
-"                                Prints out the hierarchical atom tree & some track-level info.\n"
-"                                Supplemental track level info with \"-T 1\"\n"
-"                                Track level creation/modified dates with \"-T +dates\"\n"
-"\n"
-"------------------------------------------------------------------------------------------------\n"
-" Atom contents (printing on screen & extracting artwork(s) to files)\n"
-"\n"
-"  --textdata         ,  -t      show user data text metadata relevant to brand (inc. # of any pics).\n"
-"                        -t 1    show metadata regardless of brand with (1 can be anything)\n"
-"                        -t +    show supplemental info like free space, available padding, user data\n"
-"                                length & media data length\n"
-"\n"
 "  Extract any pictures in user data \"covr\" atoms to separate files. \n"
 "  --extractPix       ,  -E                     Extract to same folder (basename derived from file).\n"
 "  --extractPixToPath ,  -e  (/path/basename)   Extract to specific path (numbers added to basename).\n"
 "                                                 example: --e ~/Desktop/SomeText\n"
 "                                                 gives: SomeText_artwork_1.jpg  SomeText_artwork_2.png\n"
 "                                               Note: extension comes from embedded image file format\n"
-"\n"
 "------------------------------------------------------------------------------------------------\n"
 " Tag setting options:\n"
 "\n"
@@ -276,6 +263,7 @@ static char* longHelp_text =
 "  --copyright        ,  -x   (str)    Set the copyright tag: \"moov.udta.meta.ilst.cprt.data\"\n"
 "  --grouping         ,  -G   (str)    Set the grouping tag: \"moov.udta.meta.ilst.\302©grp.data\"\n"
 "  --artwork          ,  -A   (/path)  Set a piece of artwork (jpeg or png) on \"covr.data\"\n"
+"                                          Note: multiple pieces are allowed with more --artwork args\n"
 "  --bpm              ,  -B   (num)    Set the tempo/bpm tag: \"moov.udta.meta.ilst.tmpo.data\"\n"
 "  --albumArtist      ,  -A   (str)    Set the album artist tag: \"moov.udta.meta.ilst.aART.data\"\n"
 "  --compilation      ,  -C   (bool)   Sets the \"cpil\" atom (true or false to delete the atom)\n"
@@ -301,6 +289,7 @@ static char* longHelp_text =
 "                                       (use \"timestamp\" to set UTC to now; can be akin to id3v2 TDTG tag)\n"
 "  --encodingTool     ,       (str)    Set the name of the encoder on the \"\302©too\" atom\n"
 "\n"
+"------------------------------------------------------------------------------------------------\n"
 " To delete a single atom, set the tag to null (except artwork):\n"
 "  --artist \"\" --lyrics \"\"\n"
 "  --artwork REMOVE_ALL \n"
@@ -312,83 +301,11 @@ static char* longHelp_text =
 "                             \"moov.udta.meta.ilst.----.name:[foo]\" for reverse dns metadata\n"
 "                                    Note: these atoms show up with 'AP -t' as: Atom \"----\" [foo]\n"
 "                                          'foo' is actually carried on the 'name' atom\n"
-"\n"
-"------------------------------------------------------------------------------------------------\n"
-" Setting user-defined 'uuid' tags (all will appear in \"moov.udta.meta\"):\n"
-"\n"
-"  --information      ,  -i   (str)    Set an information tag on \"moov.udta.meta.uuid=\302©inf\"\n"
-"  --url              ,  -u   (URL)    Set a URL tag on \"moov.udta.meta.uuid=\302©url\"\n"
-"  --tagtime          ,  -Z            Set the Coordinated Univeral Time of tagging on \"uuid=tdtg\"\n"
-"\n"
-"  --meta-uuid        ,  -z   (args)   Define & set your own uuid=atom with text data:\n"
-"                                        format is 4char_atom_name, 1 or \"text\" & the string to set\n"
-"Example: \n"
-"  --meta-uuid \"tagr\" 1 'Johnny Appleseed' --meta-uuid \"\302\251sft\" 1 'OpenShiiva encoded.' \n"
-"------------------------------------------------------------------------------------------------\n"
-" File-level options:\n"
-"\n"
 "  --metaEnema        ,  -P            Douches away every atom under \"moov.udta.meta.ilst\" \n"
 "  --foobar2000Enema  ,  -2            Eliminates foobar2000's non-compliant so-out-o-spec tagging scheme\n"
-"  --mdatLock         ,  -M            Prevents moving mdat atoms to the end (poss. useful for PSP files)\n"
-"  --freefree         ,  -F   ?(num)?  Remove \"free\" atoms which only act as filler in the file\n"
-"                                      ?(num)? - optional integer argument to delete 'free's to desired level\n"
-"\n"
-"                                      NOTE 1: levels begin at level 1 aka file level.\n"
-"                                      NOTE 2: Level 0 (which doesn't exist) deletes level 1 atoms that pre-\n"
-"                                              cede 'moov' & don't serve as padding. Typically, such atoms\n"
-"                                              are created by libmp4ff or libmp4v2 as a byproduct of tagging.\n"
-"                                      NOTE 3: When padding falls below MIN_PAD (typically zero), a default\n"
-"                                              amount of padding (typically 2048 bytes) will be added. To\n"
-"                                              achieve absolutely 0 bytes 'free' space with --freefree, set\n"
-"                                              DEFAULT_PAD to 0 via the AP_PADDING mechanism (see below).\n"
-"  --metaDump         ,  -Q            Dumps out all metadata out to a new file next to original\n"
-"                                          (for diagnostic purposes, please remove artwork before sending)\n"
-"  --output           ,  -o   (/path)  Specify the filename of tempfile (voids overWrite)\n"
-"  --overWrite        ,  -W            Writes to temp file; deletes original, renames temp to original\n"
-"\n"
-"Examples: \n"
-"  --freefree 0         (deletes all top-level non-padding atoms preceding 'mooov') \n"
-"  --freefree 1         (deletes all non-padding atoms at the top most level) \n"
-"  --output ~/Desktop/newfile.mp4\n"
-
 "------------------------------------------------------------------------------------------------\n"
-" Padding & 'free' atoms:\n"
-"\n"
-"  A special type of atom called a 'free' atom is used for padding (all 'free' atoms contain NULL space).\n"
-"  When changes to occur, these 'free' atom are used. They grows or shink, but the relative locations\n"
-"  of certain other atoms (stco/mdat) remain the same. If there is no 'free' space, a full rewrite will occur.\n"
-"  The locations of 'free' atom(s) that AP can use as padding must be follow 'moov.udta' & come before 'mdat'.\n"
-"  A 'free' preceding 'moov' or following 'mdat' won't be used as padding for example. \n"
-"\n"
-"  Set the shell variable AP_PADDING with these values, separated by colons to alter padding behavior:\n"
-"\n"
-"  DEFAULT_PADDING=  -  the amount of padding added if the minimum padding is non-existant in the file\n"
-"                       default = 2048\n"
-"  MIN_PAD=          -  the minimum padding present before more padding will be added\n"
-"                       default = 0\n"
-"  MAX_PAD=          -  the maximum allowable padding; excess padding will be eliminated\n"
-"                       default = 5000\n"
-"\n"
-"  If you use --freefree to eliminate 'free' atoms from the file, the DEFAULT_PADDING amount will still be\n"
-"  added to any newly written files. Set DEFAULT_PADDING=0 to prevent any 'free' padding added at rewrite.\n"
-"  You can set MIN_PAD to be assured that at least that amount of padding will be present - similarly,\n"
-"  MAX_PAD limits any excessive amount of padding. All 3 options will in all likelyhood produce a full\n"
-"  rewrite of the original file. Another case where a full rewrite will occur is when the original file\n"
-"  is not optimized and has 'mdat' preceding 'moov'.\n"
-"\n"
-#if defined (_MSC_VER)
-"  Examples:\n"
-"     c:> SET AP_PADDING=\"DEFAULT_PAD=0\"      or    c:> SET AP_PADDING=\"DEFAULT_PAD=3128\"\n"
-"     c:> SET AP_PADDING=\"DEFAULT_PAD=5128:MIN_PAD=200:MAX_PAD=6049\"\n"
-#else
-"  Examples (bash style):\n"
-"     $ export AP_PADDING=\"DEFAULT_PAD=0\"      or    $ export AP_PADDING=\"DEFAULT_PAD=3128\"\n"
-"     $ export AP_PADDING=\"DEFAULT_PAD=5128:MIN_PAD=200:MAX_PAD=6049\"\n"
-#endif
-"\n"
-"  Note: while AtomicParsley is still in the beta stage, the original file will always remain untouched - \n"
-"        unless given the --overWrite flag when if possible, utilizing available padding to update tags\n"
-"        will be tried (falling back to a full rewrite if changes are greater than the found padding).\n"
+"NOTE: Except for artwork, only 1 of each tag is allowed; artwork allows multiple pieces.\n"
+"NOTE: Tags that carry text have a limit of 255 utf8 characters; lyrics have no limit.\n"
 "------------------------------------------------------------------------------------------------\n"
 
 #if defined (DARWIN_PLATFORM)
@@ -412,6 +329,96 @@ static char* longHelp_text =
 " export PIC_OPTIONS=\"ForceHeight=999:ForceWidth=333:removeTempPix\"\n"
 "------------------------------------------------------------------------------------------------\n"
 #endif
+;
+
+static char* fileLevelHelp_text =
+"AtomicParsley help page for general & file level options.\n"
+#if defined (_MSC_VER)
+"  Note: you can change the input/output behavior to raw 8-bit utf8 if the program name\n"
+"        is appended with \"-utf8\". AtomicParsley-utf8.exe will have problems with files/\n"
+"        folders with unicode characters in given paths.\n"
+"\n"
+#endif
+"------------------------------------------------------------------------------------------------\n"
+" Atom reading services:\n"
+"\n"
+"  --test             ,  -T           Tests file to see if its a valid MPEG-4 file.\n"
+"                                     Prints out the hierarchical atom tree.\n"
+"                        -T 1         Supplemental track level info with \"-T 1\"\n"
+"                        -T +dates    Track level with creation/modified dates\n"
+"\n"
+"  --textdata         ,  -t      print user data text metadata relevant to brand (inc. # of any pics).\n"
+"                        -t +    show supplemental info like free space, available padding, user data\n"
+"                                length & media data length\n"
+"                        -t 1    show all textual metadata (disregards brands, shows track copyright)\n"
+"\n"
+"  --brands                      show the major & minor brands for the file & available tagging schemes\n"
+"\n"
+"------------------------------------------------------------------------------------------------\n"
+" File services:\n"
+"\n"
+"  --mdatLock         ,  -M            Prevents moving mdat atoms to the end (poss. useful for PSP files)\n"
+"  --freefree         ,  -F   ?(num)?  Remove \"free\" atoms which only act as filler in the file\n"
+"                                      ?(num)? - optional integer argument to delete 'free's to desired level\n"
+"\n"
+"                                      NOTE 1: levels begin at level 1 aka file level.\n"
+"                                      NOTE 2: Level 0 (which doesn't exist) deletes level 1 atoms that pre-\n"
+"                                              cede 'moov' & don't serve as padding. Typically, such atoms\n"
+"                                              are created by libmp4ff or libmp4v2 as a byproduct of tagging.\n"
+"                                      NOTE 3: When padding falls below MIN_PAD (typically zero), a default\n"
+"                                              amount of padding (typically 2048 bytes) will be added. To\n"
+"                                              achieve absolutely 0 bytes 'free' space with --freefree, set\n"
+"                                              DEFAULT_PAD to 0 via the AP_PADDING mechanism (see below).\n"
+"  --metaDump         ,  -Q            Dumps out 'moov.udta' metadata out to a new file next to original\n"
+"                                          (for diagnostic purposes, please remove artwork before sending)\n"
+"  --output           ,  -o   (/path)  Specify the filename of tempfile (voids overWrite)\n"
+"  --overWrite        ,  -W            Writes to temp file; deletes original, renames temp to original\n"
+"                                      If possible, padding will be used to update without a full rewrite.\n"
+"\n"
+"Examples: \n"
+"  --freefree 0         (deletes all top-level non-padding atoms preceding 'mooov') \n"
+"  --freefree 1         (deletes all non-padding atoms at the top most level) \n"
+"  --output ~/Desktop/newfile.mp4\n"
+
+"------------------------------------------------------------------------------------------------\n"
+" Padding & 'free' atoms:\n"
+"\n"
+"  A special type of atom called a 'free' atom is used for padding (all 'free' atoms contain NULL space).\n"
+"  When changes need to occur, these 'free' atom are used. They grows or shink, but the relative locations\n"
+"  of certain other atoms (stco/mdat) remain the same. If there is no 'free' space, a full rewrite will occur.\n"
+"  The locations of 'free' atom(s) that AP can use as padding must be follow 'moov.udta' & come before 'mdat'.\n"
+"  A 'free' preceding 'moov' or following 'mdat' won't be used as padding for example. \n"
+"\n"
+"  Set the shell variable AP_PADDING with these values, separated by colons to alter padding behavior:\n"
+"\n"
+"  DEFAULT_PADDING=  -  the amount of padding added if the minimum padding is non-existant in the file\n"
+"                       default = 2048\n"
+"  MIN_PAD=          -  the minimum padding present before more padding will be added\n"
+"                       default = 0\n"
+"  MAX_PAD=          -  the maximum allowable padding; excess padding will be eliminated\n"
+"                       default = 5000\n"
+"\n"
+"  If you use --freefree to eliminate 'free' atoms from the file, the DEFAULT_PADDING amount will still be\n"
+"  added to any newly written files. Set DEFAULT_PADDING=0 to prevent any 'free' padding added at rewrite.\n"
+"  You can set MIN_PAD to be assured that at least that amount of padding will be present - similarly,\n"
+"  MAX_PAD limits any excessive amount of padding. All 3 options will in all likelyhood produce a full\n"
+"  rewrite of the original file. Another case where a full rewrite will occur is when the original file\n"
+"  is not optimized and has 'mdat' preceding 'moov'.\n"
+"\n"
+#if defined (_MSC_VER)
+"Examples:\n"
+"   c:> SET AP_PADDING=\"DEFAULT_PAD=0\"      or    c:> SET AP_PADDING=\"DEFAULT_PAD=3128\"\n"
+"   c:> SET AP_PADDING=\"DEFAULT_PAD=5128:MIN_PAD=200:MAX_PAD=6049\"\n"
+#else
+"Examples (bash style):\n"
+"   $ export AP_PADDING=\"DEFAULT_PAD=0\"      or    $ export AP_PADDING=\"DEFAULT_PAD=3128\"\n"
+"   $ export AP_PADDING=\"DEFAULT_PAD=5128:MIN_PAD=200:MAX_PAD=6049\"\n"
+#endif
+"\n"
+"Note: while AtomicParsley is still in the beta stage, the original file will always remain untouched - \n"
+"      unless given the --overWrite flag when if possible, utilizing available padding to update tags\n"
+"      will be tried (falling back to a full rewrite if changes are greater than the found padding).\n"
+"----------------------------------------------------------------------------------------------------\n"
 ;
 
 //detailed options for 3gp branded files
@@ -449,7 +456,7 @@ static char* _3gpHelp_text =
 "  --3gp-performer       (str)   [lang=3str]   [UTF16]  .........  Set a 3gp performer or artist tag\n"
 "  --3gp-genre           (str)   [lang=3str]   [UTF16]  .........  Set a 3gp genre asset tag\n"
 "  --3gp-description     (str)   [lang=3str]   [UTF16]  .........  Set a 3gp description or caption tag\n"
-"  --3gp-copyright       (str)   [lang=3str]   [UTF16]  .........  Set a 3gp copyright notice tag\n"
+"  --3gp-copyright       (str)   [lang=3str]   [UTF16]  .........  Set a 3gp copyright notice tag*\n"
 "\n"
 "  --3gp-album           (str)   [track=int]  [lang=3str] [UTF16]  Set a 3gp album tag (& opt. tracknum)\n"
 "  --3gp-year            (int)   ................................  Set a 3gp recording year tag (4 digit only)\n"
@@ -468,11 +475,12 @@ static char* _3gpHelp_text =
 "                                         append 'S', 'W' or 'B': lat=55S, long=90.23W, alt=90.25B\n"
 "\n"
 "Note: 4str = a 4 letter string like \"PG13\"; 3str is a 3 letter string like \"eng\"; int is an integer\n"
+"*Note2: The 3gp copyright asset can potentially be altered by using the --ISO-copyright setting.\n"
 "----------------------------------------------------------------------------------------------------\n"
 "Usage: AtomicParsley [3gpFILE] --option [argument] [optional_arguments]  [ --option2 [argument2]...] \n"
 "\n"
-"example: AtomicParsley /path/to.3gp --t \n"
-"example: AtomicParsley /path/to.3gp --T 1 \n"
+"example: AtomicParsley /path/to.3gp -t \n"
+"example: AtomicParsley /path/to.3gp -T 1 \n"
 "example: Atomicparsley /path/to.3gp --3gp-performer \"Enjoy Yourself\" lang=pol UTF16\n"
 "example: Atomicparsley /path/to.3gp --3gp-year 2006 --3gp-album \"White Label\" track=8 lang=fra\n"
 "example: Atomicparsley /path/to.3gp --3gp-album \"Cow Cod Soup For Everyone\" track=10 lang=car\n"
@@ -485,6 +493,54 @@ static char* _3gpHelp_text =
 "example: Atomicparsley /path/to.3gp --3gp-title \"I see London.\" --3gp-title \"Veo Madrid.\" lang=spa \n"
 "                                    --3gp-title \"Widze Warsawa.\" lang=pol\n"
 "\n";
+
+static char* ISOHelp_text =
+"AtomicParsley help page for setting ISO copyright notices at movie & track level.\n"
+"----------------------------------------------------------------------------------------------------\n"
+"  The ISO specification allows for setting copyright in a number of places. This copyright atom is\n"
+"  independant of the iTunes-style --copyright tag that can be set. This ISO tag is identical to the\n"
+"  3GP-style copyright. In fact, using --ISO-copyright can potentially overwrite the 3gp copyright\n"
+"  asset if set at movie level & given the same language to set the copyright on. This copyright\n"
+"  notice is the only metadata tag defined by the reference ISO 14496-12 specification.\n"
+"\n"
+"  The ISO copyright can be set at movie level, at track level for a single track, or for all tracks.\n"
+"  Multiple languages are supported. See   http://www.loc.gov/standards/iso639-2/englangn.html for\n"
+"  language codes (codes are *not* checked). Tags can also be set in utf8 or utf16.\n"
+"\n"
+"  --ISO-copyright  (str)  [option]  [lang=3str]  [UTF16]   Set a copyright at a desired level\n"
+"                                                             option may be \"movie\", \"track\",\n"
+"                                                             or \"track=int\" where int is a track#.\n"
+"                                                           3str is the 3 letter ISO-639-2 language.\n"
+"                                                           Brackets [] show optional parameters.\n"
+"                                                           Defaults are: movie level, 'eng' in utf8.\n"
+"\n"
+"example: AtomicParsley /path/file.mp4 -t 1      Note: the only way to see all contents is with -t 1 \n"
+"example: AtomicParsley /path/file.mp4 --ISO-copyright \"Sample\"\n"
+"example: AtomicParsley /path/file.mp4 --ISO-copyright \"Sample\" movie\n"
+"example: AtomicParsley /path/file.mp4 --ISO-copyright \"Sample\" track=2 lang=urd\n"
+"example: AtomicParsley /path/file.mp4 --ISO-copyright \"Sample\" track UTF16\n"
+"example: AP --ISO-copyright \"Example\" track --ISO-copyright \"Por Exemplo\" track=2 lang=spa UTF16\n"
+"\n"
+"Note: to remove the copyright, set the string to \"\" - the track and language must match the target.\n"
+"example: --ISO-copyright \"\" track --ISO-copyright \"\" track=2 lang=spa\n"
+;
+
+static char* uuidHelp_text =
+"AtomicParsley help page for setting uuid user extension metadata tags.\n"
+"----------------------------------------------------------------------------------------------------\n"
+" Setting user-defined 'uuid' private extention tags (all will appear in \"moov.udta.meta\"). These\n"
+" tags will only be read by AtomicParsley. uuid tags can be set irrespective of file branding.\n"
+"\n"
+"  --information      ,  -i   (str)    Set an information tag on \"moov.udta.meta.uuid=\302©inf\"\n"
+"  --url              ,  -u   (URL)    Set a URL tag on \"moov.udta.meta.uuid=\302©url\"\n"
+"  --tagtime          ,  -Z            Set the Coordinated Univeral Time of tagging on \"uuid=tdtg\"\n"
+"\n"
+"  --meta-uuid        ,  -z   (args)   Define & set your own uuid=atom with text data:\n"
+"                                        format is 4char_atom_name, 1 or \"text\" & the string to set\n"
+"Example: \n"
+"  --meta-uuid \"tagr\" 1 'Johnny Appleseed' --meta-uuid \"\302\251sft\" 1 'OpenShiiva encoded.' \n"
+"------------------------------------------------------------------------------------------------\n"
+;
 
 void ExtractPaddingPrefs(char* env_padding_prefs) {
 	pad_prefs.default_padding_size = DEFAULT_PADDING_LENGTH;
@@ -543,6 +599,9 @@ void find_optional_args(char *argv[], int start_optindargs, uint16_t &packed_lan
 				asUTF16 = true;
 			}			
 		}
+		if (memcmp(argv[optind+1], "--", 2) == 0) {
+			break; //we've hit another cli argument
+		}
 	}
 	return;
 }
@@ -590,7 +649,7 @@ int main( int argc, char *argv[]) {
 			fprintf(stdout, "%s\n", shortHelp_text); exit(0);
 			
 		} else if ( (strncmp(argv[1],"--longhelp", 10) == 0) || (strncmp(argv[1],"-longhelp", 9) == 0) || (strncmp(argv[1],"-Lh", 3) == 0) ) {
-						if (UnicodeOutputStatus == WIN32_UTF16) {
+			if (UnicodeOutputStatus == WIN32_UTF16) { //convert the helptext to utf16 to preserve © characters
 				int help_len = strlen(longHelp_text)+1;
 				wchar_t* Lhelp_text = (wchar_t *)malloc(sizeof(wchar_t)*help_len);
 				wmemset(Lhelp_text, 0, help_len);
@@ -607,6 +666,15 @@ int main( int argc, char *argv[]) {
 		} else if ( (strncmp(argv[1],"--3gp-help", 10) == 0) || (strncmp(argv[1],"-3gp-help", 9) == 0) || (strncmp(argv[1],"--3gp-h", 7) == 0) ) {
 			fprintf(stdout, "%s\n", _3gpHelp_text); exit(0);
 			
+		} else if ( (strncmp(argv[1],"--ISO-help", 10) == 0) || (strncmp(argv[1],"--iso-help", 10) == 0) || (strncmp(argv[1],"-Ih", 3) == 0) ) {
+			fprintf(stdout, "%s\n", ISOHelp_text); exit(0);
+			
+		} else if ( (strncmp(argv[1],"--file-help", 11) == 0) || (strncmp(argv[1],"-file-help", 10) == 0) || (strncmp(argv[1],"-fh", 3) == 0) ) {
+			fprintf(stdout, "%s\n", fileLevelHelp_text); exit(0);
+			
+		} else if ( (strncmp(argv[1],"--uuid-help", 11) == 0) || (strncmp(argv[1],"-uuid-help", 10) == 0) || (strncmp(argv[1],"-uh", 3) == 0) ) {
+			fprintf(stdout, "%s\n", uuidHelp_text); exit(0);
+			
 		} else if ( memcmp(argv[1], "--genre-list", 12) == 0 ) {
 			ListGenresValues(); exit(0);
 			
@@ -615,7 +683,7 @@ int main( int argc, char *argv[]) {
 		}
 	}
 	
-	if ( argc == 3 && memcmp(argv[2], "--brands", 8) == 0 ) {
+	if ( argc == 3 && (memcmp(argv[2], "--brands", 8) == 0 || memcmp(argv[2], "-brands", 7) == 0) ) {
 			APar_ExtractBrands(argv[1]); exit(0);
 		}
 	
@@ -688,6 +756,8 @@ int main( int argc, char *argv[]) {
 		{ "output",           required_argument,  NULL,						OPT_OutputFile },
 		{ "overWrite",        0,                  NULL,						OPT_OverWrite },
 		
+		{ "ISO-copyright",    required_argument,  NULL,						ISO_Copyright },
+		
 		{ "3gp-title",        required_argument,  NULL,           _3GP_Title },
 		{ "3gp-author",       required_argument,  NULL,           _3GP_Author },
 		{ "3gp-performer",    required_argument,  NULL,           _3GP_Performer },
@@ -708,7 +778,7 @@ int main( int argc, char *argv[]) {
 	int c = -1;
 	int option_index = 0; 
 	
-	c = getopt_long(argc, argv, "hTtEe:a:b:c:d:f:g:i:k:l:n:o:pq::u:w:y:z:A:B:C:D:F:G:H:I:J:K:L:MN:QR:S:U:WXV:ZP 0xAB: 0xAC: 0xAD: 0xAE: 0xAF: 0xB0: 0xB1: 0xB2: 0xB3: 0xB4: 0xB5: 0xB6:", long_options, &option_index);
+	c = getopt_long(argc, argv, "hTtEe:a:b:c:d:f:g:i:k:l:n:o:pq::u:w:y:z:A:B:C:D:F:G:H:I:J:K:L:MN:QR:S:U:WXV:ZP 0xAA: 0xAB: 0xAC: 0xAD: 0xAE: 0xAF: 0xB0: 0xB1: 0xB2: 0xB3: 0xB4: 0xB5: 0xB6:", long_options, &option_index);
 	
 	if (c == -1) {
 		if (argc < 3 && argc > 2) {
@@ -758,7 +828,9 @@ int main( int argc, char *argv[]) {
 				if (memcmp(argv[optind], "+", 1) == 0) {
 					APar_PrintDataAtoms(m4afile, false, NULL, PRINT_FREE_SPACE + PRINT_PADDING_SPACE + PRINT_USER_DATA_SPACE + PRINT_MEDIA_SPACE );
 				} else {
-					fprintf(stdout, "  3GPP assets:\n");
+					fprintf(stdout, "---------------------------\n  Track level ISO user data:\n");
+					APar_print_ISO_UserData_per_track();
+					fprintf(stdout, "---------------------------\n  3GPP assets/ISO user data:\n");
 					APar_PrintUserDataAssests();
 					fprintf(stdout, "---------------------------\n  iTunes-style metadata tags:\n");
 					APar_PrintDataAtoms(m4afile, false, NULL, PRINT_FREE_SPACE + PRINT_PADDING_SPACE + PRINT_USER_DATA_SPACE + PRINT_MEDIA_SPACE );
@@ -1664,6 +1736,39 @@ int main( int argc, char *argv[]) {
 				APar_Unified_atom_Put(location_3GP_atom, additional_notes, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), 0, 0);
 			}
 			break;	
+		}
+		
+		//ISO atom common to all files
+		case ISO_Copyright: {
+			APar_ScanAtoms(m4afile);
+			
+			uint8_t copyright_area = MOVIE_LEVEL_ATOM;
+			bool set_UTF16_text = false;
+			uint16_t packed_lang = 0;
+			uint8_t selected_tracks = 0;
+			find_optional_args(argv, optind, packed_lang, set_UTF16_text, 3);
+			
+			for (int i= 0; i <= 3; i++) { //3 possible arguments for this tag
+				if ( argv[optind + i] && optind + i <= total_args) {
+					if ( memcmp(argv[optind + i], "movie", 6) == 0 ) {
+						copyright_area = MOVIE_LEVEL_ATOM;					}
+					if ( memcmp(argv[optind + i], "track=", 6) == 0 ) {
+						char* trak_idx = argv[optind + i];
+						strsep(&trak_idx, "=");
+						sscanf(trak_idx, "%hhu", &selected_tracks);
+						copyright_area = SINGLE_TRACK_ATOM;	
+					} else if ( memcmp(argv[optind + i], "track", 6) == 0 ) {
+						copyright_area = ALL_TRACKS_ATOM;	
+					}
+				}
+				if (memcmp(argv[optind+1], "--", 2) == 0) {
+					break; //we've hit another cli argument
+				}
+			}
+			
+			APar_ISO_UserData_Set("cprt", optarg, copyright_area, selected_tracks, packed_lang, set_UTF16_text);
+
+			break;
 		}
 		
 		//utility functions

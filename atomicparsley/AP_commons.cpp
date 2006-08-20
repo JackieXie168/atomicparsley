@@ -358,6 +358,10 @@ bool APar_assert(bool expression, int error_msg, char* supplemental_info) {
 				fprintf(stdout, "Major brand of given file: %s\n", supplemental_info);
 				break;
 			}
+			case 5 : { //trying to set metadata on track 33 when there are only 3 tracks
+				fprintf(stdout, "AP warning: skipping non-existing track number setting iso atom: %s.\n", supplemental_info);
+				break;
+			}
 		}
 	}
 	return force_break;
