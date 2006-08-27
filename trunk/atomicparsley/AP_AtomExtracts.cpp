@@ -590,13 +590,16 @@ void APar_ExtractTrackDetails(char* uint32_buffer, FILE* isofile, Trackage* trac
 	}
 	
 	//Encoder string; occasionally, it appears under stsd for a video track; it is typcally preceded by ' ²' (1st char is unprintable) or 0x01B2
+	if (track_info->contains_esds) {
 	APar_TrackLevelInfo(track, "esds");
+	
 	_offset = APar_FindValueInAtom(uint32_buffer, isofile, track->track_atom, 24, 0x01B2);
 	
 	if (_offset > 0 && _offset < parsedAtoms[track->track_atom].AtomicLength) {
 		_offset +=2;
 		memset(track_info->encoder_name, 0, parsedAtoms[track->track_atom].AtomicLength - _offset);
 		APar_readX(track_info->encoder_name, isofile, parsedAtoms[track->track_atom].AtomicStart + _offset, parsedAtoms[track->track_atom].AtomicLength - _offset);
+	}
 	}
 	return;
 }
@@ -671,6 +674,10 @@ void APar_ExtractDetails(FILE* isofile, uint8_t optional_output) {
 				//tracknum, handler type, handler name
 				APar_ExtractTrackDetails(uint32_buffer, isofile, &track, &track_info);
 				uint16_t more_whitespace = purge_extraneous_characters(track_info.track_hdlr_name);
+				
+				if (strlen(track_info.track_hdlr_name) == 0) {
+					memcpy(track_info.track_hdlr_name, "[none listed]", 13);
+				}
 				fprintf(stdout, "%u    %s  %s", track.track_num,  uint32tochar4(track_info.track_type, uint32_buffer), track_info.track_hdlr_name);
 				
 				uint16_t handler_len = strlen(track_info.track_hdlr_name);

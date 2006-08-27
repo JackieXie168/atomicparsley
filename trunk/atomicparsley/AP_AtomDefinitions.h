@@ -201,6 +201,7 @@ atomDefinition KnownAtoms[] = {
 	{"sevc",	{"stsd"},						DUAL_STATE_ATOM,	REQ_FAMILIAL_ONE,			VERSIONED_ATOM },
 	{"sqcp",	{"stsd"},						DUAL_STATE_ATOM,	REQ_FAMILIAL_ONE,			VERSIONED_ATOM },
 	{"ssmv",	{"stsd"},						DUAL_STATE_ATOM,	REQ_FAMILIAL_ONE,			VERSIONED_ATOM },
+	{"tmcd",	{"stsd"},						DUAL_STATE_ATOM,	REQ_FAMILIAL_ONE,			VERSIONED_ATOM },
 
 	{"alac",	{"alac"},						CHILD_ATOM,				REQUIRED_ONE,					SIMPLE_ATOM },
 	{"avcC",	{"avc1", "drmi"},		CHILD_ATOM,				REQUIRED_ONE,					SIMPLE_ATOM },
