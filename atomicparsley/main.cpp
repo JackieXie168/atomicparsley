@@ -42,6 +42,7 @@
 #include "AP_AtomExtracts.h"
 #include "AP_iconv.h"                 /* for xmlInitEndianDetection used in endian utf16 conversion */
 #include "AtomicParsley_genres.h"     //for stik comparison function
+#include "APar_uuid.h"
 
 // define one-letter cli options for
 #define OPT_HELP                 'h'
@@ -289,23 +290,26 @@ static char* longHelp_text =
 "                                       (use \"timestamp\" to set UTC to now; can be akin to id3v2 TDTG tag)\n"
 "  --encodingTool     ,       (str)    Set the name of the encoder on the \"\302©too\" atom\n"
 "\n"
+"NOTE: Except for artwork, only 1 of each tag is allowed; artwork allows multiple pieces.\n"
+"NOTE: Tags that carry text(str) have a limit of 255 utf8 characters; lyrics have no limit.\n"
 "------------------------------------------------------------------------------------------------\n"
 " To delete a single atom, set the tag to null (except artwork):\n"
 "  --artist \"\" --lyrics \"\"\n"
 "  --artwork REMOVE_ALL \n"
-"  --manualAtomRemove \"some.atom.path\" where some.atom.path can be:\n"
-"                             \"moov.udta.ATOM\" for an child or parent atom in 'udta' (but not 3gp assets)\n"
-"                             \"moov.udta.ATOM:lang=eng\" for a 3gp asset of a specific language\n"
-"                             \"moov.udta.meta.ilst.ATOM\" or\n"
-"                             \"moov.udta.meta.ilst.ATOM.data\" for iTunes-style metadata\n"
-"                             \"moov.udta.meta.ilst.----.name:[foo]\" for reverse dns metadata\n"
-"                                    Note: these atoms show up with 'AP -t' as: Atom \"----\" [foo]\n"
-"                                          'foo' is actually carried on the 'name' atom\n"
 "  --metaEnema        ,  -P            Douches away every atom under \"moov.udta.meta.ilst\" \n"
 "  --foobar2000Enema  ,  -2            Eliminates foobar2000's non-compliant so-out-o-spec tagging scheme\n"
-"------------------------------------------------------------------------------------------------\n"
-"NOTE: Except for artwork, only 1 of each tag is allowed; artwork allows multiple pieces.\n"
-"NOTE: Tags that carry text have a limit of 255 utf8 characters; lyrics have no limit.\n"
+"  --manualAtomRemove \"some.atom.path\" where some.atom.path can be:\n"
+"      keys to using manualAtomRemove:\n"
+"         ilst.ATOM.data or ilst.ATOM target an iTunes-style metadata tag\n"
+"         ATOM:lang=foo               target an atom with this language setting; like 3gp assets\n"
+"         ATOM.----.name:[foo]        target a reverseDNS metadata tag; like iTunNORM\n"
+"                                     Note: these atoms show up with 'AP -t' as: Atom \"----\" [foo]\n"
+"                                         'foo' is actually carried on the 'name' atom\n"
+"         ATOM[x]                     target an atom with an index other than 1; like trak[2]\n"
+"         ATOM.uuid=hex-hex-hex-hex   targt a uuid atom with the uuid of hex string representation\n"
+"    examples:\n"
+"        moov.udta.meta.ilst.----.name:[iTunNORM]      moov.trak[3].cprt:lang=urd\n"
+"        moov.trak[2].uuid=55534d54-21d2-4fce-bb88-695cfac9c740\n"
 "------------------------------------------------------------------------------------------------\n"
 
 #if defined (DARWIN_PLATFORM)
@@ -528,17 +532,32 @@ static char* ISOHelp_text =
 static char* uuidHelp_text =
 "AtomicParsley help page for setting uuid user extension metadata tags.\n"
 "----------------------------------------------------------------------------------------------------\n"
-" Setting user-defined 'uuid' private extention tags (all will appear in \"moov.udta.meta\"). These\n"
-" tags will only be read by AtomicParsley. uuid tags can be set irrespective of file branding.\n"
+" Setting a user-defined 'uuid' private extention tags will appear in \"moov.udta.meta\"). These will\n"
+" only be read by AtomicParsley & can be set irrespective of file branding. The form of uuid that AP\n"
+" is a version 5 uuid generated from a sha1 hash of the atom name in a AP.sf.net namespace.\n"
 "\n"
-"  --information      ,  -i   (str)    Set an information tag on \"moov.udta.meta.uuid=\302©inf\"\n"
-"  --url              ,  -u   (URL)    Set a URL tag on \"moov.udta.meta.uuid=\302©url\"\n"
-"  --tagtime          ,  -Z            Set the Coordinated Univeral Time of tagging on \"uuid=tdtg\"\n"
+" The uuid form is used by some Sony files, but of version 4 (random/pseudo-random). An example uuid\n"
+" of 'cprt' in the 'AtomicParsley.sf.net' namespace is: \"4bd39a57-e2c8-5655-a4fb-7a19620ef151\".\n"
+" 'cprt' in the same namespace will always create that uuid; uuid atoms will only print out if the\n"
+" uuid generated is the same as discovered. Sony uuids don't for example show up with AP -t.\n"
 "\n"
-"  --meta-uuid        ,  -z   (args)   Define & set your own uuid=atom with text data:\n"
+"  --information      ,  -i   (str)    Set an information tag on uuid atom name\"©inf\"\n"
+"  --url              ,  -u   (URL)    Set a URL tag on uuid atom name \"\302©url\"\n"
+"  --tagtime          ,  -Z  timestamp Set the Coordinated Univeral Time of tagging on \"tdtg\"\n"
+"\n"
+"  --meta-uuid        ,  -z   (atom) (1) (str)   Define & set your own uuid atom with text data:\n"
 "                                        format is 4char_atom_name, 1 or \"text\" & the string to set\n"
-"Example: \n"
-"  --meta-uuid \"tagr\" 1 'Johnny Appleseed' --meta-uuid \"\302\251sft\" 1 'OpenShiiva encoded.' \n"
+"Examples: \n"
+"  --tagtime timestamp --information \"[psst]I see metadata\" --url http://www.bumperdumper.com\n"
+"  --meta-uuid tagr 1 \"Johnny Appleseed\" --meta-uuid \302\251sft 1 \"OpenShiiva encoded.\" \n"
+"can be removed with:\n"
+"  --tagtime \"\" --information \"\"  --url \" \"\n"
+"  --manualAtomRemove \"moov.udta.meta.uuid=672c98cd-f11f-51fd-adec-b0ee7b4d215f\" \\\n"
+"  --manualAtomRemove \"moov.udta.meta.uuid=1fed6656-d911-5385-9cb2-cb2c100f06e7\"\n"
+"Remove the Sony uuid atoms with:\n"
+"  --manualAtomRemove moov.trak[1].uuid=55534d54-21d2-4fce-bb88-695cfac9c740 \\\n"
+"  --manualAtomRemove moov.trak[2].uuid=55534d54-21d2-4fce-bb88-695cfac9c740 \\\n"
+"  --manualAtomRemove uuid=50524f46-21d2-4fce-bb88-695cfac9c740\n"
 "------------------------------------------------------------------------------------------------\n"
 ;
 
@@ -741,7 +760,7 @@ int main( int argc, char *argv[]) {
 		{ "purchaseDate",     required_argument,  NULL,           Meta_PurchaseDate },
 		{ "encodingTool",     required_argument,  NULL,           Meta_EncodingTool },
 		
-		{ "tagtime",          0,                  NULL,						Meta_StandardDate },
+		{ "tagtime",          optional_argument,  NULL,						Meta_StandardDate },
 		{ "information",      required_argument,  NULL,           Meta_Information },
 		{ "url",              required_argument,  NULL,           Meta_URL },
 		{ "meta-uuid",        required_argument,  NULL,           Meta_uuid },
@@ -1332,9 +1351,12 @@ int main( int argc, char *argv[]) {
 		case Meta_StandardDate : {
 			APar_ScanAtoms(m4afile);
 			char* formed_time = (char *)malloc(sizeof(char)*110);
-			APar_StandardTime(formed_time);
-			//APar_Add_uuid_atom(m4afile, "moov.udta.meta.ilst.uuid=%s", "tdtg", AtomFlags_Data_Text, formed_time, false); //filed apple bug report
-			//APar_Add_uuid_atom(m4afile, "moov.udta.meta.uuid=%s", "tdtg", AtomFlags_Data_Text, formed_time, false);
+			if (argv[optind]) {
+				if (strlen(argv[optind]) > 0) {
+					APar_StandardTime(formed_time);
+				}
+			}
+			
 			short tdtgUUID = APar_uuid_atom_Init("moov.udta.meta.uuid=%s", "tdtg", AtomFlags_Data_Text, formed_time, false);
 			APar_Unified_atom_Put(tdtgUUID, formed_time, UTF8_iTunesStyle_Unlimited, 0, 0);
 			free(formed_time);
@@ -1384,6 +1406,19 @@ int main( int argc, char *argv[]) {
 			UTF8Toisolat1((unsigned char*)compliant_name, strlen(optarg), (unsigned char*)optarg, strlen(optarg) );
 			
 			if (strstr(optarg, "uuid=") != NULL) {
+				uint16_t uuid_path_pos = 0;
+				uint16_t uuid_path_len = strlen(optarg);
+				while (compliant_name+uuid_path_pos < compliant_name+uuid_path_len) {
+					if (memcmp(compliant_name+uuid_path_pos, "uuid=", 5) == 0) {
+						uuid_path_pos+=5;
+						break;
+					}
+					uuid_path_pos++;
+				}
+				if (strlen(compliant_name+uuid_path_pos) > 4) { //if =4 then it would be the deprecated form (or it should be, if not it just won't find anything; no harm done)
+					uint8_t uuid_len = APar_uuid_scanf(compliant_name+uuid_path_pos, optarg+uuid_path_pos);
+					compliant_name[uuid_path_pos+uuid_len] = 0;
+				}
 				APar_RemoveAtom(compliant_name, EXTENDED_ATOM, 0);
 				
 			} else if (memcmp(compliant_name + (strlen(compliant_name) - 4), "data", 4) == 0) {

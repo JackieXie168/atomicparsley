@@ -18,7 +18,7 @@ mkdir -p obj_files/386
 OS=`uname -s | cut -d '_' -f1`
 
 if (test $OS = Darwin) || (test $OS = Linux) ; then
-  EXTRA_CPP_FLAGS="-DUSE_ICONV_CONVERSION -DDARWIN_PLATFORM"
+  EXTRA_CPP_FLAGS="-DUTF8_ENABLED -DDARWIN_PLATFORM"
 fi
 
 echo "Building Universal Binary"
@@ -74,6 +74,20 @@ g++ -arch i386 -g -O2 -Wall $EXTRA_CPP_FLAGS -MT obj_files/386/AP_AtomExtracts.o
 g++ -arch ppc -g -O2 -Wall $EXTRA_CPP_FLAGS -MT obj_files/ppc/AP_AtomExtracts.o -MD -MP -MF "./obj_files/ppc/AP_AtomExtracts.Tpo" -c -o obj_files/ppc/AP_AtomExtracts.o AP_AtomExtracts.cpp
 
 #--------------------------------#
+echo "Compiling APar_sha1.cpp ..."
+
+g++ -arch i386 -g -O2 -Wall $EXTRA_CPP_FLAGS -MT obj_files/386/APar_sha1.o -MD -MP -MF "./obj_files/386/APar_sha1.Tpo" -c -o obj_files/386/APar_sha1.o APar_sha1.cpp
+
+g++ -arch ppc -g -O2 -Wall $EXTRA_CPP_FLAGS -MT obj_files/ppc/APar_sha1.o -MD -MP -MF "./obj_files/ppc/APar_sha1.Tpo" -c -o obj_files/ppc/APar_sha1.o APar_sha1.cpp
+
+#--------------------------------#
+echo "Compiling APar_uuid.cpp ..."
+
+g++ -arch i386 -g -O2 -Wall $EXTRA_CPP_FLAGS -MT obj_files/386/APar_uuid.o -MD -MP -MF "./obj_files/386/APar_uuid.Tpo" -c -o obj_files/386/APar_uuid.o APar_uuid.cpp
+
+g++ -arch ppc -g -O2 -Wall $EXTRA_CPP_FLAGS -MT obj_files/ppc/APar_uuid.o -MD -MP -MF "./obj_files/ppc/APar_uuid.Tpo" -c -o obj_files/ppc/APar_uuid.o APar_uuid.cpp
+
+#--------------------------------#
 echo "Compiling main.cpp ..."
 
 g++ -arch i386 -g -O2 -Wall $EXTRA_CPP_FLAGS -I../AtomicParsley -MT obj_files/386/main.o -MD -MP -MF "./obj_files/386/main.Tpo" -c -o obj_files/386/main.o main.cpp
@@ -92,9 +106,9 @@ echo "Linking AtomicParsley..."
 #       need to be moved onto the '-arch ppc' line to create the binary       #
 ###############################################################################
 
-g++ -arch i386 -g -O2 -Wall -framework Cocoa -isysroot /Developer/SDKs/MacOSX10.4u.sdk -o AtomicParsley_386 obj_files/386/AP_commons.o obj_files/386/AtomicParsley_genres.o obj_files/386/AP_iconv.o obj_files/386/AP_NSFile_utils.o obj_files/386/AP_NSImage.o obj_files/386/AP_AtomExtracts.o obj_files/386/AtomicParsley.o obj_files/386/main.o
+g++ -arch i386 -g -O2 -Wall -framework Cocoa -isysroot /Developer/SDKs/MacOSX10.4u.sdk -o AtomicParsley_386 obj_files/386/APar_sha1.o obj_files/386/APar_uuid.o obj_files/386/AP_commons.o obj_files/386/AtomicParsley_genres.o obj_files/386/AP_iconv.o obj_files/386/AP_NSFile_utils.o obj_files/386/AP_NSImage.o obj_files/386/AP_AtomExtracts.o obj_files/386/AtomicParsley.o obj_files/386/main.o
 
-g++ -arch ppc -g -O2 -Wall -framework Cocoa -o AtomicParsley_ppc obj_files/ppc/AP_commons.o obj_files/ppc/AtomicParsley_genres.o obj_files/ppc/AP_iconv.o obj_files/ppc/AP_NSFile_utils.o obj_files/ppc/AP_NSImage.o obj_files/ppc/AP_AtomExtracts.o obj_files/ppc/AtomicParsley.o obj_files/ppc/main.o
+g++ -arch ppc -g -O2 -Wall -framework Cocoa -o AtomicParsley_ppc obj_files/ppc/APar_sha1.o obj_files/ppc/APar_uuid.o obj_files/ppc/AP_commons.o obj_files/ppc/AtomicParsley_genres.o obj_files/ppc/AP_iconv.o obj_files/ppc/AP_NSFile_utils.o obj_files/ppc/AP_NSImage.o obj_files/ppc/AP_AtomExtracts.o obj_files/ppc/AtomicParsley.o obj_files/ppc/main.o
 
 
 #---------------------------------------------#
