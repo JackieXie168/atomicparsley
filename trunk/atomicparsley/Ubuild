@@ -117,8 +117,8 @@ g++ -arch ppc -g -O2 -Wall -framework Cocoa -o AtomicParsley_ppc obj_files/ppc/A
 
 echo "Stripping & lipo joining for multiple architectures..."
 
-strip -x AtomicParsley_ppc
-strip -x AtomicParsley_386
+strip AtomicParsley_ppc
+strip AtomicParsley_386
 
 lipo -arch ppc AtomicParsley_ppc -arch i386 AtomicParsley_386 -create -output AtomicParsley
 

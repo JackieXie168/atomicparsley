@@ -102,5 +102,5 @@ fi
 #---------------------------------------------#
 
 if test $OS = Darwin ; then
- strip -x AtomicParsley
+ strip AtomicParsley
 fi
