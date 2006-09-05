@@ -43,7 +43,6 @@ atomDefinition KnownAtoms[] = {
 
 	{"free",	{"_ANY_LEVEL"},			CHILD_ATOM,				OPTIONAL_MANY,				SIMPLE_ATOM },
 	{"skip",	{"_ANY_LEVEL"},			CHILD_ATOM,				OPTIONAL_MANY,				SIMPLE_ATOM },
-	{"wide",	{"FILE_LEVEL"},			CHILD_ATOM,				UKNOWN_REQUIREMENTS,	SIMPLE_ATOM },
 
 	{"uuid",	{"_ANY_LEVEL"},			CHILD_ATOM,				REQUIRED_ONCE,				EXTENDED_ATOM },			
 

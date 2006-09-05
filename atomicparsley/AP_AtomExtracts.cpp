@@ -28,6 +28,9 @@
 #include "AtomicParsley.h"
 #include "AP_AtomExtracts.h"
 
+MovieInfo movie_info = {0};
+iods_OD iods_info = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+
 ///////////////////////////////////////////////////////////////////////////////////////
 //                             File reading routines                                 //
 ///////////////////////////////////////////////////////////////////////////////////////
@@ -46,7 +49,7 @@ uint8_t APar_skip_filler(FILE* isofile, uint32_t start_position) {
 	while (true) {
 		uint8_t eval_byte = APar_read8(isofile, start_position + skip_bytes);
 		
-		if (eval_byte == 0x80 || eval_byte == 0xFE) {
+		if (eval_byte == 0x80 || eval_byte == 0x81 || eval_byte == 0xFE) { //seems sometimes QT writes 0x81
 			skip_bytes++;
 		} else {
 			break;
@@ -93,6 +96,17 @@ uint16_t purge_extraneous_characters(char* data) {
 	return purgings;
 }
 
+void mem_append(char* add_string, char* dest_string) {
+	uint8_t str_len = strlen(dest_string);
+	if (str_len > 0) {
+		memcpy(dest_string+str_len, ", ", 2);
+		memcpy(dest_string+str_len+2, add_string, strlen(add_string) );
+	} else {
+		memcpy(dest_string, add_string, strlen(add_string) );
+	}
+	return;
+}
+
 /*----------------------
 ExtractUTC
   total_secs - the time in seconds (from Jan 1, 1904)
@@ -114,24 +128,61 @@ char* ExtractUTC(uint32_t total_secs) {
 
 /*----------------------
 secsTOtime
-  seconds - duratin in seconds as a floating point number
+  seconds - duration in seconds as a floating point number
 
-    Convert decimal seconds to hh:mm:ss.milliseconds
+    Convert decimal seconds to hh:mm:ss.milliseconds. Take the whole seconds and manually separate out the hours, minutes and remaining seconds. For the milliseconds,
+		sprintf into a separate string because there doesn't seem to be a way to print without the leading zero; so copy form that string the digits we want then.
 ----------------------*/
 char* secsTOtime(double seconds) {
-	uint32_t total_secs = lroundf(seconds);
-	uint32_t milliseconds = 1000 * (seconds - (double)total_secs);
+	ap_time time_duration = {0};
+	uint32_t whole_secs = (uint32_t)(seconds / 1);
+	
+	time_duration.rem_millisecs = seconds - (double)whole_secs;
+	time_duration.hours = whole_secs / 3600;
+	whole_secs -= time_duration.hours * 3600;
+	time_duration.minutes = whole_secs / 60;
+	whole_secs -= time_duration.minutes * 60;
+	time_duration.seconds = whole_secs;
+	
 	static char hhmmss_time[20];
 	memset(hhmmss_time, 0, 20);
+	char milli[5];
+	memset(milli, 0, 5);
 	
-	if (total_secs < 60) {
-		strftime(*&hhmmss_time, 20 , "0:%S", gmtime((time_t*)&total_secs));
-	} else if (total_secs < 3600) {
-		strftime(*&hhmmss_time, 20 , "%M:%S", gmtime((time_t*)&total_secs));
-	} else {
-		strftime(*&hhmmss_time, 20 , "%k:%M:%S", gmtime((time_t*)&total_secs));
+	uint8_t time_offset = 0;
+	if (time_duration.hours > 0) {
+		if (time_duration.hours < 10) {
+			sprintf(hhmmss_time, "0%u:", time_duration.hours);
+		} else {
+			sprintf(hhmmss_time, "%u:", time_duration.hours);
+		}
+		time_offset+=3;
 	}
-	sprintf(*&hhmmss_time + strlen(hhmmss_time), ".%u", milliseconds);
+	if (time_duration.minutes > 0) {
+		if (time_duration.minutes < 10) {
+			sprintf(hhmmss_time+time_offset, "0%u:", time_duration.minutes);
+		} else {
+			sprintf(hhmmss_time+time_offset, "%u:", time_duration.minutes);
+		}
+		time_offset+=3;
+	} else {
+		memcpy(hhmmss_time+time_offset, "0:", 2);
+		time_offset+=2;
+	}
+	if (time_duration.seconds > 0) {
+		if (time_duration.seconds < 10) {
+			sprintf(hhmmss_time+time_offset, "0%u", time_duration.seconds);
+		} else {
+			sprintf(hhmmss_time+time_offset, "%u", time_duration.seconds);
+		}
+		time_offset+=2;
+	} else {
+		memcpy(hhmmss_time+time_offset, "0.", 2);
+		time_offset+=1;
+	}
+	
+	sprintf(milli, "%.2lf", time_duration.rem_millisecs); //sprintf the double float into a new string because I don't know if there is a way to print without a leading zero
+	memcpy(hhmmss_time+time_offset, milli+1, 3);
 	
 	return *&hhmmss_time;
 }
@@ -141,33 +192,373 @@ char* secsTOtime(double seconds) {
 ///////////////////////////////////////////////////////////////////////////////////////
 
 /*----------------------
-APar_ShowVideoProfileInfo
-  video_track_type - a (forced) variable used to determine which video profile to show ('mp4v' or 'avc1')
+APar_ShowMPEG4VisualProfileInfo
 	track_info - a pointer to the struct holding all the information gathered as a single 'trak' atom was traversed
 
-    Many of the mp4v profiles aren't listed - only the most commong is. Everything else will get "unenumerated". The avc1 profiles (& levels) are fully listed.
+    If a movie-level iods (containing profiles on a movie-level basis), prefer that mechanism for choosing which profile, otherwise fall back to 'esds' profiles.
+		Much of this was garnered from ISO 14496-2:2001 - up to 'Simple Studio'.
 ----------------------*/
-void APar_ShowVideoProfileInfo(uint8_t video_track_type, TrackInfo* track_info) {
-	if (video_track_type == MP4V_TRACK) {
-		switch (track_info->m4v_profile) {
-			case 3: {
-				fprintf(stdout, "  MPEG-4 Visual Simple Profile, Level 3");
+void APar_ShowMPEG4VisualProfileInfo(TrackInfo* track_info) {
+	fprintf(stdout, "  MPEG-4 Visual ");
+	uint8_t mp4v_profile = 0;
+	if (movie_info.contains_iods) {
+		mp4v_profile = iods_info.video_profile_level;
+	} else {
+		mp4v_profile = track_info->m4v_profile;
+	}
+	
+	//unparalleled joy - Annex G table g1 - a binary listing (this from 14496-2:2001)
+	if (mp4v_profile == 0x01) {
+		fprintf(stdout, "Simple Profile, Level 1"); //00000001
+	} else if (mp4v_profile == 0x02) {
+		fprintf(stdout, "Simple Profile, Level 2"); //00000010
+	} else if (mp4v_profile == 0x03) {
+		fprintf(stdout, "Simple Profile, Level 3");     //most files will land here  //00000011
+	
+	//Reserved 00000100 - 00010000
+	} else if (mp4v_profile == 0x11) {
+		fprintf(stdout, "Simple Scalable Profile, Level 1"); //00010001
+	} else if (mp4v_profile == 0x12) {
+		fprintf(stdout, "Simple Scalable Profile, Level 2"); //00010010
+		
+	//Reserved 00010011 - 00100000 
+	} else if (mp4v_profile == 0x21) {
+		fprintf(stdout, "Core Profile, Level 1"); //00100001
+	} else if (mp4v_profile == 0x22) {
+		fprintf(stdout, "Core Profile, Level 2"); //00100010
+	
+	//Reserved 00100011 - 00110001 
+	} else if (mp4v_profile == 0x32) {
+		fprintf(stdout, "Main Profile, Level 2"); //00110010
+	} else if (mp4v_profile == 0x33) {
+		fprintf(stdout, "Main Profile, Level 3"); //00110011
+	} else if (mp4v_profile == 0x34) {
+		fprintf(stdout, "Main Profile, Level 4"); //00110100
+		
+	//Reserved 00110101 - 01000001  
+	} else if (mp4v_profile == 0x42) {
+		fprintf(stdout, "N-bit Profile, Level 2"); //01000010
+		
+	//Reserved 01000011 - 01010000  
+	} else if (mp4v_profile == 0x51) {
+		fprintf(stdout, "Scalable Texture Profile, Level 1"); //01010001
+	
+	//Reserved 01010010 - 01100000 
+	} else if (mp4v_profile == 0x61) {
+		fprintf(stdout, "Simple Face Animation, Level 1"); //01100001
+	} else if (mp4v_profile == 0x62) {
+		fprintf(stdout, "Simple Face Animation, Level 2"); //01100010
+		
+	} else if (mp4v_profile == 0x63) {
+		fprintf(stdout, "Simple FBA Profile, Level 1"); //01100011
+	} else if (mp4v_profile == 0x64) {
+		fprintf(stdout, "Simple FBA Profile, Level 2"); //01100100
+		
+	//Reserved 01100101 - 01110000 
+	} else if (mp4v_profile == 0x71) {
+		fprintf(stdout, "Basic Animated Texture Profile, Level 1"); //01110001
+	} else if (mp4v_profile == 0x72) {
+		fprintf(stdout, "Basic Animated Texture Profile, Level 2"); //01110010
+		
+	//Reserved 01110011 - 10000000
+	} else if (mp4v_profile == 0x81) {
+		fprintf(stdout, "Hybrid Profile, Level 1"); //10000001
+	} else if (mp4v_profile == 0x82) {
+		fprintf(stdout, "Hybrid Profile, Level 2"); //10000010
+		
+	//Reserved 10000011 - 10010000 
+	} else if (mp4v_profile == 0x91) {
+		fprintf(stdout, "Advanced Real Time Simple Profile, Level 1"); //10010001
+	} else if (mp4v_profile == 0x92) {
+		fprintf(stdout, "Advanced Real Time Simple Profile, Level 2"); //10010010
+	} else if (mp4v_profile == 0x93) {
+		fprintf(stdout, "Advanced Real Time Simple Profile, Level 3"); //10010011
+	} else if (mp4v_profile == 0x94) {
+		fprintf(stdout, "Advanced Real Time Simple Profile, Level 4"); //10010100
+	
+	//Reserved 10010101 - 10100000
+	} else if (mp4v_profile == 0xA1) {
+		fprintf(stdout, "Core Scalable Profile, Level 1"); //10100001
+	} else if (mp4v_profile == 0xA2) {
+		fprintf(stdout, "Core Scalable Profile, Level 2"); //10100010
+	} else if (mp4v_profile == 0xA3) {
+		fprintf(stdout, "Core Scalable Profile, Level 3"); //10100011
+		
+	//Reserved 10100100 - 10110000 
+	} else if (mp4v_profile == 0xB1) {
+		fprintf(stdout, "Advanced Coding Efficiency Profile, Level 1"); //10110001
+	} else if (mp4v_profile == 0xB2) {
+		fprintf(stdout, "Advanced Coding Efficiency Profile, Level 2"); //10110010
+	} else if (mp4v_profile == 0xB3) {
+		fprintf(stdout, "Advanced Coding Efficiency Profile, Level 3"); //10110011
+	} else if (mp4v_profile == 0xB4) {
+		fprintf(stdout, "Advanced Coding Efficiency Profile, Level 4"); //10110100
+		
+	//Reserved 10110101 Ð 11000000 
+	} else if (mp4v_profile == 0xC1) {
+		fprintf(stdout, "Advanced Core Profile, Level 1"); //11000001
+	} else if (mp4v_profile == 0xC2) {
+		fprintf(stdout, "Advanced Core Profile, Level 2"); //11000010
+		
+	//Reserved 11000011 Ð 11010000
+	} else if (mp4v_profile == 0xD1) {
+		fprintf(stdout, "Advanced Scalable Texture, Level 1"); //11010001
+	} else if (mp4v_profile == 0xD2) {
+		fprintf(stdout, "Advanced Scalable Texture, Level 2"); //11010010
+	} else if (mp4v_profile == 0xD2) {
+		fprintf(stdout, "Advanced Scalable Texture, Level 3"); //11010011
+	
+	//from a draft document - 1999 (earlier than the 2000 above!!)
+	} else if (mp4v_profile == 0xE1) {
+		fprintf(stdout, "Simple Studio Profile, Level 1"); //11100001
+	} else if (mp4v_profile == 0xE2) {
+		fprintf(stdout, "Simple Studio Profile, Level 2"); //11100010
+	} else if (mp4v_profile == 0xE3) {
+		fprintf(stdout, "Simple Studio Profile, Level 3"); //11100011
+	} else if (mp4v_profile == 0xE4) {
+		fprintf(stdout, "Simple Studio Profile, Level 4"); //11100100
+		
+	} else if (mp4v_profile == 0xE5) {
+		fprintf(stdout, "Core Studio Profile, Level 1"); //11100101
+	} else if (mp4v_profile == 0xE6) {
+		fprintf(stdout, "Core Studio Profile, Level 2"); //11100110
+	} else if (mp4v_profile == 0xE7) {
+		fprintf(stdout, "Core Studio Profile, Level 3"); //11100111
+	} else if (mp4v_profile == 0xE8) {
+		fprintf(stdout, "Core Studio Profile, Level 4"); //11101000
+		
+	//Reserved 11101001 - 11110000
+	//somewhat of a confict with http://lists.mpegif.org/pipermail/mp4-tech/2003-July/002444.html
+	} else if (mp4v_profile == 0xF0) {
+		fprintf(stdout, "Advanced Simple Profile, Level 0"); //11110000
+	} else if (mp4v_profile == 0xF1) {
+		fprintf(stdout, "Advanced Simple Profile, Level 1"); //11110001
+	} else if (mp4v_profile == 0xF2) {
+		fprintf(stdout, "Advanced Simple Profile, Level 2"); //11110010  ////3gp files that QT says is H.263 have esds to 0xF2 & their ObjectType set to 0x20 (mpeg-4 visual)
+		                                                                 ////...and its been figured out - FILE EXTENSION of all things determines mpeg-4 ASP or H.263
+	} else if (mp4v_profile == 0xF3) {
+		fprintf(stdout, "Advanced Simple Profile, Level 3"); //11110011
+	} else if (mp4v_profile == 0xF4) {
+		fprintf(stdout, "Advanced Simple Profile, Level 4"); //11110100
+	} else if (mp4v_profile == 0xF5) {
+		fprintf(stdout, "Advanced Simple Profile, Level 5"); //11110101
+	} else if (mp4v_profile == 0xF7) {
+		fprintf(stdout, "Advanced Simple Profile, Level 3b"); //11110111
+		
+	//which means that there is an overlap @ 11110111; so FineGranularity will just be excluded for now
+/*
+Fine Granularity Scalable Profile/Level 0
+11110110
+Fine Granularity Scalable Profile/Level 1
+11110111
+Fine Granularity Scalable Profile/Level 2
+11111000
+Fine Granularity Scalable Profile/Level 3
+11111001
+Fine Granularity Scalable Profile/Level 4
+11111010
+Reserved
+11111011 11111110
+Reserved for Escape
+11111111
+*/
+	} else {
+		fprintf(stdout, "Unknown profile: 0x%X", mp4v_profile);
+	}
+	return;
+}
+
+/*----------------------
+APar_ShowMPEG4AACProfileInfo
+	track_info - a pointer to the struct holding all the information gathered as a single 'trak' atom was traversed
+
+    All (or whatever was in 14496-2-1988) MPEG-4 Audio (0x40, aka 14496-3) are listed; so is mp3 inside the mp4 container, otherwise generic printout. If an
+		'esds' atom was found, then if its section 5 length is known, then 'esds' was carrying channel info (in which case, channels was listed twice, so prefer this
+		listing); otherwise fall back to 'mp4a' carrying channel info (indicated by the parens() around it).
+----------------------*/
+void APar_ShowMPEG4AACProfileInfo(TrackInfo* track_info) {
+	if (track_info->descriptor_object_typeID == 1) {
+		fprintf(stdout, "  MPEG-4 AAC Main Profile");
+	} else if (track_info->descriptor_object_typeID == 2) {
+		fprintf(stdout, "  MPEG-4 AAC Low Complexity Profile");     //most files will land here
+	} else if (track_info->descriptor_object_typeID == 3) {
+		fprintf(stdout, "  MPEG-4 AAC Scaleable Sample Rate Profile");
+	} else if (track_info->descriptor_object_typeID == 4) {
+		fprintf(stdout, "  MPEG-4 AAC T/F Profile");
+	} else if (track_info->descriptor_object_typeID == 5) {
+		fprintf(stdout, "  MPEG-4 AAC T/F Main Profile");
+	} else if (track_info->descriptor_object_typeID == 6) {
+		fprintf(stdout, "  MPEG-4 AAC T/F LC Profile");
+	} else if (track_info->descriptor_object_typeID == 7) {
+		fprintf(stdout, "  MPEG-4 AAC TwinVQ Profile");
+	} else if (track_info->descriptor_object_typeID == 8) {
+		fprintf(stdout, "  MPEG-4 AAC CELP Profile");
+	} else if (track_info->descriptor_object_typeID == 9) {
+		fprintf(stdout, "  MPEG-4 AAC HVXC Profile");
+	} else if (track_info->descriptor_object_typeID == 10) {
+		fprintf(stdout, "  MPEG-4 AAC HILN Profile");
+	} else if (track_info->descriptor_object_typeID == 11) {
+		fprintf(stdout, "  MPEG-4 AAC TTSI Profile");
+	} else if (track_info->descriptor_object_typeID == 12) {
+		fprintf(stdout, "  MPEG-4 AAC Main Synthesis Profile");
+	} else if (track_info->descriptor_object_typeID == 13) {
+		fprintf(stdout, "  MPEG-4 AAC Wavetable Synthesis Profile");
+	}
+	return;
+}
+
+/*----------------------
+APar_ShowObjectProfileInfo
+  track_type - broadly used to determine what types of information (like channels or avc1 profiles) to display
+	track_info - a pointer to the struct holding all the information gathered as a single 'trak' atom was traversed
+
+    Based on the ObjectTypeIndication in 'esds', show the type of track. For mpeg-4 audio & mpeg-4 visual are handled in a subroutine because there are so many
+		enumerations. avc1 contains 'avcC' which supports a different mechanism.
+----------------------*/
+void APar_ShowObjectProfileInfo(uint8_t track_type, TrackInfo* track_info) {
+	if (track_info->contains_esds) {
+		switch (track_info->ObjectTypeIndication) {
+			//0x00 es Lambada/Verboten/Forbidden
+			case 0x01:
+			case 0x02: {
+				fprintf(stdout, "  MPEG-4 Systems (BIFS/ObjDesc)");
 				break;
 			}
+			case 0x03: {
+				fprintf(stdout, "  Interaction Stream");
+				break;
+			}
+			case 0x04: {
+				fprintf(stdout, "  MPEG-4 Systems Extended BIFS");
+				break;
+			}
+			case 0x05: {
+				fprintf(stdout, "  MPEG-4 Systems AFX");
+				break;
+			}
+			case 0x06: {
+				fprintf(stdout, "  Font Data Stream");
+				break;
+			}
+			case 0x08: {
+				fprintf(stdout, "  Synthesized Texture Stream");
+				break;
+			}
+			case 0x07: {
+				fprintf(stdout, "  Streaming Text Stream");
+				break;
+			}
+			//0x09-0x1F reserved
+			case 0x20: {
+				APar_ShowMPEG4VisualProfileInfo(track_info);
+				break;
+			}
+			
+			case 0x40: { //vererable mpeg-4 aac
+				APar_ShowMPEG4AACProfileInfo(track_info);
+				break;
+			}
+			
+			//0x41-0x5F reserved
+			case 0x60: {
+				fprintf(stdout, "  MPEG-2 Visual Simple Profile"); //'Visual ISO/IEC 13818-2 Simple Profile'
+				break;
+			}
+			case 0x61: {
+				fprintf(stdout, "  MPEG-2 Visual Main Profile"); //'Visual ISO/IEC 13818-2 Main Profile'
+				break;
+			}
+			case 0x62: {
+				fprintf(stdout, "  MPEG-2 Visual SNR Profile"); //'Visual ISO/IEC 13818-2 SNR Profile'
+				break;
+			}
+			case 0x63: {
+				fprintf(stdout, "  MPEG-2 Visual Spatial Profile"); //'Visual ISO/IEC 13818-2 Spatial Profile'
+				break;
+			}
+			case 0x64: {
+				fprintf(stdout, "  MPEG-2 Visual High Profile"); //'Visual ISO/IEC 13818-2 High Profile'
+				break;
+			}
+			case 0x65: {
+				fprintf(stdout, "  MPEG-2 Visual 4:2:2 Profile"); //'Visual ISO/IEC 13818-2 422 Profile'
+				break;
+			}
+			case 0x66: {
+				fprintf(stdout, "  MPEG-2 AAC Main Profile"); //'Audio ISO/IEC 13818-7 Main Profile'
+				break;
+			}
+			case 0x67: {
+				fprintf(stdout, "  MPEG-2 AAC Low Complexity Profile"); //Audio ISO/IEC 13818-7 LowComplexity Profile
+				break;
+			}
+			case 0x68: {
+				fprintf(stdout, "  MPEG-2 AAC Scaleable Sample Rate Profile"); //'Audio ISO/IEC 13818-7 Scaleable Sampling Rate Profile'
+				break;
+			}
+			case 0x69: {
+				fprintf(stdout, "  MPEG-2 Audio"); //'Audio ISO/IEC 13818-3'
+				break;
+			}
+			case 0x6A: {
+				fprintf(stdout, "  MPEG-1 Visual"); //'Visual ISO/IEC 11172-2'
+				break;
+			}
+			case 0x6B: {
+				fprintf(stdout, "  MPEG-1 Audio"); //'Audio ISO/IEC 11172-3'
+				break;
+			}
+			case 0x6C: {
+				fprintf(stdout, "  JPEG"); //'Visual ISO/IEC 10918-1'
+				break;
+			}
+			case 0x6D: {
+				fprintf(stdout, "  PNG"); //http://www.mp4ra.org/object.html
+				break;
+			}
+			case 0x6E: {
+				fprintf(stdout, "  JPEG2000"); //'Visual ISO/IEC 15444-1'
+				break;
+			}
+			case 0xA0: {
+				fprintf(stdout, "  3GPP2 EVRC Voice"); //http://www.mp4ra.org/object.html
+				break;
+			}
+			case 0xA1: {
+				fprintf(stdout, "  3GPP2 SMV Voice"); //http://www.mp4ra.org/object.html
+				break;
+			}
+			case 0xA2: {
+				fprintf(stdout, "  3GPP2 Compact Multimedia Format"); //http://www.mp4ra.org/object.html
+				break;
+			}
+			
+			//0xC0-0xE0 user private
+			case 0xE1: {
+				fprintf(stdout, "  3GPP2 QCELP (14K Voice)"); //http://www.mp4ra.org/object.html
+				break;
+			}
+			//0xE2-0xFE user private
+			//0xFF no object type specified
+			
 			default: {
 				//so many profiles, so little desire to list them all (in 14496-2 which I don't have)
-				fprintf(stdout, "  Unenumerated profile %u", track_info->m4v_profile); 
+				if(movie_info.contains_iods && iods_info.audio_profile == 0xFE) {
+					fprintf(stdout, "  Private user object: 0x%X", track_info->ObjectTypeIndication);
+				} else {
+					fprintf(stdout, "  Object Type Indicator: 0x%X  Description Ojbect Type ID: 0x%X\n", track_info->ObjectTypeIndication, track_info->descriptor_object_typeID);
+				}
 				break;
 			}
 		}
 
-	} else if (video_track_type == AVC1_TRACK) {
+	} else if (track_type == AVC1_TRACK) {
 		//profiles & levels are in the 14496-10 pdf (which I don't have access to), so...
 		//http://lists.mpegif.org/pipermail/mp4-tech/2006-January/006255.html
 		//http://iphome.hhi.de/suehring/tml/doc/lenc/html/configfile_8c-source.html
 		//66=baseline, 77=main, 88=extended; 100=High, 110=High 10, 122=High 4:2:2, 144=High 4:4:4
 		
-		switch(track_info->avc_profile) {
+		switch(track_info->profile) {
 			case 66: {
 				fprintf(stdout, "  AVC Baseline Profile");
 				break;
@@ -197,24 +588,24 @@ void APar_ShowVideoProfileInfo(uint8_t video_track_type, TrackInfo* track_info) 
 				break;
 			}
 			default: {
-				fprintf(stdout, "  Unknown Profile: %u", track_info->avc_profile);
+				fprintf(stdout, "  Unknown Profile: %u", track_info->profile);
 				break;
 			}
-		} //end avc_profile switch
+		} //end profile switch
 		
 		//Don't have access to levels either, but working off of:
 		//http://iphome.hhi.de/suehring/tml/doc/lenc/html/configfile_8c-source.html
 		
 		//and the 15 levels it says here: http://www.chiariglione.org/mpeg/technologies/mp04-avc/index.htm (1b in http://en.wikipedia.org/wiki/H.264 seems nonsensical)
 		//working backwards, we get... a simple 2 digit number (with '20' just drop the 0; with 21, put in a decimal)
-		if (track_info->avc_level > 0) {
-			switch (track_info->avc_level) {
+		if (track_info->level > 0) {
+			switch (track_info->level) {
 				case 10:
 				case 20:
 				case 30:
 				case 40:
 				case 50: {
-					fprintf(stdout, ",  Level %u", track_info->avc_level / 10);
+					fprintf(stdout, ",  Level %u", track_info->level / 10);
 					break;
 				}
 				case 11:
@@ -227,69 +618,51 @@ void APar_ShowVideoProfileInfo(uint8_t video_track_type, TrackInfo* track_info) 
 				case 41:
 				case 42:
 				case 51: {
-					fprintf(stdout, ",  Level %u.%u", track_info->avc_level / 10, track_info->avc_level % 10);
+					fprintf(stdout, ",  Level %u.%u", track_info->level / 10, track_info->level % 10);
 					break;
 				}
 				default: {
-					fprintf(stdout, ", Unknown level %u.%u", track_info->avc_level / 10, track_info->avc_level % 10);
+					fprintf(stdout, ", Unknown level %u.%u", track_info->level / 10, track_info->level % 10);
 				}
 			
 			} //end switch
-		} //end avc_level if
-	}
-	return;
-}
-
-/*----------------------
-APar_ShowAudioObjectTypeInfo
-	track_info - a pointer to the struct holding all the information gathered as a single 'trak' atom was traversed
-
-    All (or whatever was in 14496-2-1988) MPEG-4 Audio (0x40, aka 14496-3) are listed; so is mp3 inside the mp4 container, otherwise generic printout. If an
-		'esds' atom was found, then if its section 5 length is known, then 'esds' was carrying channel info (in which case, channels was listed twice, so prefer this
-		listing); otherwise fall back to 'mp4a' carrying channel info (indicated by the parens() around it).
-----------------------*/
-void APar_ShowAudioObjectTypeInfo(TrackInfo* track_info) {
-	if (track_info->ObjectTypeIndication == 0x40) { //http://www.mp4ra.org/object.html
-		//from iso 14496-2-1998
-		if (track_info->descriptor_object_typeID == 1) {
-			fprintf(stdout, "  MPEG-4 AAC Main Profile");
-		} else if (track_info->descriptor_object_typeID == 2) {
-			fprintf(stdout, "  MPEG-4 AAC Low Complexity Profile");     //most files will land here
-		} else if (track_info->descriptor_object_typeID == 3) {
-			fprintf(stdout, "  MPEG-4 AAC Scaleable Sample Rate Profile");
-		} else if (track_info->descriptor_object_typeID == 4) {
-			fprintf(stdout, "  MPEG-4 AAC T/F Profile");
-		} else if (track_info->descriptor_object_typeID == 5) {
-			fprintf(stdout, "  MPEG-4 AAC T/F Main Profile");
-		} else if (track_info->descriptor_object_typeID == 6) {
-			fprintf(stdout, "  MPEG-4 AAC T/F LC Profile");
-		} else if (track_info->descriptor_object_typeID == 7) {
-			fprintf(stdout, "  MPEG-4 AAC TwinVQ Profile");
-		} else if (track_info->descriptor_object_typeID == 8) {
-			fprintf(stdout, "  MPEG-4 AAC CELP Profile");
-		} else if (track_info->descriptor_object_typeID == 9) {
-			fprintf(stdout, "  MPEG-4 AAC HVXC Profile");
-		} else if (track_info->descriptor_object_typeID == 10) {
-			fprintf(stdout, "  MPEG-4 AAC HILN Profile");
-		} else if (track_info->descriptor_object_typeID == 11) {
-			fprintf(stdout, "  MPEG-4 AAC TTSI Profile");
-		} else if (track_info->descriptor_object_typeID == 12) {
-			fprintf(stdout, "  MPEG-4 AAC Main Synthesis Profile");
-		} else if (track_info->descriptor_object_typeID == 13) {
-			fprintf(stdout, "  MPEG-4 AAC Wavetable Synthesis Profile");
-		} else {
-			fprintf(stdout, "  Unknown Profile %u", track_info->descriptor_object_typeID);
+		} //end level if
+	} else if (track_type == S_AMR_TRACK) {
+		char* amr_modes = (char*)calloc(1, sizeof(char)*80);
+		if (track_info->track_codec == 0x73616D72 || track_info->track_codec == 0x73617762) {
+			if (track_info->amr_modes & 0x0001) mem_append("0", amr_modes);
+			if (track_info->amr_modes & 0x0002) mem_append("1", amr_modes);
+			if (track_info->amr_modes & 0x0004) mem_append("2", amr_modes);
+			if (track_info->amr_modes & 0x0008) mem_append("3", amr_modes);
+			if (track_info->amr_modes & 0x0010) mem_append("4", amr_modes);
+			if (track_info->amr_modes & 0x0020) mem_append("5", amr_modes);
+			if (track_info->amr_modes & 0x0040) mem_append("6", amr_modes);
+			if (track_info->amr_modes & 0x0080) mem_append("7", amr_modes);
+			if (track_info->amr_modes & 0x0100) mem_append("8", amr_modes);
 		}
-	} else if (track_info->ObjectTypeIndication == 0x6B) {
-		fprintf(stdout, "  MPEG-1 Part 3 (mp3)");
-	} else {
-		fprintf(stdout, "  Object Type Indicator: 0x%X  Description Ojbect Type ID: 0x%X\n", track_info->ObjectTypeIndication, track_info->descriptor_object_typeID);
-	}
+
+		if (track_info->track_codec == 0x73616D72) { //samr
+			fprintf(stdout, "  AMR Narrow-Band. Modes=%s. Encoder vendor code: %s\n", amr_modes, track_info->encoder_name);
+		} else if (track_info->track_codec == 0x73617762) { //sawb
+			fprintf(stdout, "  AMR Wide-Band. Modes=%s. Encoder vendor code: %s\n", amr_modes, track_info->encoder_name);
+		} else if (track_info->track_codec == 0x73617770) { //sawp
+			fprintf(stdout, "  AMR Wide-Band WB+. Encoder vendor code: %s\n", track_info->encoder_name);
+		}
+		free(amr_modes); amr_modes=NULL;
 	
-	if (track_info->section5_length == 0) {
-		fprintf(stdout, "    channels: (%u)\n", track_info->channels );
-	} else {
-		fprintf(stdout, "    channels: [%u]\n", track_info->channels );
+	} else if (track_type == S263_TRACK) {
+		if (track_info->profile == 0) {
+			fprintf(stdout, "  H.263 Baseline Profile, Level %u. Encoder vendor code: %s", track_info->level, track_info->encoder_name);
+		} else {
+			fprintf(stdout, "  H.263 Profile: %u, Level %u. Encoder vendor code: %s", track_info->profile, track_info->level, track_info->encoder_name);
+		}
+	}
+	if (track_type == AUDIO_TRACK) {
+		if (track_info->section5_length == 0) {
+			fprintf(stdout, "    channels: (%u)\n", track_info->channels );
+		} else {
+			fprintf(stdout, "    channels: [%u]\n", track_info->channels );
+		}
 	}
 	return;
 }
@@ -305,7 +678,8 @@ calcuate_sample_size
 	stsz_atom - the atom number of the stsz atom
 
     This will get aggregate a number of the size of all chunks in the track. The stsz atom holds a table of these sizes along with a count of how many there are.
-		Loop through the count, summing in the sizes. This is called when a hardcoded bitrate (in esds) isn't found (like avc1).
+		Loop through the count, summing in the sizes. This is called called for all tracks, but used only when a hardcoded bitrate (in esds) isn't found (like avc1)
+		and is displayed with the asterisk* at track-level.
 ----------------------*/
 uint64_t calcuate_sample_size(char* uint32_buffer, FILE* isofile, short stsz_atom) {
 	uint32_t sample_size = 0;
@@ -383,6 +757,70 @@ uint8_t APar_ExtractChannelInfo(FILE* isofile, uint32_t pos) {
 }
 
 /*----------------------
+APar_Extract_iods_Info
+	isofile - the file to be scanned
+	iods_atom - a pointer to the struct that will store the profile levels found in iods
+
+    'iods' info mostly comes from: http://www.geocities.com/xhelmboyx/quicktime/formats/mp4-layout.txt Just as 'esds' has 'filler' bytes to skip over, so does this.
+		Mercifully, the profiles come one right after another. The only problem is that in many files, the iods profiles don't match the esds profiles. This is resolved
+		by ignoring it for audio (mostly, unless is 0xFE user defined). For MPEG-4 Visual, it is preferred over 'esds' (occurs in APar_ShowMPEG4VisualProfileInfo); for
+		all other video types it is ignored.
+----------------------*/
+void APar_Extract_iods_Info(FILE* isofile, AtomicInfo* iods_atom) {
+	uint32_t iods_offset = iods_atom->AtomicStart+8;
+	if (iods_atom->AtomicVerFlags == 0 && APar_read8(isofile, iods_offset+4) == 0x10) {
+		iods_offset+=5;
+		iods_offset += APar_skip_filler(isofile, iods_offset);
+		uint8_t iods_objdescrip_len = APar_read8(isofile, iods_offset);
+		iods_offset++;
+		if (iods_objdescrip_len >= 7) { 
+			iods_info.od_profile_level = APar_read8(isofile, iods_offset+2);
+			iods_info.scene_profile_level = APar_read8(isofile, iods_offset+3);
+			iods_info.audio_profile = APar_read8(isofile, iods_offset+4);
+			iods_info.video_profile_level = APar_read8(isofile, iods_offset+5);
+			iods_info.graphics_profile_level = APar_read8(isofile, iods_offset+6);
+		}
+	}
+	return;
+}
+
+/*----------------------
+APar_Extract_AMR_Info
+	uint32_buffer - a buffer to read bytes in from the file
+	isofile - the file to be scanned
+	track_level_atom - the number of the 'esds' atom in the linked list of parsed atoms
+	track_info - a pointer to the struct carrying track-level info to be filled with information
+
+    
+----------------------*/
+void APar_Extract_AMR_Info(char* uint32_buffer, FILE* isofile, short track_level_atom, TrackInfo* track_info) {
+	uint32_t amr_specific_offet = 8;
+	APar_readX(track_info->encoder_name, isofile, parsedAtoms[track_level_atom].AtomicStart + amr_specific_offet, 4);
+	if (track_info->track_codec == 0x73616D72 || track_info->track_codec == 0x73617762) { //samr or sawb contain modes only
+		track_info->amr_modes = APar_read16(uint32_buffer, isofile, parsedAtoms[track_level_atom].AtomicStart + amr_specific_offet + 4+1);
+	}
+	return;
+}
+
+/*----------------------
+APar_Extract_d263_Info
+	uint32_buffer - a buffer to read bytes in from the file
+	isofile - the file to be scanned
+	track_level_atom - the number of the 'esds' atom in the linked list of parsed atoms
+	track_info - a pointer to the struct carrying track-level info to be filled with information
+
+    'd263' only holds 4 things; the 3 of interest are gathered here. Its possible that a 'bitr' atom follows 'd263', which would hold bitrates, but isn't parsed here
+----------------------*/
+void APar_Extract_d263_Info(char* uint32_buffer, FILE* isofile, short track_level_atom, TrackInfo* track_info) {
+	uint32_t offset_into_d263 = 8;
+	APar_readX(track_info->encoder_name, isofile, parsedAtoms[track_level_atom].AtomicStart + offset_into_d263, 4);
+	track_info->level = APar_read8(isofile, parsedAtoms[track_level_atom].AtomicStart + offset_into_d263 + 4+1);
+	track_info->profile = APar_read8(isofile, parsedAtoms[track_level_atom].AtomicStart + offset_into_d263 + 4+2);
+	//possible 'bitr' bitrate box afterwards
+	return;
+}
+
+/*----------------------
 APar_Extract_esds_Info
 	uint32_buffer - a buffer to read bytes in from the file
 	isofile - the file to be scanned
@@ -418,7 +856,8 @@ void APar_Extract_esds_Info(char* uint32_buffer, FILE* isofile, short track_leve
 				break;
 			}
 			
-			//for whatever reason, when mp4box muxes in ogg into an mp4 container, section 3 in esds gets a an extra byte - 0x0E in (1) test file
+			//for whatever reason, when mp4box muxes in ogg into an mp4 container, section 3 gets a 0x9D byte (which doesn't fall inline with what AP considers 'filler')
+			//then again, I haven't *completely* read the ISO specifications, so I could just be missing it the the ->voluminous<- 14496-X specifications.
 			uint8_t test_byte = APar_read8(isofile, esds_start + offset_into_esds+1);
 			if (test_byte != 0) {
 				offset_into_esds++;
@@ -434,6 +873,8 @@ void APar_Extract_esds_Info(char* uint32_buffer, FILE* isofile, short track_leve
 			uint8_t section4_length = APar_read8(isofile, esds_start + offset_into_esds);
 			if ( section4_length <= section3_length && section4_length != 0) {
 				track_info->section4_length = section4_length;
+				
+				if (section4_length == 0x9D) offset_into_esds++; //upper limit? when gpac puts an ogg in, section 3 is 9D - so is sec4 (section 4 real length with ogg = 0x0E86)
 				
 				offset_into_esds++;
 				track_info->ObjectTypeIndication = APar_read8(isofile, esds_start + offset_into_esds);
@@ -461,11 +902,18 @@ void APar_Extract_esds_Info(char* uint32_buffer, FILE* isofile, short track_leve
 					track_info->section5_length = section5_length;
 					offset_into_esds+=1;
 					
-					uint8_t packed_objID = APar_read8(isofile, esds_start + offset_into_esds); //its packed with channel, but channel is fetched separately
-					track_info->descriptor_object_typeID = packed_objID >> 3;
-					offset_into_esds+=1;
+					if (track_info->type_of_track & AUDIO_TRACK) {
+						uint8_t packed_objID = APar_read8(isofile, esds_start + offset_into_esds); //its packed with channel, but channel is fetched separately
+						track_info->descriptor_object_typeID = packed_objID >> 3;
+						offset_into_esds+=1;
 
-					track_info->channels = (uint16_t)APar_ExtractChannelInfo(isofile, esds_start + offset_into_esds);
+						track_info->channels = (uint16_t)APar_ExtractChannelInfo(isofile, esds_start + offset_into_esds);
+						
+					} else if (track_info->type_of_track & VIDEO_TRACK) {
+						if (APar_read16(uint32_buffer, isofile, esds_start + offset_into_esds+2) == 0x01B0) {
+							track_info->m4v_profile = APar_read8(isofile, esds_start + offset_into_esds+2+2);
+						}
+					}
 				}
 				break; //uh, I've extracted the pertinent info
 			}
@@ -475,7 +923,7 @@ void APar_Extract_esds_Info(char* uint32_buffer, FILE* isofile, short track_leve
 			break;
 		}
 	}
-	if (track_info->section5_length == 0) {
+	if (track_info->section5_length == 0 && track_info->type_of_track & AUDIO_TRACK) {
 		track_info->channels = APar_read16(uint32_buffer, isofile, parsedAtoms[track_level_atom].AtomicStart + 40);
 	}
 	return;
@@ -543,30 +991,37 @@ void APar_ExtractTrackDetails(char* uint32_buffer, FILE* isofile, Trackage* trac
 			//byte 1	configurationVersion    byte 2	AVCProfileIndication    byte 3  profile_compatibility    byte 4	AVCLevelIndication
 			track_info->avc_version = APar_read8(isofile, parsedAtoms[track->track_atom].AtomicStart + 8);
 			if (track_info->avc_version == 1) {
-				track_info->avc_profile = APar_read8(isofile, parsedAtoms[track->track_atom].AtomicStart + 9);
-				//uint8_t avc_profile_compatibility = APar_read8(isofile, parsedAtoms[track.track_atom].AtomicStart + 10); /* is this reserved ?? */
-				track_info->avc_level = APar_read8(isofile, parsedAtoms[track->track_atom].AtomicStart + 11);
+				track_info->profile = APar_read8(isofile, parsedAtoms[track->track_atom].AtomicStart + 9);
+				//uint8_t profile_compatibility = APar_read8(isofile, parsedAtoms[track.track_atom].AtomicStart + 10); /* is this reserved ?? */
+				track_info->level = APar_read8(isofile, parsedAtoms[track->track_atom].AtomicStart + 11);
 			}
 			
 			//avc1 doesn't have a hardcoded bitrate, so calculate it (off of stsz table summing) later
+		} else 	if (track_info->track_codec == 0x73323633) { //s263
+			APar_TrackLevelInfo(track, "d263");
+			if ( memcmp(parsedAtoms[track->track_atom].AtomicName, "d263", 4) == 0) {
+				APar_Extract_d263_Info(uint32_buffer, isofile, track->track_atom, track_info);
+			}
 			
 		} else { //mp4v
 			APar_TrackLevelInfo(track, "esds");
 			if ( memcmp(parsedAtoms[track->track_atom].AtomicName, "esds", 4) == 0) {
-				track_info->m4v_profile = APar_read8(isofile, parsedAtoms[track->track_atom].AtomicStart + 12);
 				APar_Extract_esds_Info(uint32_buffer, isofile, track->track_atom-1, track_info); //right, backtrack to the atom before 'esds' so we can offset_into_stsd++
+			} else if (track_info->track_codec == 0x73323633) { //s263
+				track_info->type_of_track = VIDEO_TRACK;
+			} else if (track_info->track_codec == 0x73616D72 || track_info->track_codec == 0x73617762 || track_info->track_codec == 0x73617770) { //samr, sawb or sawp
+				track_info->type_of_track = AUDIO_TRACK;
 			} else {
 				track_info->type_of_track = OTHER_TRACK; //a 'jpeg' track will fall here
 			}
 		}
 		
-		APar_TrackLevelInfo(track, "stsz");
-		if (memcmp(parsedAtoms[track->track_atom].AtomicName, "stsz", 4) == 0) {
-			track_info->sample_aggregate = calcuate_sample_size(uint32_buffer, isofile, track->track_atom);
-		}
-		
 	} else if ( track_info->type_of_track & AUDIO_TRACK) {
-		APar_Extract_esds_Info(uint32_buffer, isofile, track->track_atom, track_info);
+		if (track_info->track_codec == 0x73616D72 || track_info->track_codec == 0x73617762 || track_info->track_codec == 0x73617770) { //samr or sawb (sawp doesn't contain modes)
+			APar_Extract_AMR_Info(uint32_buffer, isofile, track->track_atom+2, track_info);
+		} else {
+			APar_Extract_esds_Info(uint32_buffer, isofile, track->track_atom, track_info);
+		}
 	}
 	
 	//in case bitrate isn't found, manually determine it off of stsz summing
@@ -574,11 +1029,11 @@ void APar_ExtractTrackDetails(char* uint32_buffer, FILE* isofile, Trackage* trac
 		if (track_info->track_codec == 0x616C6163 ) { //alac
 			track_info->channels = APar_read16(uint32_buffer, isofile, parsedAtoms[track->track_atom+1].AtomicStart + 24);
 		}
-			
-		APar_TrackLevelInfo(track, "stsz");
-		if (memcmp(parsedAtoms[track->track_atom].AtomicName, "stsz", 4) == 0) {
-			track_info->sample_aggregate = calcuate_sample_size(uint32_buffer, isofile, track->track_atom);
-		}
+	}
+	
+	APar_TrackLevelInfo(track, "stsz");
+	if (memcmp(parsedAtoms[track->track_atom].AtomicName, "stsz", 4) == 0) {
+		track_info->sample_aggregate = calcuate_sample_size(uint32_buffer, isofile, track->track_atom);
 	}
 
 	//get what exactly 'drmX' stands in for
@@ -588,18 +1043,18 @@ void APar_ExtractTrackDetails(char* uint32_buffer, FILE* isofile, Trackage* trac
 		memset(uint32_buffer, 0, 5);
 		track_info->protected_codec = APar_read32(uint32_buffer, isofile, parsedAtoms[track->track_atom].AtomicStart + 8);
 	}
-	
+		
 	//Encoder string; occasionally, it appears under stsd for a video track; it is typcally preceded by ' ²' (1st char is unprintable) or 0x01B2
 	if (track_info->contains_esds) {
-	APar_TrackLevelInfo(track, "esds");
-	
-	_offset = APar_FindValueInAtom(uint32_buffer, isofile, track->track_atom, 24, 0x01B2);
-	
-	if (_offset > 0 && _offset < parsedAtoms[track->track_atom].AtomicLength) {
-		_offset +=2;
-		memset(track_info->encoder_name, 0, parsedAtoms[track->track_atom].AtomicLength - _offset);
-		APar_readX(track_info->encoder_name, isofile, parsedAtoms[track->track_atom].AtomicStart + _offset, parsedAtoms[track->track_atom].AtomicLength - _offset);
-	}
+		APar_TrackLevelInfo(track, "esds");
+		
+		_offset = APar_FindValueInAtom(uint32_buffer, isofile, track->track_atom, 24, 0x01B2);
+		
+		if (_offset > 0 && _offset < parsedAtoms[track->track_atom].AtomicLength) {
+			_offset +=2;
+			memset(track_info->encoder_name, 0, parsedAtoms[track->track_atom].AtomicLength - _offset);
+			APar_readX(track_info->encoder_name, isofile, parsedAtoms[track->track_atom].AtomicStart + _offset, parsedAtoms[track->track_atom].AtomicLength - _offset);
+		}
 	}
 	return;
 }
@@ -609,38 +1064,37 @@ APar_ExtractMovieDetails
 	uint32_buffer - a buffer to read bytes in from the file
 	isofile - the file to be scanned
 	mvhd_atom - pointer to the 'mvhd' atom and where in the file it can be found
-	movie_info - a pointer to the struct carrying *movie*-level info to be filled with information
 
     Get information out of 'mvhd' - most important of which are timescale & duration which get used to calcuate bitrate if needed and determine duration
 		of a track in seconds. A rough approximation of the overall bitrate is done off this too using the sum of the mdat lengths.
 ----------------------*/
-void APar_ExtractMovieDetails(char* uint32_buffer, FILE* isofile, AtomicInfo* mvhd_atom, MovieInfo* movie_info) {	
+void APar_ExtractMovieDetails(char* uint32_buffer, FILE* isofile, AtomicInfo* mvhd_atom) {	
 	if (mvhd_atom->AtomicVerFlags == 0) {
-		movie_info->creation_time = APar_read32(uint32_buffer, isofile, mvhd_atom->AtomicStart + 12);
-		movie_info->modified_time = APar_read32(uint32_buffer, isofile, mvhd_atom->AtomicStart + 16);
-		movie_info->timescale = APar_read32(uint32_buffer, isofile, mvhd_atom->AtomicStart + 20);
-		movie_info->duration = APar_read32(uint32_buffer, isofile, mvhd_atom->AtomicStart + 24);
-		movie_info->playback_rate = APar_read32(uint32_buffer, isofile, mvhd_atom->AtomicStart + 28);
-		movie_info->volume = APar_read16(uint32_buffer, isofile, mvhd_atom->AtomicStart + 32);
+		movie_info.creation_time = APar_read32(uint32_buffer, isofile, mvhd_atom->AtomicStart + 12);
+		movie_info.modified_time = APar_read32(uint32_buffer, isofile, mvhd_atom->AtomicStart + 16);
+		movie_info.timescale = APar_read32(uint32_buffer, isofile, mvhd_atom->AtomicStart + 20);
+		movie_info.duration = APar_read32(uint32_buffer, isofile, mvhd_atom->AtomicStart + 24);
+		movie_info.playback_rate = APar_read32(uint32_buffer, isofile, mvhd_atom->AtomicStart + 28);
+		movie_info.volume = APar_read16(uint32_buffer, isofile, mvhd_atom->AtomicStart + 32);
 	} else {
 		//version 1 has 64-bit creation/modified times which AP currently doesn't support
 		//movie_info->creation_time = APar_read64(uint32_buffer, isofile, mvhdAtom->AtomicStart + 12);
 		//movie_info->modified_time = APar_read64(uint32_buffer, isofile, mvhdAtom->AtomicStart + 20);
-		movie_info->timescale = APar_read32(uint32_buffer, isofile, mvhd_atom->AtomicStart + 28);
-		movie_info->duration = APar_read32(uint32_buffer, isofile, mvhd_atom->AtomicStart + 32);
-		movie_info->timescale = APar_read32(uint32_buffer, isofile, mvhd_atom->AtomicStart + 36);
-		movie_info->duration = APar_read32(uint32_buffer, isofile, mvhd_atom->AtomicStart + 40);
-		movie_info->playback_rate = APar_read32(uint32_buffer, isofile, mvhd_atom->AtomicStart + 44);
-		movie_info->volume = APar_read16(uint32_buffer, isofile, mvhd_atom->AtomicStart + 48);
+		movie_info.timescale = APar_read32(uint32_buffer, isofile, mvhd_atom->AtomicStart + 28);
+		movie_info.duration = APar_read32(uint32_buffer, isofile, mvhd_atom->AtomicStart + 32);
+		movie_info.timescale = APar_read32(uint32_buffer, isofile, mvhd_atom->AtomicStart + 36);
+		movie_info.duration = APar_read32(uint32_buffer, isofile, mvhd_atom->AtomicStart + 40);
+		movie_info.playback_rate = APar_read32(uint32_buffer, isofile, mvhd_atom->AtomicStart + 44);
+		movie_info.volume = APar_read16(uint32_buffer, isofile, mvhd_atom->AtomicStart + 48);
 	}
 	
-	movie_info->seconds = (float)movie_info->duration / (float)movie_info->timescale;
+	movie_info.seconds = (float)movie_info.duration / (float)movie_info.timescale;
 #if defined (_MSC_VER)
 	__int64 media_bits = (__int64)mdatData * 8;
 #else
 	uint64_t media_bits = (uint64_t)mdatData * 8;
 #endif
-	movie_info->simple_bitrate_calc = ( (double)media_bits / movie_info->seconds) / 1000.0;
+	movie_info.simple_bitrate_calc = ( (double)media_bits / movie_info.seconds) / 1000.0;
 
 	return;
 }
@@ -649,22 +1103,69 @@ void APar_ExtractMovieDetails(char* uint32_buffer, FILE* isofile, AtomicInfo* mv
 //                         Get at some track-level info                              //
 ///////////////////////////////////////////////////////////////////////////////////////
 
+void APar_Print_TrackDetails(TrackInfo* track_info) {
+	if (track_info->max_bitrate > 0 && track_info->avg_bitrate > 0) {
+			fprintf(stdout, "     %.2f kbp/s", (float)track_info->avg_bitrate/1000.0);
+	} else { //some ffmpeg encodings have avg_bitrate set to 0, but an inexact max_bitrate - actually, their esds seems a mess to me
+#if defined (_MSC_VER)
+		fprintf(stdout, "     %.2lf* kbp/s", ( (double)((__int64)track_info->sample_aggregate) /
+																						( (double)((__int64)track_info->duration) / (double)((__int64)movie_info.timescale)) ) / 1000.0 * 8);
+#else
+		fprintf(stdout, "     %.2lf* kbp/s", ( (double)track_info->sample_aggregate /
+																						( (double)track_info->duration / (double)movie_info.timescale) ) / 1000.0 * 8);
+#endif
+	}
+	fprintf(stdout, "  %.3f sec", (float)track_info->duration / (float)movie_info.timescale);
+						
+	if (track_info->track_codec == 0x6D703476 ) { //mp4v profile
+		APar_ShowObjectProfileInfo(MP4V_TRACK, track_info);											
+	} else if (track_info->track_codec == 0x6D703461 || track_info->protected_codec == 0x6D703461 ) { //mp4a profile
+		APar_ShowObjectProfileInfo(AUDIO_TRACK, track_info);
+	} else if (track_info->track_codec == 0x616C6163) { //alac - can't figure out a hardcoded bitrate either
+		fprintf(stdout, "  Apple Lossless    channels: [%u]\n", track_info->channels);
+	} else if (track_info->track_codec == 0x61766331  || track_info->protected_codec == 0x61766331) {
+		if (track_info->avc_version == 1) { //avc profile & level
+			APar_ShowObjectProfileInfo(AVC1_TRACK, track_info);
+		}
+	} else if (track_info->track_codec == 0x73323633) { //s263 in 3gp
+		APar_ShowObjectProfileInfo(S263_TRACK, track_info);
+	} else if (track_info->track_codec == 0x73616D72 || track_info->track_codec == 0x73617762 || track_info->track_codec == 0x73617770) { //samr,sawb or sawp in 3gp
+		APar_ShowObjectProfileInfo(S_AMR_TRACK, track_info);
+	}  else { //unknown everything, 0 hardcoded bitrate
+		APar_ShowObjectProfileInfo(track_info->type_of_track, track_info);
+		fprintf(stdout, "\n");
+	}
+					
+	if (track_info->type_of_track & VIDEO_TRACK && 
+			( ( track_info->max_bitrate > 0 && track_info->ObjectTypeIndication == 0x20) || track_info->avc_version == 1 || track_info->protected_codec != 0) ) {
+		fprintf(stdout, "  %ux%u  (%u macroblocks)\n", track_info->video_width, track_info->video_height, track_info->macroblocks);
+	} else if (track_info->type_of_track & VIDEO_TRACK) {
+		fprintf(stdout, "\n");
+	}
+	return;
+}
+
 void APar_ExtractDetails(FILE* isofile, uint8_t optional_output) {
 	char* uint32_buffer=(char*)malloc( sizeof(char)*5 );
-	MovieInfo movie_info = {0};
 	Trackage track = {0};
 	
 	AtomicInfo* mvhdAtom = APar_FindAtom("moov.mvhd", false, VERSIONED_ATOM, 0);
 	if (mvhdAtom != NULL) {
-		APar_ExtractMovieDetails(uint32_buffer, isofile, mvhdAtom, &movie_info);
+		APar_ExtractMovieDetails(uint32_buffer, isofile, mvhdAtom);
 		fprintf(stdout, "Movie duration: %.3lf seconds (%s) - %.2lf* kbp/sec bitrate (*=approximate)\n", movie_info.seconds, secsTOtime(movie_info.seconds), movie_info.simple_bitrate_calc);
+	}
+	
+	AtomicInfo* iodsAtom = APar_FindAtom("moov.iods", false, VERSIONED_ATOM, 0);
+	if (iodsAtom != NULL) {
+		movie_info.contains_iods = true;
+		APar_Extract_iods_Info(isofile, iodsAtom);
 	}
 	
 	if (optional_output & SHOW_TRACK_INFO) {
 		APar_TrackLevelInfo(&track, NULL); //With track_num set to 0, it will return the total trak atom into total_tracks here.
 
 		fprintf(stdout, "Low-level details. Total tracks: %u \n", track.total_tracks);
-		fprintf(stdout, "Trk  Type  Handler                    Kind  Lang\n");
+		fprintf(stdout, "Trk  Type  Handler                    Kind  Lang  Bytes\n");
 		
 		if (track.total_tracks > 0) {
 			while (track.total_tracks > track.track_num) {
@@ -688,7 +1189,7 @@ void APar_ExtractDetails(FILE* isofile, uint8_t optional_output) {
 				}
 				
 				//codec, language
-				fprintf(stdout, "  %s  %s", uint32tochar4(track_info.track_codec, uint32_buffer), track_info.unpacked_lang );
+				fprintf(stdout, "  %s  %s   %llu", uint32tochar4(track_info.track_codec, uint32_buffer), track_info.unpacked_lang, track_info.sample_aggregate);
 				
 				if (track_info.encoder_name[0] != 0) {
 					purge_extraneous_characters(track_info.encoder_name);
@@ -702,81 +1203,14 @@ void APar_ExtractDetails(FILE* isofile, uint8_t optional_output) {
 				/*---------------------------------*/
 				
 				if (track_info.type_of_track & VIDEO_TRACK || track_info.type_of_track & AUDIO_TRACK) {
-					if (track_info.max_bitrate > 0) {
-						if (track_info.avg_bitrate > 0) {
-							fprintf(stdout, "     %.2f kbp/s", (float)track_info.avg_bitrate/1000.0);
-						} else { //some ffmpeg encodings have avg_bitrate set to 0, but an inexact max_bitrate - actually, their esds seems a mess to me
-#if defined (_MSC_VER)
-							fprintf(stdout, "     %.2lf* kbp/s", ( (double)((__int64)track_info.sample_aggregate) /
-																											( (double)((__int64)track_info.duration) / (double)((__int64)movie_info.timescale)) ) / 1000.0 * 8);
-#else
-							fprintf(stdout, "     %.2lf* kbp/s", ( (double)track_info.sample_aggregate /
-																											( (double)track_info.duration / (double)movie_info.timescale) ) / 1000.0 * 8);
-#endif
-						}
-						fprintf(stdout, "  %.3f sec", (float)track_info.duration / (float)movie_info.timescale);
-											
-						if (track_info.track_codec == 0x6D703476 ) { //mp4v profile
-							APar_ShowVideoProfileInfo(MP4V_TRACK, &track_info);											
-						} else if (track_info.track_codec == 0x6D703461 || track_info.protected_codec == 0x6D703461 ) { //mp4a profile
-							APar_ShowAudioObjectTypeInfo(&track_info);
-						}
-						
-					} else if (track_info.track_codec == 0x616C6163) { //alac - can't figure out a hardcoded bitrate either
-#if defined (_MSC_VER)
-						fprintf(stdout, "     %.2lf* kbp/s", ( (double)((__int64)track_info.sample_aggregate) /
-																									( (double)((__int64)track_info.duration) / (double)((__int64)movie_info.timescale)) ) / 1000.0 * 8);
-#else
-						fprintf(stdout, "     %.2lf* kbp/s", ( (double)track_info.sample_aggregate /
-																									( (double)track_info.duration / (double)movie_info.timescale) ) / 1000.0 * 8);
-#endif
-						fprintf(stdout, "  %.3f sec", (float)track_info.duration / (float)movie_info.timescale);
-						
-						fprintf(stdout, "  Apple Lossless    channels: [%u]\n", track_info.channels);
-						
-						
-					} else if (track_info.track_codec == 0x61766331  || track_info.protected_codec == 0x61766331) {
-#if defined (_MSC_VER)
-						fprintf(stdout, "     %.2lf* kbp/s", ( (double)((__int64)track_info.sample_aggregate) /
-																									( (double)((__int64)track_info.duration) / (double)((__int64)movie_info.timescale)) ) / 1000.0 * 8);
-#else
-						fprintf(stdout, "     %.2lf* kbp/s", ( (double)track_info.sample_aggregate /
-																									( (double)track_info.duration / (double)movie_info.timescale) ) / 1000.0 * 8);
-#endif
-						fprintf(stdout, "  %.3f sec", (float)track_info.duration / (float)movie_info.timescale);
-																											 
-						if (track_info.avc_version == 1) { //avc profile & level
-							APar_ShowVideoProfileInfo(AVC1_TRACK, &track_info);
-						}
-						
-					}  else {
-						//unknown everything, 0 hardcoded bitrate
-#if defined (_MSC_VER)
-						fprintf(stdout, "     %.2lf* kbp/s", ( (double)((__int64)track_info.sample_aggregate) /
-																									( (double)((__int64)track_info.duration) / (double)((__int64)movie_info.timescale)) ) / 1000.0 * 8);
-#else
-						fprintf(stdout, "     %.2lf* kbp/s", ( (double)track_info.sample_aggregate /
-																									( (double)track_info.duration / (double)movie_info.timescale) ) / 1000.0 * 8);
-#endif
-						fprintf(stdout, "  %.3f sec", (float)track_info.duration / (float)movie_info.timescale);
-						APar_ShowAudioObjectTypeInfo(&track_info);
-					}
-					
-					if (track_info.type_of_track & VIDEO_TRACK && (track_info.max_bitrate > 0 || track_info.avc_version == 1 || track_info.protected_codec != 0) ) {
-						fprintf(stdout, "  %ux%u  (%u macroblocks)\n", track_info.video_width, track_info.video_height, track_info.macroblocks);
-					}
+					APar_Print_TrackDetails(&track_info);
 				}
 				
 				if (optional_output & SHOW_DATE_INFO) {
-					//fprintf(stdout, "     Creation | Modification Date (UTC): %s", ExtractUTC(track_info.creation_time) );
-					//fprintf(stdout, " | %s\n", ExtractUTC(track_info.modified_time) );
 					fprintf(stdout, "       Creation Date (UTC):     %s\n", ExtractUTC(track_info.creation_time) );
 					fprintf(stdout, "       Modification Date (UTC): %s\n", ExtractUTC(track_info.modified_time) );
 				}
 					
-				/*if ( (is_avc_track && avc_profile == 66 && 10 <= avc_level <= 13 && macroblocks <= 300) || (!is_avc_track && macroblocks <= 900) ) {
-				} else {
-				}*/
 			}
 		}
 	}
@@ -811,22 +1245,23 @@ void APar_ExtractBrands(char* filepath) {
 		fprintf(stdout, "\n");
 	}
 	
+	fprintf(stdout, " Tagging schemes available:\n");
 	switch(metadata_style) {
 		case ITUNES_STYLE: {
-			fprintf(stdout, " iTunes-style metadata allowed.\n");
+			fprintf(stdout, "   iTunes-style metadata allowed.\n");
 			break;
 		}
 		case THIRD_GEN_PARTNER: {
-			fprintf(stdout, " 3GP-style asset metadata allowed - except 'albm' album tag. 3gp6 or later major brand required.\n");
+			fprintf(stdout, "   3GP-style asset metadata allowed - except 'albm' album tag. 3gp6 or later major brand required.\n");
 			break;
 		}
 		case THIRD_GEN_PARTNER_VER1_REL6:
 		case THIRD_GEN_PARTNER_VER2: {
-			fprintf(stdout, " 3GP-style asset metadata allowed.\n");
+			fprintf(stdout, "   3GP-style asset metadata allowed.\n");
 			break;
 		}
 	}
+	fprintf(stdout, "   ISO-copyright notices @ movie and/or track level allowed.\n   uuid private user extension tags allowed.\n");
 	openSomeFile(filepath, false);
 	return;
 }
-

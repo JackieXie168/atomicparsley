@@ -21,6 +21,14 @@
 
 #include "AP_commons.h" /* win32 requires the uintX_t's defined */
 
+typedef struct { //if any of these are unused, they are set to 0xFF
+	uint8_t od_profile_level;
+	uint8_t scene_profile_level;
+	uint8_t audio_profile;
+	uint8_t video_profile_level;
+	uint8_t graphics_profile_level;
+} iods_OD;
+
 typedef struct {
 	uint32_t creation_time;
 	uint32_t modified_time;
@@ -35,6 +43,7 @@ typedef struct {
 	uint32_t protected_codec;
 	
 	bool contains_esds;
+	
 	uint32_t section3_length;
 	uint32_t section4_length;
 	uint8_t ObjectTypeIndication;
@@ -48,12 +57,13 @@ typedef struct {
 	//specifics
 	uint8_t m4v_profile;
 	uint8_t avc_version;
-	uint8_t avc_profile;
-	uint8_t avc_level;
+	uint8_t profile;
+	uint8_t level;
 	uint16_t video_height;
 	uint16_t video_width;
 	uint32_t macroblocks;
 	uint64_t sample_aggregate;
+	uint16_t amr_modes;
 	
 	uint8_t type_of_track;
 	
@@ -69,6 +79,8 @@ typedef struct {
 	
 	double seconds;
 	double simple_bitrate_calc;
+	
+	bool contains_iods;
 } MovieInfo;
 
 typedef struct {
@@ -76,6 +88,13 @@ typedef struct {
 	uint8_t track_num;
 	short track_atom;
 } Trackage;
+
+typedef struct {
+	uint8_t hours;
+	uint8_t minutes;
+	uint8_t seconds;
+	double rem_millisecs;
+} ap_time;
 
 enum {
 	UNKNOWN_TRACK = 0,
@@ -88,6 +107,8 @@ enum {
 enum {
 	MP4V_TRACK = 65,
 	AVC1_TRACK = 66,
+	S_AMR_TRACK = 67,
+	S263_TRACK = 68
 };
 
 enum {
