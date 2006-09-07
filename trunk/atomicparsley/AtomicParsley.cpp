@@ -4651,7 +4651,7 @@ uint32_t APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file
 			case CHILD_ATOM : {
 				if (parsedAtoms[this_atom].AtomicClassification == EXTENDED_ATOM) {
 					//4bytes length, 4 bytes 'uuid', 4bytes name, 4bytes NULL (AP writes its own uuid atoms - not those copied - iTunes style with atom versioning)
-					atom_data_size = parsedAtoms[this_atom].AtomicLength - (16 + 16); //16 uuid; 16 = 4bytes * ('uuid', ap_uuid_name, verflag, 4 NULL bytes)
+					atom_data_size = parsedAtoms[this_atom].AtomicLength - (16 + 12); //16 uuid; 16 = 4bytes * ('uuid', ap_uuid_name, verflag, 4 NULL bytes)
 				} else if (parsedAtoms[this_atom].AtomicClassification == VERSIONED_ATOM || parsedAtoms[this_atom].AtomicClassification == PACKED_LANG_ATOM) {
 					//4bytes legnth, 4bytes name, 4bytes flag&versioning (language would be 2 bytes, but because its in different places, it gets stored as data)
 					atom_data_size = parsedAtoms[this_atom].AtomicLength - 12;
