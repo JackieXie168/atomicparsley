@@ -57,7 +57,7 @@ bool alter_original = false;
 bool cvs_build = true; //controls which type of versioning - cvs build-time stamp
 //bool cvs_build = false; //controls which type of versioning - release number
 
-FILE* source_file;
+FILE* source_file = NULL;
 uint32_t file_size;
 
 struct AtomicInfo parsedAtoms[MAX_ATOMS]; //(most I've seen is 144 for an untagged mp4)
@@ -73,6 +73,7 @@ AtomicInfo* udtaAtom = NULL;
 bool complete_free_space_erasure = false;
 bool initial_optimize_pass = true;
 bool psp_brand = false;
+bool prevent_update_using_padding = false;
 int metadata_style = UNDEFINED_STYLE;
 bool tree_display_only = false;
 
@@ -258,35 +259,14 @@ void TestFileExistence(const char *filePath, bool errorOut) {
 	}
 }
 
-char* extractAtomName(char *fileData, int name_position) {
-//name_position = 1 for normal atoms and needs to be done first; 2 for uuid atoms (which can only occur after we first find the atomName == "uuid")
-	memset(twenty_byte_buffer, 0, sizeof(char)*20);
-	memcpy(twenty_byte_buffer, fileData + name_position * 4, 4);
-
-	return twenty_byte_buffer;
-}
-
-void APar_FreeMemory() {
-	for(int iter=0; iter < atom_number; iter++) {
-		if (parsedAtoms[iter].AtomicData != NULL) {
-			free(parsedAtoms[iter].AtomicData);
-			parsedAtoms[iter].AtomicData = NULL;
-		}
-		if (parsedAtoms[iter].ReverseDNSname != NULL) {
-			free(parsedAtoms[iter].ReverseDNSname);
-			parsedAtoms[iter].ReverseDNSname = NULL;
-		}
-		if (parsedAtoms[iter].uuid_ap_atomname != NULL) {
-			free(parsedAtoms[iter].uuid_ap_atomname);
-			parsedAtoms[iter].uuid_ap_atomname = NULL;
-		}
+uint32_t APar_ReadFile(char* destination_buffer, FILE* a_file, uint32_t bytes_to_read) {
+	uint32_t bytes_read = 0;
+	if (destination_buffer != NULL) {
+		fseeko(a_file, 0, SEEK_SET); // not that 2gb support is required - malloc would probably have a few issues
+		bytes_read = (uint32_t)fread(destination_buffer, 1, (size_t)bytes_to_read, a_file);
+		file_size += bytes_read; //accommodate huge files embedded within small files for APar_Validate
 	}
-	free(twenty_byte_buffer);
-	twenty_byte_buffer=NULL;
-	free(file_progress_buffer);
-	file_progress_buffer=NULL;
-	
-	return;
+	return bytes_read;
 }
 
 int APar_TestArtworkBinaryData(const char* artworkPath) {
@@ -350,11 +330,42 @@ void APar_AtomicWriteTest(short AtomicNumber, bool binary) {
 }
 #endif
 
+char* extractAtomName(char *fileData, int name_position) {
+//name_position = 1 for normal atoms and needs to be done first; 2 for uuid atoms (which can only occur after we first find the atomName == "uuid")
+	memset(twenty_byte_buffer, 0, sizeof(char)*20);
+	memcpy(twenty_byte_buffer, fileData + name_position * 4, 4);
+
+	return twenty_byte_buffer;
+}
+
+void APar_FreeMemory() {
+	for(int iter=0; iter < atom_number; iter++) {
+		if (parsedAtoms[iter].AtomicData != NULL) {
+			free(parsedAtoms[iter].AtomicData);
+			parsedAtoms[iter].AtomicData = NULL;
+		}
+		if (parsedAtoms[iter].ReverseDNSname != NULL) {
+			free(parsedAtoms[iter].ReverseDNSname);
+			parsedAtoms[iter].ReverseDNSname = NULL;
+		}
+		if (parsedAtoms[iter].uuid_ap_atomname != NULL) {
+			free(parsedAtoms[iter].uuid_ap_atomname);
+			parsedAtoms[iter].uuid_ap_atomname = NULL;
+		}
+	}
+	free(twenty_byte_buffer);
+	twenty_byte_buffer=NULL;
+	free(file_progress_buffer);
+	file_progress_buffer=NULL;
+	
+	return;
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////
 //                        Picture Preferences Functions                              //
 ///////////////////////////////////////////////////////////////////////////////////////
 
-PicPrefs ExtractPicPrefs(char* env_PicOptions) {
+PicPrefs APar_ExtractPicPrefs(char* env_PicOptions) {
 	if (!parsed_prefs) {
 		
 		parsed_prefs = true; //only set default values & parse once
@@ -368,66 +379,68 @@ PicPrefs ExtractPicPrefs(char* env_PicOptions) {
 		myPicturePrefs.force_dimensions = false;
 		myPicturePrefs.force_height = 0;
 		myPicturePrefs.force_width = 0;
+		myPicturePrefs.removeTempPix = true; //we'll just make this the default
 		
-		char* this_pref;
-		while (env_PicOptions != NULL) {
-			this_pref = strsep(&env_PicOptions,":");
-			char* a_pref = strdup(this_pref);
-			if (strncmp(a_pref,"MaxDimensions=",14) == 0) {
-				char* MaxDimPref = strsep(&a_pref,"=");
-				long DimensionNumber=strtol(a_pref, NULL, 10);
-				//fprintf(stdout, "dimensions %i\n", (int)DimensionNumber);
-				myPicturePrefs.max_dimension = (int)DimensionNumber;
+		char* unparsed_opts = env_PicOptions;
+		if (env_PicOptions == NULL) return myPicturePrefs;
+		
+		while (unparsed_opts[0] != 0) {
+			if (memcmp(unparsed_opts,"MaxDimensions=",14) == 0) {
+				unparsed_opts+=14;
+				myPicturePrefs.max_dimension = (int)strtol(unparsed_opts, NULL, 10);
+
+			} else if (memcmp(unparsed_opts,"DPI=",4) == 0) {
+				unparsed_opts+=4;
+				myPicturePrefs.dpi = (int)strtol(unparsed_opts, NULL, 10);
+
+			} else if (memcmp(unparsed_opts,"MaxKBytes=",10) == 0) {
+				unparsed_opts+=10;
+				myPicturePrefs.max_Kbytes = (int)strtol(unparsed_opts, NULL, 10)*1024;
 				
-			} else if (strncmp(a_pref,"DPI=",4) == 0) {
-				char* TotalDPI = strsep(&a_pref,"=");
-				long dpiNumber=strtol(a_pref, NULL, 10);
-				//fprintf(stdout, "dpi %i\n", (int)dpiNumber);
-				myPicturePrefs.dpi = (int)dpiNumber;
-				
-			} else if (strncmp(a_pref,"MaxKBytes=",10) == 0) {
-				char* MaxBytes = strsep(&a_pref,"=");
-				long bytesNumber=strtol(a_pref, NULL, 10);
-				//fprintf(stdout, "dpi %i\n", (int)dpiNumber);
-				myPicturePrefs.max_Kbytes = (int)bytesNumber*1024;
-				
-			} else if (strncmp(a_pref,"AllPixJPEG=",11) == 0) {
-				char* onlyJPEG = strsep(&a_pref,"=");
-				if (strncmp(a_pref, "true", 4) == 0) {
-					//fprintf(stdout, "it's true\n");
+			} else if (memcmp(unparsed_opts,"AllPixJPEG=",11) == 0) {
+				unparsed_opts+=11;
+				if (memcmp(unparsed_opts, "true", 4) == 0) {
 					myPicturePrefs.allJPEG = true;
 				}
 				
-			} else if (strncmp(a_pref,"AllPixPNG=",10) == 0) {
-				char* onlyPNG = strsep(&a_pref,"=");
-				if (strncmp(a_pref, "true", 4) == 0) {
-					//fprintf(stdout, "it's true\n");
+			} else if (memcmp(unparsed_opts,"AllPixPNG=",10) == 0) {
+				unparsed_opts+=10;
+				if (memcmp(unparsed_opts, "true", 4) == 0) {
 					myPicturePrefs.allPNG = true;
 				}
 				
-			} else if (strncmp(a_pref,"AddBothPix=",11) == 0) {
-				char* addBoth = strsep(&a_pref,"=");
-				if (strncmp(a_pref, "true", 4) == 0) {
-					//fprintf(stdout, "it's true\n");
+			} else if (memcmp(unparsed_opts,"AddBothPix=",11) == 0) {
+				unparsed_opts+=11;
+				if (memcmp(unparsed_opts, "true", 4) == 0) {
 					myPicturePrefs.addBOTHpix = true;
 				}
 				
-			} else if (strncmp(a_pref,"SquareUp",7) == 0) {
+			} else if (memcmp(unparsed_opts,"SquareUp",7) == 0) {
+				unparsed_opts+=7;
 				myPicturePrefs.squareUp = true;
 				
-			} else if (strncmp(a_pref,"removeTempPix",7) == 0) {
+			} else if (strncmp(unparsed_opts,"removeTempPix",13) == 0) {
+				unparsed_opts+=13;
 				myPicturePrefs.removeTempPix = true;
 			
-			} else if (strncmp(a_pref,"ForceHeight=",12) == 0) {
-				strsep(&a_pref,"=");
-				myPicturePrefs.force_height = strtol(a_pref, NULL, 10);
+			} else if (memcmp(unparsed_opts,"keepTempPix",11) == 0) { //NEW
+				unparsed_opts+=11;
+				myPicturePrefs.removeTempPix = false;
+			
+			} else if (memcmp(unparsed_opts,"ForceHeight=",12) == 0) {
+				unparsed_opts+=12;
+				myPicturePrefs.force_height = strtol(unparsed_opts, NULL, 10);
 
-			} else if (strncmp(a_pref,"ForceWidth=",11) == 0) {
-				strsep(&a_pref,"=");
-				myPicturePrefs.force_width = strtol(a_pref, NULL, 10);
+			} else if (memcmp(unparsed_opts,"ForceWidth=",11) == 0) {
+				unparsed_opts+=11;
+				myPicturePrefs.force_width = strtol(unparsed_opts, NULL, 10);
+				
+			} else {
+				unparsed_opts++;
 			}
 		}
 	}
+
 	if (myPicturePrefs.force_height > 0 && myPicturePrefs.force_width > 0) myPicturePrefs.force_dimensions = true;
 	return myPicturePrefs;
 }
@@ -702,9 +715,10 @@ AtomicInfo* APar_AtomicComparison(AtomicInfo* proto_atom, short test_atom, bool 
 	AtomicInfo* return_atom = NULL;
 	size_t ATOM_TEST_LEN = (match_full_uuids ? 16 : 4);
 	
-	if (parsedAtoms[test_atom].AtomicClassification == EXTENDED_ATOM && memcmp(parsedAtoms[test_atom].uuid_ap_atomname, proto_atom->AtomicName, 4) == 0 && 
-	               parsedAtoms[test_atom].uuid_style == UUID_DEPRECATED_FORM) {   //accommodate deprecated form
-		return &parsedAtoms[test_atom];
+	if (parsedAtoms[test_atom].AtomicClassification == EXTENDED_ATOM && parsedAtoms[test_atom].uuid_style == UUID_DEPRECATED_FORM) {   //accommodate deprecated form
+		if (memcmp(parsedAtoms[test_atom].uuid_ap_atomname, proto_atom->AtomicName, 4) == 0) {
+			return &parsedAtoms[test_atom];
+		}
 	}
 	
 	//can't do AtomicVerFlags because lots of utilities don't write the proper iTunes flags for iTunes metadata
@@ -808,7 +822,8 @@ APar_FindAtom
 		NOTE: atom_name can come in these forms:
 			classic/vanilla/ordinary atoms:		moov.udta.meta.ilst.cprt.data
 			iTunes reverseDNS atoms:          moov.udta.meta.ilst.----.name:[iTunNORM]
-			uuid user-extension atoms:        moov.udta.meta.uuid=tdtg
+			uuid user-extension atoms:        moov.udta.meta.uuid=tdtg (the deprecated form)
+			uuid user-extension atoms:        moov.udta.meta.uuid=ba45fcaa-7ef5-5201-8a63-78886495ab1f
 			index-based atoms:                moov.trak[2].mdia.minf
 			
 		NOTE: On my computer it takes about .04 second to scan the file, .1 second to add about 2 dozen tags, and 1.0 second to copy a file. Updating a file
@@ -1389,6 +1404,71 @@ void APar_PrintUserDataAssests() { //3gp files
 	return;
 }
 
+/*----------------------
+APar_Extract_uuid_binary_file
+  uuid_atom - pointer to the struct holding the information describing the target atom
+	originating_file - the full file path string to the parsed file
+	output_path - a (possibly null) string where the embedded file will be extracted to
+
+    If the output path is a null pointer, create a new path derived from originating file name & path - strip off the extension and use that as the base. Read into
+		memory the contents of that particular uuid atom. Glob onto the base path the atom name and then the suffix that was embedded along with the file. Write out
+		the file to the now fully formed uuid_outfile path.
+----------------------*/
+void APar_Extract_uuid_binary_file(AtomicInfo* uuid_atom, const char* originating_file, char* output_path) {
+	uint32_t path_len = 0;
+	uint32_t atom_offsets = 0;
+	char* uuid_outfile = (char*)calloc(1, sizeof(char)*MAXPATHLEN+1); //malloc a new string because it may be a cli arg for a specific output path	
+	if (output_path == NULL) {
+		char* orig_suffix = strrchr(originating_file, '.');
+		if (orig_suffix == NULL) {
+			fprintf(stdout, "AP warning: a file extension for the input file was not found.\n\tGlobbing onto original filename...\n");
+			path_len = strlen(originating_file);
+			memcpy(uuid_outfile, originating_file, path_len);
+		} else {
+			path_len = orig_suffix-originating_file;
+			memcpy(uuid_outfile, originating_file, path_len);
+		}
+		
+	} else {
+		path_len = strlen(output_path);
+		memcpy(uuid_outfile, output_path, path_len);
+	}
+	char* uuid_payload = (char*)calloc(1, sizeof(char) * (uuid_atom->AtomicLength - 36 +1) );
+			
+	fseeko(source_file, uuid_atom->AtomicStart + 36, SEEK_SET);
+	fread(uuid_payload, 1, uuid_atom->AtomicLength - 36, source_file);
+	
+	uint32_t descrip_len = UInt32FromBigEndian(uuid_payload);
+	atom_offsets+=4+descrip_len;
+	uint8_t suffix_len = (uint8_t)uuid_payload[atom_offsets];
+	
+	char* file_suffix = (char*)calloc(1, sizeof(char) * suffix_len+16 );
+	memcpy(file_suffix, uuid_payload+atom_offsets+1, suffix_len);
+	atom_offsets+=1+suffix_len;
+	
+	uint8_t mime_len = (uint8_t)uuid_payload[atom_offsets];
+	uint32_t mimetype_string = atom_offsets+1;
+	atom_offsets+=1+mime_len;
+	uint32_t bin_len = UInt32FromBigEndian(uuid_payload+atom_offsets);
+	atom_offsets+=4;
+
+	sprintf(uuid_outfile+path_len, "-%s-uuid%s", uuid_atom->uuid_ap_atomname, file_suffix);
+	
+	FILE *outfile = APar_OpenFile(uuid_outfile, "wb");
+	if (outfile != NULL) {
+		fwrite(uuid_payload+atom_offsets, (size_t)bin_len, 1, outfile);
+		fclose(outfile);
+		fprintf(stdout, "Extracted uuid=%s attachment (mime-type=%s) to file: ", uuid_atom->uuid_ap_atomname, uuid_payload+mimetype_string);
+		APar_fprintf_UTF8_data(uuid_outfile);
+		fprintf(stdout, "\n");
+	}
+	
+	free(uuid_payload); uuid_payload = NULL;
+	free(uuid_outfile); uuid_outfile = NULL;
+	free(file_suffix); file_suffix = NULL;
+	return;
+}
+
 void APar_ExtractAAC_Artwork(short this_atom_num, char* pic_output_path, short artwork_count) {
 	char *base_outpath=(char *)malloc(sizeof(char)*MAXPATHLEN+1);
 	memset(base_outpath, 0, MAXPATHLEN +1);
@@ -1439,8 +1519,13 @@ void APar_ExtractDataAtom(int this_atom_number) {
 		uint32_t atom_header_size = 16;
 		
 		if (thisAtom->AtomicClassification == EXTENDED_ATOM) {
-			min_atom_datasize = 36;
-			atom_header_size = 36;
+			if (thisAtom->uuid_style == UUID_DEPRECATED_FORM) {
+				min_atom_datasize +=4;
+				atom_header_size +=4;
+			} else {
+				min_atom_datasize = 36;
+				atom_header_size = 36;
+			}
 		}
  
 		if (thisAtom->AtomicLength > min_atom_datasize ) {
@@ -1541,6 +1626,39 @@ void APar_ExtractDataAtom(int this_atom_number) {
 							}
 					}
 					
+					} else if (thisAtom->AtomicClassification == EXTENDED_ATOM &&
+											thisAtom->AtomicVerFlags == AtomFlags_Data_uuid_binary &&
+											thisAtom->uuid_style == UUID_AP_SHA1_NAMESPACE) {
+						uint32_t offset_into_uuiddata = 0;
+						uint32_t descrip_len = UInt32FromBigEndian(data_payload);
+						offset_into_uuiddata+=4;
+						
+						char* uuid_description = (char*)calloc(1, sizeof(char) * descrip_len+16 ); //char uuid_description[descrip_len+1];
+						memcpy(uuid_description, data_payload+offset_into_uuiddata, descrip_len);
+						offset_into_uuiddata+=descrip_len;
+						
+						uint8_t suffix_len = (uint8_t)data_payload[offset_into_uuiddata];
+						offset_into_uuiddata+=1;
+						
+						char* file_suffix = (char*)calloc(1, sizeof(char) * suffix_len+16 ); //char file_suffix[suffix_len+1];
+						memcpy(file_suffix, data_payload+offset_into_uuiddata, suffix_len);
+						offset_into_uuiddata+=suffix_len;
+						
+						uint8_t mime_len = (uint8_t)data_payload[offset_into_uuiddata];
+						offset_into_uuiddata+=1;
+						
+						char* uuid_mimetype = (char*)calloc(1, sizeof(char) * mime_len+16 ); //char uuid_mimetype[mime_len+1];
+						memcpy(uuid_mimetype, data_payload+offset_into_uuiddata, mime_len);
+						
+						fprintf(stdout, "FILE%s; mime-type=%s; description=%s\n", file_suffix, uuid_mimetype, uuid_description);
+						
+						free(uuid_description);
+						uuid_description = NULL;
+						free(file_suffix);
+						file_suffix = NULL;
+						free(uuid_mimetype);
+						uuid_description = NULL;
+					
 					} else {       //purl & egid would end up here too, but Apple switched it to a text string (0x00), so gets taken care above explicitly			  
 						fprintf(stdout, "hex 0x");
 						for( int hexx = 1; hexx <= (int)(thisAtom->AtomicLength - atom_header_size); ++hexx) {
@@ -1566,7 +1684,7 @@ void APar_ExtractDataAtom(int this_atom_number) {
 	return;
 }
 
-void APar_PrintDataAtoms(const char *path, bool extract_pix, char* pic_output_path, uint8_t supplemental_info) {
+void APar_PrintDataAtoms(const char *path, char* output_path, uint8_t supplemental_info, uint8_t target_information) {
 
 #if defined (UTF8_ENABLED)
 	fprintf(stdout, "\xEF\xBB\xBF"); //Default to output of a UTF-8 BOM (except under win32's WriteConsoleW where it gets transparently eliminated)
@@ -1587,7 +1705,7 @@ void APar_PrintDataAtoms(const char *path, bool extract_pix, char* pic_output_pa
 			
 			if ( (thisAtom->AtomicVerFlags == (uint32_t)AtomFlags_Data_Binary ||
             thisAtom->AtomicVerFlags == (uint32_t)AtomFlags_Data_Text || 
-            thisAtom->AtomicVerFlags == (uint32_t)AtomFlags_Data_UInt) && !extract_pix ) {
+            thisAtom->AtomicVerFlags == (uint32_t)AtomFlags_Data_UInt) && target_information == PRINT_DATA ) {
 				if (strncmp(parent->AtomicName, "----", 4) == 0) {
 					if (memcmp(parsedAtoms[i-1].AtomicName, "name", 4) == 0) {
 						fprintf(stdout, "Atom \"%s\" [%s] contains: ", parent->AtomicName, parsedAtoms[i-1].ReverseDNSname);
@@ -1615,8 +1733,8 @@ void APar_PrintDataAtoms(const char *path, bool extract_pix, char* pic_output_pa
 								
 			} else if (memcmp(parent->AtomicName, "covr", 4) == 0) {
 				artwork_count++;
-				if (extract_pix) {
-					APar_ExtractAAC_Artwork(thisAtom->AtomicNumber, pic_output_path, artwork_count);
+				if (target_information == EXTRACT_ARTWORK) {
+					APar_ExtractAAC_Artwork(thisAtom->AtomicNumber, output_path, artwork_count);
 				}
 			}
 			if ( thisAtom->AtomicLength <= 12 ) {
@@ -1627,7 +1745,7 @@ void APar_PrintDataAtoms(const char *path, bool extract_pix, char* pic_output_pa
 			//converts iso8859 © in '©foo' to a 2byte utf8 © glyph; replaces libiconv conversion
 			isolat1ToUTF8((unsigned char*)twenty_byte_buffer, 10, (unsigned char*)thisAtom->AtomicName, 4);
 
-			if ( thisAtom->AtomicVerFlags == (uint32_t)AtomFlags_Data_Text && !pic_output_path) {
+			if ( thisAtom->AtomicVerFlags == (uint32_t)AtomFlags_Data_Text && target_information == PRINT_DATA) {
 				
 				if (UnicodeOutputStatus == WIN32_UTF16) {
 					fprintf(stdout, "Atom uuid=\"");
@@ -1639,23 +1757,29 @@ void APar_PrintDataAtoms(const char *path, bool extract_pix, char* pic_output_pa
 
 				APar_ExtractDataAtom(i);
 			}
-		} else if(thisAtom->AtomicClassification == EXTENDED_ATOM) {
+		} else if(thisAtom->AtomicClassification == EXTENDED_ATOM ) {
 			if (thisAtom->uuid_style == UUID_AP_SHA1_NAMESPACE) {
 				memset(twenty_byte_buffer, 0, sizeof(char)*20);
-				isolat1ToUTF8((unsigned char*)twenty_byte_buffer, 10, (unsigned char*)thisAtom->uuid_ap_atomname, 4);
+				if (target_information == PRINT_DATA) {
+					isolat1ToUTF8((unsigned char*)twenty_byte_buffer, 10, (unsigned char*)thisAtom->uuid_ap_atomname, 4);
+					
+					fprintf(stdout, "Atom uuid=");
+					APar_print_uuid((ap_uuid_t*) thisAtom->AtomicName, false);
+					fprintf(stdout, " (AP uuid for \"");
+					APar_fprintf_UTF8_data(twenty_byte_buffer);
+					fprintf(stdout, "\") contains: ");
 				
-				fprintf(stdout, "Atom uuid=");
-				APar_print_uuid((ap_uuid_t*) thisAtom->AtomicName, false);
-				fprintf(stdout, " (AP uuid for \"");
-				APar_fprintf_UTF8_data(twenty_byte_buffer);
-				fprintf(stdout, "\") contains: ");
-				
-				APar_ExtractDataAtom(i);
+					APar_ExtractDataAtom(i);
+				} else {
+					if (target_information == EXTRACT_ALL_UUID_BINARYS && thisAtom->AtomicVerFlags == AtomFlags_Data_uuid_binary) {
+						APar_Extract_uuid_binary_file(thisAtom, path, output_path);
+					}
+				}
 			}
 		}
 	}
 	
-	if (artwork_count != 0) {
+	if (artwork_count != 0 && target_information == PRINT_DATA) {
 		if (artwork_count == 1) {
 			fprintf(stdout, "Atom \"covr\" contains: %i piece of artwork\n", artwork_count);
 		} else {
@@ -1939,12 +2063,12 @@ void APar_IdentifyBrand(char* file_brand ) {
 	brand = UInt32FromBigEndian(file_brand);
 	switch (brand) {
 		//what ISN'T supported
-		case 0x71742020 : //'qt  '
+		case 0x71742020 : //'qt  '  --this is listed at mp4ra, but there are features of the file that aren't supported (like the 4 NULL bytes after the last udta child atom
 			fprintf(stdout, "AtomicParsley error: Quicktime movie files are not supported.\n");
 			exit(2);
 			break;
 			
-		//3gp-style metadata
+		//3gp-brands are listed in 3GPP/3GPP2 specification documents, not all are listed at mp4ra
 		
 		case 0x33673261 : //'3g2a' 3GPP2 release 0
 		case 0x33673262 : //'3g2b' 3GPP2 release A
@@ -1970,12 +2094,13 @@ void APar_IdentifyBrand(char* file_brand ) {
 			break;
 			
 		//what IS supported for iTunes-style metadata
-		case 0x4D534E56 : //'MSNV'  (PSP)
+		case 0x4D534E56 : //'MSNV'  (PSP) - this isn't actually listed at mp4ra, but since they are popular...
 			metadata_style = ITUNES_STYLE;
 			psp_brand = true;
 			break;
-		case 0x4D344120 : //'M4A '
+		case 0x4D344120 : //'M4A '  -- these are all listed at http://www.mp4ra.org/filetype.html as registered brands
 		case 0x4D344220 : //'M4B '
+		case 0x4D345020 : //'M4P '
 		case 0x4D345620 : //'M4V '
 		case 0x6D703432 : //'mp42'
 		case 0x6D703431 : //'mp41'
@@ -1985,7 +2110,7 @@ void APar_IdentifyBrand(char* file_brand ) {
 			metadata_style = ITUNES_STYLE;
 			break;
 		
-		//other lesser unsupported brands; http://www.mp4ra.org/filetype.html
+		//other lesser unsupported brands; http://www.mp4ra.org/filetype.html like dv, mjpeg200, mp21 & ... whatever mpeg7 brand is
 		default :
 			fprintf(stdout, "AtomicParsley error: unsupported MPEG-4 file brand found '%s'\n", file_brand);
 			exit(2);
@@ -2441,7 +2566,7 @@ void APar_ScanAtoms(const char *path, bool scan_for_tree_ONLY) {
 					
 					generalAtomicLevel = APar_GetCurrentAtomDepth(jump, dataSize);
 					
-					if (jump + 8 >= (uint32_t)file_size) { //prevents jumping past EOF for the smallest of atoms
+					if ( (jump > 8 ? jump : 8) >= (uint32_t)file_size) { //prevents jumping past EOF for the smallest of atoms
 						break;
 					}
 					
@@ -2474,6 +2599,14 @@ void APar_ScanAtoms(const char *path, bool scan_for_tree_ONLY) {
 //                          Atom Removal Functions                                   //
 ///////////////////////////////////////////////////////////////////////////////////////
 
+/*----------------------
+APar_EliminateAtom
+  this_atom_number - the index into parsedAtoms[] of the atom to be erased
+	resume_atom_number - the point in parsedAtoms[] where the tree will be picked up
+
+    This manually removes the atoms from being used. The atom is still in parsedAtoms[] at the same location it was previously, but because parsedAtoms is used
+		as a linked list & followed by NextAtomNumber, effectively, this atom (and atoms leading to resume_atom_number) are no longer considered part of the tree.
+----------------------*/
 void APar_EliminateAtom(short this_atom_number, int resume_atom_number) {
 	if ( this_atom_number > 0 && this_atom_number < atom_number && resume_atom_number >= 0 && resume_atom_number < atom_number) {
 		short preceding_atom_pos = APar_FindPrecedingAtom(this_atom_number);
@@ -2489,6 +2622,15 @@ void APar_EliminateAtom(short this_atom_number, int resume_atom_number) {
 	return;
 }
 
+/*----------------------
+APar_RemoveAtom
+  atom_path - the "peri.od_d.elim.inat.ed__.atom.path" string that represents the target atom
+	atom_type - the type of atom to be eliminated (packed language, extended...) of the target atom
+	UD_lang - the language code for a packed language atom (ignored for non-packed language atoms)
+
+    APar_RemoveAtom tries to find the atom in the string. If it exists, then depending on its atom_type, it or its last child will get passed along for elimination.
+		TODO: the last child part could use some more intelligence at some point; its relatively hardcoded.
+----------------------*/
 void APar_RemoveAtom(const char* atom_path, uint8_t atom_type, uint16_t UD_lang) {
 	
 	AtomicInfo* desiredAtom = APar_FindAtom(atom_path, false, atom_type, UD_lang, (atom_type == EXTENDED_ATOM ? true : false) );
@@ -2531,14 +2673,29 @@ void APar_RemoveAtom(const char* atom_path, uint8_t atom_type, uint16_t UD_lang)
 	return;
 }
 
+/*----------------------
+APar_freefree
+  purge_level - an integer ranging from -1 to some positive number of the level a 'free' atom must be on for it to be erased.
+
+    Some tagging utilities (things based on libmp4v2 & faac irrespective of which tagging system used) have a dirty little secret. They way the work is to copy the
+		'moov' atom - in its entirety - to the end of the file, and make the changes there. The original 'moov' file is nulled out, but the file only increases in size.
+		Even if you eliminate the tag, the file grows. Only when the 'moov' atom is last do these taggers work efficiently - and they are blazingly fast, no doubt about
+		that - but they are incredibly wasteful. It is possible to switch between using AP and mp4tags and build a file with dozens of megabytes wasted just be changing
+		a single letter.
+		This function can be used to iterate through the atoms in the file, and selectively eliminate 'free' atoms. Pass a -1 and every last 'free' atom that exists will
+		be eliminated (but another will appear later as padding - to completely eliminate any resulting 'free' atoms, the environmental variable "AP_PADDING" needs to be
+		set with MID_PAD to 0). Pass a 0, and all 'free' atoms preceding 'moov' or after 'mdat' (including gpac's pesky "Place Your Ad Here" free-at-the-end) will be
+		removed. A value of >= 1 will eliminate 'free' atoms between those levels and level 1 (or file level).
+----------------------*/
 void APar_freefree(int purge_level) {
 	modified_atoms = true;
 	short eval_atom = 0;
 	short prev_atom = 0;
 	short moov_atom = 0; //a moov atom has yet to be seen
+	short mdat_atom = 0; //any ol' mdat
 	
 	if (purge_level == -1) {
-		complete_free_space_erasure = true; //prevent any in situ dynamic updating when trying to remove all free atoms. The comparison of the original file's udta size would allow padding utilization, and so 'free' atoms would appear if not explicitly disallowed (comparison happens in APar_DetermineDynUpdate)
+		complete_free_space_erasure = true; //prevent any in situ dynamic updating when trying to remove all free atoms. Also triggers a more efficient means of forcing padding
 	}
 	
 	while (true) {
@@ -2548,10 +2705,10 @@ void APar_freefree(int purge_level) {
 			break;
 		}
 
-		if ( memcmp(parsedAtoms[eval_atom].AtomicName, "free", 4) == 0 ) {
+		if ( memcmp(parsedAtoms[eval_atom].AtomicName, "free", 4) == 0 || memcmp(parsedAtoms[eval_atom].AtomicName, "skip", 4) == 0 ) {
 			//fprintf(stdout, "i am of size %u purge level %i (%u) -> %i\n", parsedAtoms[eval_atom].AtomicLength, purge_level, parsedAtoms[eval_atom].AtomicLevel, eval_atom);
 			if ( purge_level == -1 || purge_level >= parsedAtoms[eval_atom].AtomicLevel || 
-			     (purge_level == 0 && parsedAtoms[eval_atom].AtomicLevel == 1 && moov_atom == 0) ) {
+			     (purge_level == 0 && parsedAtoms[eval_atom].AtomicLevel == 1 && (moov_atom == 0 || mdat_atom != 0)) ) {
 				short prev_atom = APar_FindPrecedingAtom(eval_atom);
 				if (parsedAtoms[eval_atom].NextAtomNumber == 0) { //we've hit the last atom
 					APar_EliminateAtom(eval_atom, parsedAtoms[eval_atom].NextAtomNumber);
@@ -2564,6 +2721,9 @@ void APar_freefree(int purge_level) {
 		}
 		if ( memcmp(parsedAtoms[eval_atom].AtomicName, "moov", 4) == 0 ) {
 			moov_atom = eval_atom;
+		}
+		if ( memcmp(parsedAtoms[eval_atom].AtomicName, "mdat", 4) == 0 ) {
+			mdat_atom = eval_atom;
 		}
 	}
 	return;
@@ -2809,8 +2969,7 @@ void APar_Unified_atom_Put(short atom_num, const char* unicode_data, uint8_t tex
 			uint32_t string_length = strlen(unicode_data) + 1;
 			uint32_t glyphs_req_bytes = mbstowcs(NULL, unicode_data, string_length) * 2; //passing NULL pre-calculates the size of wchar_t needed;
 			
-			unsigned char* utf16_conversion = (unsigned char*)malloc( sizeof(unsigned char)* string_length * 2 );
-			memset(utf16_conversion, 0, string_length * 2 );
+			unsigned char* utf16_conversion = (unsigned char*)calloc(1, sizeof(unsigned char)* string_length * 2 );
 			
 			UTF8ToUTF16BE(utf16_conversion, glyphs_req_bytes, (unsigned char*)unicode_data, string_length);
 			
@@ -2828,6 +2987,7 @@ void APar_Unified_atom_Put(short atom_num, const char* unicode_data, uint8_t tex
 			if (parsedAtoms[atom_num].AtomicData[atom_data_pos + (glyphs_req_bytes -1)] + parsedAtoms[atom_num].AtomicData[atom_data_pos + glyphs_req_bytes] != 0) {
 				parsedAtoms[atom_num].AtomicLength += 4; //+4 because add 2 bytes for the character we just found + 2bytes for the req. NULL
 			}
+			free(utf16_conversion); utf16_conversion = NULL;
 		
 		} else if (text_tag_style == UTF8_iTunesStyle_Binary) { //because this will be 'binary' data (a misnomer for purl & egid), memcpy 4 bytes into AtomicData, not at the start of it
 			uint32_t binary_bytes = strlen(unicode_data);
@@ -3009,13 +3169,11 @@ void APar_MetaData_atomArtwork_Init(short atom_num, const char* artworkPath) {
 	off_t picture_size = findFileSize(artworkPath);
 	
 	if (picture_size > 0) {
-		APar_MetaData_atom_QuickInit(atom_num, APar_TestArtworkBinaryData(artworkPath), 0 );
-		parsedAtoms[atom_num].AtomicLength += (uint32_t)picture_size;
-		if (IsUnicodeWinOS() && UnicodeOutputStatus == WIN32_UTF16) {
-			memcpy(parsedAtoms[atom_num].AtomicData, artworkPath, wcslen( (wchar_t*)artworkPath ) * 2);
-		} else {
-			parsedAtoms[atom_num].AtomicData = strdup(artworkPath);
-		}
+		APar_MetaData_atom_QuickInit(atom_num, APar_TestArtworkBinaryData(artworkPath), 0, (uint32_t)picture_size );
+		FILE* artfile = APar_OpenFile(artworkPath, "rb"); //openSomeFile(artworkPath, true);
+		uint32_t bytes_read = APar_ReadFile(parsedAtoms[atom_num].AtomicData + 4, artfile, (uint32_t)picture_size); //+4 for the 4 null bytes
+		if (bytes_read > 0) parsedAtoms[atom_num].AtomicLength += bytes_read;
+		fclose(artfile);
 	}	
 	return;
 }
@@ -3046,22 +3204,25 @@ void APar_MetaData_atomArtwork_Set(const char* artworkPath, char* env_PicOptions
 			desiredAtom = APar_CreateSparseAtom(&sample_data_atom, desiredAtom, APar_FindLastChild_of_ParentAtom(desiredAtom->AtomicNumber) );
 			
 			//determine if any picture preferences will impact the picture file in any way
-			myPicturePrefs = ExtractPicPrefs(env_PicOptions);
+			myPicturePrefs = APar_ExtractPicPrefs(env_PicOptions);
 
 	#if defined (DARWIN_PLATFORM)
-			char* resized_filepath = ResizeGivenImage(artworkPath , myPicturePrefs);
-			if ( resized_filepath != NULL ) {
+			char* resized_filepath = (char*)calloc(1, sizeof(char)*MAXPATHLEN+1);
+
+			if ( ResizeGivenImage(artworkPath , myPicturePrefs, resized_filepath) ) {
 				APar_MetaData_atomArtwork_Init(desiredAtom->AtomicNumber, resized_filepath);
-				parsedAtoms[desiredAtom->AtomicNumber].tempFile = true; //THIS desiredAtom holds the temp pic file path
 			
 				if (myPicturePrefs.addBOTHpix) {
-					//create another sparse atom to hold the new file path (otherwise the 2nd will just overwrite the 1st in EncapsulateData
+					//create another sparse atom to hold the new image data
 					desiredAtom = APar_CreateSparseAtom(&sample_data_atom, desiredAtom, APar_FindLastChild_of_ParentAtom(parent_atom) );
 					APar_MetaData_atomArtwork_Init(desiredAtom->AtomicNumber, artworkPath);
+					if (myPicturePrefs.removeTempPix) remove(resized_filepath);
 				}
 			} else {
 				APar_MetaData_atomArtwork_Init(desiredAtom->AtomicNumber, artworkPath);
 			}
+			free(resized_filepath);
+			resized_filepath=NULL;
 	#else
 			//perhaps some libjpeg based resizing/modification for non-Mac OS X based platforms
 			APar_MetaData_atomArtwork_Init(desiredAtom->AtomicNumber, artworkPath);
@@ -3135,16 +3296,15 @@ APar_uuid_atom_Init
 		//4bytes atom length, 4 bytes 'uuid', 16bytes uuidv5, 4bytes name of uuid in AP namespace, 4bytes versioning, 4bytes NULL, Xbytes data
 ----------------------*/
 short APar_uuid_atom_Init(const char* atom_path, char* uuidName, const uint32_t dataType, const char* uuidValue, bool shellAtom) {
+	AtomicInfo* desiredAtom = NULL;
 	char uuid_path[256];
 	char uuid_binary_str[20];
-
-	memset(uuid_path, 0, sizeof(uuid_path));
-	AtomicInfo* desiredAtom = NULL;
 	char uuid_4char_name[10];
+	memset(uuid_path, 0, 256);
 	memset(uuid_4char_name, 0, 10);
 	
 	if (shellAtom) {
-		int conver = UTF8Toisolat1((unsigned char*)&uuid_4char_name, 4, (unsigned char*)uuidName, strlen(uuidName) );
+		UTF8Toisolat1((unsigned char*)&uuid_4char_name, 4, (unsigned char*)uuidName, strlen(uuidName) );
 	} else {
 		memcpy(uuid_4char_name, uuidName, 4);
 	}
@@ -3164,6 +3324,10 @@ short APar_uuid_atom_Init(const char* atom_path, char* uuidName, const uint32_t 
 		return -1;
 		
 	} else {
+		if ( !(dataType == AtomFlags_Data_Text || dataType == AtomFlags_Data_uuid_binary) ) { //the only supported types
+			fprintf(stdout, "AP warning: only text or file types are allowed on uuid atom %s (%u-%u); skipping\n", uuidName, dataType, AtomFlags_Data_Text);
+			return -1;
+		}
 		//uuid atoms won't have 'data' child atoms - they will carry the data directly as opposed to traditional iTunes-style metadata that does store the information on 'data' atoms. But user-defined is user-defined, so that is how it will be defined here.
 		modified_atoms = true;
 
@@ -3171,9 +3335,10 @@ short APar_uuid_atom_Init(const char* atom_path, char* uuidName, const uint32_t 
 		desiredAtom->uuid_ap_atomname = (char*)calloc(1, sizeof(char)*10);       //only useful to print out the atom tree midway through an operation
 		memcpy(desiredAtom->uuid_ap_atomname, uuid_4char_name, 4);               //only useful to print out the atom tree midway through an operation
 		
-		if (dataType == (uint32_t)AtomFlags_Data_Text) { //it is because that is all that is allowed - strings
-			APar_MetaData_atom_QuickInit(desiredAtom->AtomicNumber, dataType, 20); //+20 including the 4 NULL bytes preceding any string we set
-		}
+		if (dataType == AtomFlags_Data_Text) APar_MetaData_atom_QuickInit(desiredAtom->AtomicNumber, dataType, 20); //+20 including the 4 NULL bytes preceding any string we set
+		//NOTE: setting a file into a uuid atom  (dataType == AtomFlags_Data_uuid_binary) is handled in main.cpp - the length of the file extension, description and file
+		//all add up to the amount to malloc AtomicData to, so handle that separately.
+		
 		parsedAtoms[desiredAtom->AtomicNumber].AtomicClassification = EXTENDED_ATOM;
 	}
 	return desiredAtom->AtomicNumber;
@@ -3184,14 +3349,18 @@ APar_MetaData_atom_QuickInit
 	atom_num - the position in the parsedAtoms array (either found in the file or a newly created sparse atom) so AtomicData can be initialized
 	atomFlags - the AtomicVerFlags for the iTunes-style metadata atom
 	supplemental_length - iTunes-style metadata for 'data' atoms is >= 16bytes long; AtomicParsley created uuid atoms will be +4bytes directly on that atom
+	allotment - the bytes of AtomicData to malloc (defaults to MAXDATA_PAYLOAD + 1 (+50) unless changed - like uuids from file)
 
     Metadata_QuickInit will initialize a pre-found atom to MAXDATA_PAYLOAD so that it can carry info on AtomicData
 ----------------------*/
-void APar_MetaData_atom_QuickInit(short atom_num, const uint32_t atomFlags, uint32_t supplemental_length) {
+void APar_MetaData_atom_QuickInit(short atom_num, const uint32_t atomFlags, uint32_t supplemental_length, uint32_t allotment) {
 	//this will skip the finding of atoms and just malloc the AtomicData; used by genre & artwork
 
-	parsedAtoms[atom_num].AtomicData = (char*)malloc(sizeof(char)* MAXDATA_PAYLOAD + 1 ); //puts a hard limit on the length of strings (the spec doesn't)
-	memset(parsedAtoms[atom_num].AtomicData, 0, sizeof(char)* MAXDATA_PAYLOAD + 1 );
+	parsedAtoms[atom_num].AtomicData = (char*)calloc(1, sizeof(char)* allotment+50 );
+	if (parsedAtoms[atom_num].AtomicData == NULL) {
+		fprintf(stdout, "AP error: there was insufficient memory available for allocation. Exiting.%c\n", '\a');
+		exit(1);
+	}
 	
 	parsedAtoms[atom_num].AtomicLength = 16 + supplemental_length; // 4bytes atom length, 4 bytes atom length, 4 bytes version/flags, 4 bytes NULL
 	parsedAtoms[atom_num].AtomicVerFlags = atomFlags;
@@ -3337,7 +3506,7 @@ void APar_ISO_UserData_Set(char* iso_atom_name, const char* iso_payload, uint8_t
 	
 	APar_TrackInfo(total_tracks, a_track, an_atom); //With track_num set to 0, it will return the total trak atom into total_tracks here.
 	
-	if (iso_track > total_tracks) {
+	if (iso_track > total_tracks || (iso_track == 0 && iso_container == SINGLE_TRACK_ATOM) ) {
 		APar_assert(false, 5, iso_atom_name);
 		return;
 	}
@@ -3349,10 +3518,10 @@ void APar_ISO_UserData_Set(char* iso_atom_name, const char* iso_payload, uint8_t
 	} else if (iso_container == SINGLE_TRACK_ATOM) {
 		total_settings = 1;
 	}
-	char iso_atom_path[400];
+	char* iso_atom_path = (char*)malloc(sizeof(char)* 400 );
 	
 	for (uint8_t i = 1; i <= total_settings; i++) {
-		memset(&iso_atom_path, 0, 400);
+		memset(iso_atom_path, 0, 400);
 		if (iso_container == MOVIE_LEVEL_ATOM) {
 				memcpy(iso_atom_path, "moov.udta.", 10);
 				memcpy(iso_atom_path+10, iso_atom_name, 4);
@@ -3366,6 +3535,8 @@ void APar_ISO_UserData_Set(char* iso_atom_name, const char* iso_payload, uint8_t
 			APar_RemoveAtom(iso_atom_path, PACKED_LANG_ATOM, packed_lang); //find the atom; don't create if it's "" to remove
 		} else {
 			modified_atoms = true;
+			if (iso_container != MOVIE_LEVEL_ATOM) prevent_update_using_padding = true; //because updating via padding works off of 'moov.udta', a full rewrite is req for tracks.
+			
 			desiredAtom = APar_FindAtom(iso_atom_path, true, PACKED_LANG_ATOM, packed_lang);
 		
 			desiredAtom->AtomicData = (char*)malloc(sizeof(char)* MAXDATA_PAYLOAD ); //puts a hard limit on the length of strings (the spec doesn't)
@@ -3379,6 +3550,7 @@ void APar_ISO_UserData_Set(char* iso_atom_name, const char* iso_payload, uint8_t
 			APar_Unified_atom_Put(desiredAtom->AtomicNumber, iso_payload, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
 		}
 	}
+	free(iso_atom_path); iso_atom_path = NULL;
 	return;
 }
 
@@ -3614,6 +3786,14 @@ void APar_ForcePadding(uint32_t padding_amount) {
 	return;
 }
 
+/*----------------------
+APar_ConsilidatePadding
+	force_padding_amount - the amount of padding to add (typically the default amount)
+
+    If no existing 'free' atom that can be considered padding is available, add the forced amount. If there is some repository of 'free' space, iterate thru deleting
+		'free' space, and adding the length to the repository's length - thereby consolidating multiple 'free' atoms into a single 'free' atom. Then malloc the 'free' 
+		atom's AtomicData to that length so that when writeout time comes, this 'free' will write from memory - and it will be all nulled out.
+----------------------*/
 void APar_ConsilidatePadding(uint32_t force_padding_amount) {
 	if (force_padding_amount <= 8 || tree_display_only) { //prevent having an atom of length 0 (which means it goes to EOF)
 		return;
@@ -4124,7 +4304,7 @@ void APar_ValidateAtoms() {
 		}
 	}
 	
-	double perdiff = (float)((float)((uint32_t)simple_tally) * 100.0 / (double)file_size);
+	double perdiff = (float)((float)((uint32_t)simple_tally) * 100.0 / (double)(file_size-removed_bytes_tally) );
 	int percentage_difference = (int)lroundf((float)perdiff);
 	
 	if (percentage_difference < 90 && file_size > 300000) { //only kick in when files are over 300k & 90% of the size
@@ -4216,11 +4396,12 @@ void APar_TestTracksForKind() {
 }
 #endif
 
-void APar_DeriveNewPath(const char *filePath, char* temp_path, int output_type, const char* file_kind) {
-	char* suffix = strrchr(filePath, '.');
-	
-	if (strncmp(file_kind, "-dump-", 4) == 0) {
-		strncpy(suffix, ".raw", 4);
+void APar_DeriveNewPath(const char *filePath, char* temp_path, int output_type, const char* file_kind, char* forced_suffix, bool random_filename = true) {
+	char* suffix = NULL;
+	if (forced_suffix == NULL) {
+		suffix = strrchr(filePath, '.');
+	} else {
+		suffix = forced_suffix;
 	}
 	
 	size_t filepath_len = strlen(filePath);
@@ -4242,13 +4423,15 @@ void APar_DeriveNewPath(const char *filePath, char* temp_path, int output_type, 
 		memcpy(temp_path + strlen(temp_path), file_kind, strlen(file_kind));
 #endif
 	}
-
-	char randstring[6];
-	srand((int) time(NULL)); //Seeds rand()
-	int randNum = rand()%100000;
-	sprintf(randstring, "%i", randNum);
-
-	memcpy(temp_path + strlen(temp_path), randstring, strlen(randstring));
+	
+	if (random_filename) {
+		char randstring[6];
+		srand((int) time(NULL)); //Seeds rand()
+		int randNum = rand()%100000;
+		sprintf(randstring, "%i", randNum);
+		memcpy(temp_path + strlen(temp_path), randstring, strlen(randstring));
+	}
+	
 	if (forced_suffix_type == FORCE_M4B_TYPE) {
 		memcpy(temp_path + strlen(temp_path), ".m4b", 5);
 	} else {
@@ -4269,7 +4452,7 @@ void APar_MetadataFileDump(const char* m4aFile) {
 		char* dump_buffer=(char*)malloc( sizeof(char)* userdata_atom->AtomicLength +1 );
 		memset(dump_buffer, 0, sizeof(char)* userdata_atom->AtomicLength +1 );
 	
-		APar_DeriveNewPath(m4aFile, dump_file_name, 1, "-dump-");
+		APar_DeriveNewPath(m4aFile, dump_file_name, 1, "-dump-", ".raw");
 		dump_file = APar_OpenFile(dump_file_name, "wb");
 		if (dump_file != NULL) {
 			//body of atom writing here
@@ -4334,8 +4517,11 @@ void APar_MergeTempFile(FILE* dest_file, FILE *src_file, uint32_t src_file_size,
 			fread(buffer, 1, (size_t)max_buffer, src_file);
 			
 			//fseek(dest_file, dest_position + file_pos, SEEK_SET);
-#if defined (_MSC_VER)
+#if defined(_MSC_VER)
 			fpos_t file_offset = dest_position + file_pos;
+#elif defined(__GLIBC__)
+      fpos_t file_offset = {0};
+			file_offset.__pos = dest_position + file_pos;
 #else
 			off_t file_offset = dest_position + file_pos;
 #endif
@@ -4347,8 +4533,11 @@ void APar_MergeTempFile(FILE* dest_file, FILE *src_file, uint32_t src_file_size,
 			fseeko(src_file, file_pos, SEEK_SET);
 			fread(buffer, 1, (size_t)(src_file_size - file_pos), src_file);
 			//fprintf(stdout, "buff starts with %s\n", buffer+4);
-#if defined (_MSC_VER)
+#if defined(_MSC_VER)
 			fpos_t file_offset = dest_position + file_pos;
+#elif defined(__GLIBC__)
+      fpos_t file_offset = {0};
+			file_offset.__pos = dest_position + file_pos;
 #else
 			off_t file_offset = dest_position + file_pos;
 #endif
@@ -4385,89 +4574,7 @@ uint32_t APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file
 		parsedAtoms[this_atom].AtomicLength = (uint32_t)parsedAtoms[this_atom].AtomicLengthExtended;
 	}
 	
-	//handle jpeg/pngs differently when we are ADDING them: they will be coming from entirely separate files
-	//jpegs/png already present in the file get handled in the "if (from_file)" portion
-	/*if (parsedAtoms[this_atom].AtomicData != NULL) {
-		AtomicInfo parentAtom = parsedAtoms[ APar_FindParentAtom(parsedAtoms[this_atom].AtomicNumber, parsedAtoms[this_atom].AtomicLevel) ];
-		fprintf(stdout, "Parent atom %s has child with data %s\n", parentAtom.AtomicName, parsedAtoms[this_atom].AtomicData);
-	}*/
-	if ( ((parsedAtoms[this_atom].AtomicVerFlags == (uint32_t)AtomFlags_Data_JPEGBinary) || 
-				(parsedAtoms[this_atom].AtomicVerFlags == (uint32_t)AtomFlags_Data_PNGBinary)) && 
-				(parsedAtoms[this_atom].AtomicData != NULL) && (memcmp(parsedAtoms[this_atom].AtomicName, "data" , 4) == 0) ) {
-							
-		fseeko(temp_file, (bytes_written_tally + bytes_written), SEEK_SET);
-		
-		//if (parsedAtoms[this_atom].AtomicClassification == EXTENDED_ATOM) {
-		//	fwrite("uuid", 4, 1, temp_file);
-		//	bytes_written += 4;
-		//}
-		
-		fwrite(parsedAtoms[this_atom].AtomicName, 4, 1, temp_file); //write the atom name
-		bytes_written += 4;
-		
-		char4TOuint32( (uint32_t)parsedAtoms[this_atom].AtomicVerFlags, conv_buffer); //write the atom data class
-		fwrite(conv_buffer, 4, 1, temp_file);
-		bytes_written += 4;
-		
-		char4TOuint32( 0, conv_buffer); //write a 4 bytes of null space out
-		fwrite(conv_buffer, 4, 1, temp_file);
-		bytes_written += 4;
-		
-		//open the originating file...
-		FILE *pic_file = NULL;
-		pic_file = APar_OpenFile(parsedAtoms[this_atom].AtomicData, "rb");
-		if (pic_file != NULL) {
-			//...and the actual transfer of the picture
-			while (bytes_written <= parsedAtoms[this_atom].AtomicLength) {
-				if (bytes_written + max_buffer <= parsedAtoms[this_atom].AtomicLength ) {
-					fseeko(pic_file, bytes_written - 16, SEEK_SET);
-					fread(buffer, 1, (size_t)max_buffer, pic_file);
-				
-					fseeko(temp_file, (bytes_written_tally + bytes_written), SEEK_SET);
-					fwrite(buffer, (size_t)max_buffer, 1, temp_file);
-					bytes_written += max_buffer;
-					
-					APar_ShellProgressBar(bytes_written_tally + bytes_written);
-				
-				} else { //we either came up on a short atom (most are), or the last bit of a really long atom
-					//fprintf(stdout, "Writing atom %s from file directly into buffer\n", parsedAtoms[this_atom].AtomicName);
-					fseeko(pic_file, bytes_written - 16, SEEK_SET);
-					fread(buffer, 1, (size_t)(parsedAtoms[this_atom].AtomicLength - bytes_written), pic_file);
-				
-					fseeko(temp_file, (bytes_written_tally + bytes_written), SEEK_SET);
-					fwrite(buffer, (size_t)(parsedAtoms[this_atom].AtomicLength - bytes_written), 1, temp_file);
-					bytes_written += parsedAtoms[this_atom].AtomicLength - bytes_written;
-					
-					APar_ShellProgressBar(bytes_written_tally + bytes_written);
-				
-					break;
-				} //endif
-			}//end while
-			
-		}//ends if(pic_file)
-		fclose(pic_file);
-		
-		if (myPicturePrefs.removeTempPix && parsedAtoms[this_atom].tempFile ) {
-			//reopen the picture file to delete if this IS a temp file (and the env pref was given)
-			pic_file = APar_OpenFile(parsedAtoms[this_atom].AtomicData, "wb");
-			
-			if ( IsUnicodeWinOS() && UnicodeOutputStatus == WIN32_UTF16) {
-#if defined (_MSC_VER)
-				wchar_t* utf16_pic_path = Convert_multibyteUTF8_to_wchar(parsedAtoms[this_atom].AtomicData);
-		
-				_wremove(utf16_pic_path);
-		
-				free(utf16_pic_path);
-				utf16_pic_path = NULL;
-#endif
-			} else {
-				remove(parsedAtoms[this_atom].AtomicData);
-			}
-			
-			fclose(pic_file);
-		}
-				
-	} else if (from_file) {
+	if (from_file) {
 		// here we read in the original atom into the buffer. If the length is greater than our buffer length,
 		// we loop, reading in chunks of the atom's data into the buffer, and immediately write it out, reusing the buffer.
 		
@@ -4592,9 +4699,11 @@ void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_origi
 	
 	if (!complete_free_space_erasure) {
 		APar_DetermineDynamicUpdate(true); //test whether it can happen
+	} else {
+		APar_ForcePadding_sans_udta(); //force padding without the logistics of summing 'free' space & that overhead since all 'free' atoms were erased anyway
 	}
 	
-	if (!rewrite_original) {
+	if (!rewrite_original || prevent_update_using_padding) {
 		udta_dynamics.dynamic_updating = false;
 	}
 	
@@ -4604,7 +4713,7 @@ void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_origi
 	uint32_t mdat_position = APar_DetermineMediaData_AtomPosition(); 
 	
 	if (udta_dynamics.dynamic_updating) {
-		APar_DeriveNewPath(m4aFile, temp_file_name, -1, "-data-");
+		APar_DeriveNewPath(m4aFile, temp_file_name, -1, "-data-", NULL);
 		temp_file = APar_OpenFile(temp_file_name, "wb");
 #if defined (_MSC_VER)
 		char* invisi_command=(char*)malloc(sizeof(char)*2*MAXPATHLEN);
@@ -4628,7 +4737,7 @@ void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_origi
 		APar_DetermineDynamicUpdate(false); //consolidate 'free' atom space; redetermine atom sizes again
 	
 	} else if (!outfile) {
-		APar_DeriveNewPath(m4aFile, temp_file_name, 0, "-temp-");
+		APar_DeriveNewPath(m4aFile, temp_file_name, 0, "-temp-", NULL);
 		temp_file = APar_OpenFile(temp_file_name, "wb");
 		
 #if defined (DARWIN_PLATFORM)
@@ -4640,7 +4749,7 @@ void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_origi
 		//AP probably will have a problem there. Output to a uniquely named file as I'm not going to poll the OS for the type of FS employed on the target drive.
 		if (strncmp(m4aFile,outfile,strlen(outfile)) == 0 && (strlen(outfile) == strlen(m4aFile)) ) {
 			//er, nice try but you were trying to ouput to the exactly named file of the original. Y'all ain't so slick
-			APar_DeriveNewPath(m4aFile, temp_file_name, 0, "-temp-");
+			APar_DeriveNewPath(m4aFile, temp_file_name, 0, "-temp-", NULL);
 			temp_file = APar_OpenFile(temp_file_name, "wb");
 			
 #if defined (DARWIN_PLATFORM)
