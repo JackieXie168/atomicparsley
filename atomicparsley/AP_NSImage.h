@@ -20,5 +20,5 @@
 //==================================================================//
 
 #if defined (DARWIN_PLATFORM)
-char* ResizeGivenImage(const char* filePath, PicPrefs myPicPrefs);
+bool ResizeGivenImage(const char* filePath, PicPrefs myPicPrefs, char* resized_path);
 #endif

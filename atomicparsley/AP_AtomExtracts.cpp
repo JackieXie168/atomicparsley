@@ -639,12 +639,13 @@ void APar_ShowObjectProfileInfo(uint8_t track_type, TrackInfo* track_info) {
 			if (track_info->amr_modes & 0x0040) mem_append("6", amr_modes);
 			if (track_info->amr_modes & 0x0080) mem_append("7", amr_modes);
 			if (track_info->amr_modes & 0x0100) mem_append("8", amr_modes);
+			if (strlen(amr_modes) == 0) memcpy(amr_modes, "none", 4);
 		}
 
 		if (track_info->track_codec == 0x73616D72) { //samr
-			fprintf(stdout, "  AMR Narrow-Band. Modes=%s. Encoder vendor code: %s\n", amr_modes, track_info->encoder_name);
+			fprintf(stdout, "  AMR Narrow-Band. Modes: %s. Encoder vendor code: %s\n", amr_modes, track_info->encoder_name);
 		} else if (track_info->track_codec == 0x73617762) { //sawb
-			fprintf(stdout, "  AMR Wide-Band. Modes=%s. Encoder vendor code: %s\n", amr_modes, track_info->encoder_name);
+			fprintf(stdout, "  AMR Wide-Band. Modes: %s. Encoder vendor code: %s\n", amr_modes, track_info->encoder_name);
 		} else if (track_info->track_codec == 0x73617770) { //sawp
 			fprintf(stdout, "  AMR Wide-Band WB+. Encoder vendor code: %s\n", track_info->encoder_name);
 		}
@@ -791,7 +792,7 @@ APar_Extract_AMR_Info
 	track_level_atom - the number of the 'esds' atom in the linked list of parsed atoms
 	track_info - a pointer to the struct carrying track-level info to be filled with information
 
-    
+    The only interesting info here is the encoding tool & the amr modes used. ffmpeg's amr output seems to lack some compliance - no damr atom for sawb
 ----------------------*/
 void APar_Extract_AMR_Info(char* uint32_buffer, FILE* isofile, short track_level_atom, TrackInfo* track_info) {
 	uint32_t amr_specific_offet = 8;

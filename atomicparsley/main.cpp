@@ -86,6 +86,8 @@
 #define Meta_URL                 'u'
 #define Meta_Information         'i'
 #define Meta_uuid                'z'
+#define Opt_Extract_all_uuids    0xB8
+#define Opt_Extract_a_uuid       0xB9
 
 #define Metadata_Purge           'P'
 #define UserData_Purge           'X'
@@ -362,7 +364,7 @@ static char* fileLevelHelp_text =
 " File services:\n"
 "\n"
 "  --mdatLock         ,  -M            Prevents moving mdat atoms to the end (poss. useful for PSP files)\n"
-"  --freefree         ,  -F   ?(num)?  Remove \"free\" atoms which only act as filler in the file\n"
+"  --freefree         ,  -F   [num]    Remove \"free\" atoms which only act as filler in the file\n"
 "                                      ?(num)? - optional integer argument to delete 'free's to desired level\n"
 "\n"
 "                                      NOTE 1: levels begin at level 1 aka file level.\n"
@@ -480,6 +482,7 @@ static char* _3gpHelp_text =
 "\n"
 "Note: 4str = a 4 letter string like \"PG13\"; 3str is a 3 letter string like \"eng\"; int is an integer\n"
 "*Note2: The 3gp copyright asset can potentially be altered by using the --ISO-copyright setting.\n"
+
 "----------------------------------------------------------------------------------------------------\n"
 "Usage: AtomicParsley [3gpFILE] --option [argument] [optional_arguments]  [ --option2 [argument2]...] \n"
 "\n"
@@ -496,7 +499,8 @@ static char* _3gpHelp_text =
 "\n"
 "example: Atomicparsley /path/to.3gp --3gp-title \"I see London.\" --3gp-title \"Veo Madrid.\" lang=spa \n"
 "                                    --3gp-title \"Widze Warsawa.\" lang=pol\n"
-"\n";
+"\n"
+;
 
 static char* ISOHelp_text =
 "AtomicParsley help page for setting ISO copyright notices at movie & track level.\n"
@@ -512,8 +516,7 @@ static char* ISOHelp_text =
 "  language codes (codes are *not* checked). Tags can also be set in utf8 or utf16.\n"
 "\n"
 "  --ISO-copyright  (str)  [option]  [lang=3str]  [UTF16]   Set a copyright at a desired level\n"
-"                                                             option may be \"movie\", \"track\",\n"
-"                                                             or \"track=int\" where int is a track#.\n"
+"                           option may be \"movie\", \"track\", or \"track=int\" where int is a track#.\n"
 "                                                           3str is the 3 letter ISO-639-2 language.\n"
 "                                                           Brackets [] show optional parameters.\n"
 "                                                           Defaults are: movie level, 'eng' in utf8.\n"
@@ -527,6 +530,8 @@ static char* ISOHelp_text =
 "\n"
 "Note: to remove the copyright, set the string to \"\" - the track and language must match the target.\n"
 "example: --ISO-copyright \"\" track --ISO-copyright \"\" track=2 lang=spa\n"
+"\n"
+"Note: (foo) denotes required arguments; [foo] denotes optional parameters & may have defaults.\n"
 ;
 
 static char* uuidHelp_text =
@@ -534,7 +539,7 @@ static char* uuidHelp_text =
 "----------------------------------------------------------------------------------------------------\n"
 " Setting a user-defined 'uuid' private extention tags will appear in \"moov.udta.meta\"). These will\n"
 " only be read by AtomicParsley & can be set irrespective of file branding. The form of uuid that AP\n"
-" is a version 5 uuid generated from a sha1 hash of the atom name in a AP.sf.net namespace.\n"
+" is a v5 uuid generated from a sha1 hash of an atom name in an 'AtomicParsley.sf.net' namespace.\n"
 "\n"
 " The uuid form is used by some Sony files, but of version 4 (random/pseudo-random). An example uuid\n"
 " of 'cprt' in the 'AtomicParsley.sf.net' namespace is: \"4bd39a57-e2c8-5655-a4fb-7a19620ef151\".\n"
@@ -545,19 +550,59 @@ static char* uuidHelp_text =
 "  --url              ,  -u   (URL)    Set a URL tag on uuid atom name \"\302©url\"\n"
 "  --tagtime          ,  -Z  timestamp Set the Coordinated Univeral Time of tagging on \"tdtg\"\n"
 "\n"
-"  --meta-uuid        ,  -z   (atom) (1) (str)   Define & set your own uuid atom with text data:\n"
-"                                        format is 4char_atom_name, 1 or \"text\" & the string to set\n"
+"  Define & set an arbitrary atom with a text data or embed a file:\n"
+"  --meta-uuid        There are two forms: 1 for text & 1 for file operations\n"
+"         setting text form:\n"
+"         --meta-uuid   (atom) \"text\" (str)         \"atom\" = 4 character atom name of your choice\n"
+"                                                     str is whatever text you want to set\n"
+"         file embedding form:\n"
+"         --meta-uuid   (atom) \"file\" (/path) [description=\"foo\"] [mime-type=\"foo/moof\"]\n"
+"                                                     \"atom\" = 4 character atom name of your choice\n"
+"                                                     /path = path to the file that will be embedded*\n"
+"                                                     description = optional description of the file\n"
+"                                                               default is \"[none]\"\n"
+"                                                     mime-type = optional mime type for the file\n"
+"                                                               default is \"none\"\n"
+"                                                               Note: no auto-disocevery of mime type\n"
+"                                                                     if you know/want it: supply it.\n"
+"                                               *Note: a file extension (/path/file.ext) is required\n"
+"\n"
+"Note: (foo) denotes required arguments; [foo] denotes optional arguments & may have defaults.\n"
+"\n"
 "Examples: \n"
 "  --tagtime timestamp --information \"[psst]I see metadata\" --url http://www.bumperdumper.com\n"
-"  --meta-uuid tagr 1 \"Johnny Appleseed\" --meta-uuid \302\251sft 1 \"OpenShiiva encoded.\" \n"
+"  --meta-uuid tagr text \"Johnny Appleseed\" --meta-uuid \302\251sft text \"OpenShiiva encoded.\"\n"
+"  --meta-uuid scan file /usr/pix/scans.zip\n"
+"  --meta-uuid 1040 file ../../2006_taxes.pdf description=\"Fooled 'The Man' yet again.\"\n"
 "can be removed with:\n"
-"  --tagtime \"\" --information \"\"  --url \" \"\n"
+"  --tagtime \"\" --information \"\"  --url \" \"  --meta-uuid scan file ""\n"
 "  --manualAtomRemove \"moov.udta.meta.uuid=672c98cd-f11f-51fd-adec-b0ee7b4d215f\" \\\n"
 "  --manualAtomRemove \"moov.udta.meta.uuid=1fed6656-d911-5385-9cb2-cb2c100f06e7\"\n"
 "Remove the Sony uuid atoms with:\n"
 "  --manualAtomRemove moov.trak[1].uuid=55534d54-21d2-4fce-bb88-695cfac9c740 \\\n"
 "  --manualAtomRemove moov.trak[2].uuid=55534d54-21d2-4fce-bb88-695cfac9c740 \\\n"
 "  --manualAtomRemove uuid=50524f46-21d2-4fce-bb88-695cfac9c740\n"
+"\n"
+"Viewing the contents of uuid atoms:\n"
+"  -t or --textdata           Shows the uuid atoms (both text & file) that AP sets:\n"
+"  Example output:\n"
+"    Atom uuid=ec0f...d7 (AP uuid for \"scan\") contains: FILE.zip; description=[none]\n"
+"    Atom uuid=672c...5f (AP uuid for \"tagr\") contains: Johnny Appleseed\n"
+"\n"
+"Extracting an embedded file in a uuid atom:\n"
+"  --extract1uuid      (atom)           Extract file embedded within uuid=atom into same folder\n"
+"                                        (file will be named with suffix shown in --textdata)\n"
+"  --extract-uuids     [/path]          Extract all files in uuid atoms under the moov.udta.meta\n"
+"                                         hierarchy. If no /path is given, files will be extracted\n"
+"                                         to the same folder as the originating file.\n"
+"\n"
+" Examples:\n"
+" --extract1uuid scan\n"
+"  ...  Extracted uuid=scan attachment to file: /some/path/FILE_scan_uuid.zip\n"
+" --extract-uuids ~/Desktop/plops\n"
+"  ...  Extracted uuid=pass attachment to file: /Users/me/Desktop/plops_pass_uuid.pdf\n"
+"  ...  Extracted uuid=site attachment to file: /Users/me/Desktop/plops_site_uuid.html\n"
+"\n"
 "------------------------------------------------------------------------------------------------\n"
 ;
 
@@ -616,10 +661,10 @@ void find_optional_args(char *argv[], int start_optindargs, uint16_t &packed_lan
 			
 			} else if ( memcmp(argv[start_optindargs + i], "UTF16", 5) == 0 ) {
 				asUTF16 = true;
-			}			
-		}
-		if (memcmp(argv[optind+1], "--", 2) == 0) {
-			break; //we've hit another cli argument
+			}
+			if (memcmp(argv[start_optindargs + i], "--", 2) == 0) {
+				break; //we've hit another cli argument
+			}
 		}
 	}
 	return;
@@ -764,6 +809,8 @@ int main( int argc, char *argv[]) {
 		{ "information",      required_argument,  NULL,           Meta_Information },
 		{ "url",              required_argument,  NULL,           Meta_URL },
 		{ "meta-uuid",        required_argument,  NULL,           Meta_uuid },
+		{ "extract-uuids",    optional_argument,  NULL,           Opt_Extract_all_uuids },
+		{ "extract1uuid",     required_argument,  NULL,           Opt_Extract_a_uuid },
 		
 		{ "freefree",         optional_argument,  NULL,           Opt_FreeFree },
 		{ "mdatLock",         0,                  NULL,           Opt_Keep_mdat_pos },
@@ -845,14 +892,14 @@ int main( int argc, char *argv[]) {
 				openSomeFile(m4afile, true);
 				
 				if (memcmp(argv[optind], "+", 1) == 0) {
-					APar_PrintDataAtoms(m4afile, false, NULL, PRINT_FREE_SPACE + PRINT_PADDING_SPACE + PRINT_USER_DATA_SPACE + PRINT_MEDIA_SPACE );
+					APar_PrintDataAtoms(m4afile, NULL, PRINT_FREE_SPACE + PRINT_PADDING_SPACE + PRINT_USER_DATA_SPACE + PRINT_MEDIA_SPACE, PRINT_DATA );
 				} else {
 					fprintf(stdout, "---------------------------\n  Track level ISO user data:\n");
 					APar_print_ISO_UserData_per_track();
 					fprintf(stdout, "---------------------------\n  3GPP assets/ISO user data:\n");
 					APar_PrintUserDataAssests();
 					fprintf(stdout, "---------------------------\n  iTunes-style metadata tags:\n");
-					APar_PrintDataAtoms(m4afile, false, NULL, PRINT_FREE_SPACE + PRINT_PADDING_SPACE + PRINT_USER_DATA_SPACE + PRINT_MEDIA_SPACE );
+					APar_PrintDataAtoms(m4afile, NULL, PRINT_FREE_SPACE + PRINT_PADDING_SPACE + PRINT_USER_DATA_SPACE + PRINT_MEDIA_SPACE, PRINT_DATA );
 					fprintf(stdout, "---------------------------\n");
 				}
 				
@@ -864,7 +911,7 @@ int main( int argc, char *argv[]) {
 				if (metadata_style >= THIRD_GEN_PARTNER) {
 					APar_PrintUserDataAssests();
 				} else if (metadata_style == ITUNES_STYLE) {
-					APar_PrintDataAtoms(m4afile, false, NULL, 0); //false, don't try to extractPix
+					APar_PrintDataAtoms(m4afile, NULL, 0, PRINT_DATA); //false, don't try to extractPix
 				}
 			}
 			openSomeFile(m4afile, false);
@@ -878,7 +925,7 @@ int main( int argc, char *argv[]) {
 			GetBasePath( m4afile, base_path );
 			APar_ScanAtoms(m4afile);
 			openSomeFile(m4afile, true);
-			APar_PrintDataAtoms(m4afile, true, base_path, 0); //exportPix to stripped m4afile path
+			APar_PrintDataAtoms(m4afile, base_path, 0, EXTRACT_ARTWORK); //exportPix to stripped m4afile path
 			openSomeFile(m4afile, false);
 			
 			free(base_path);
@@ -889,7 +936,7 @@ int main( int argc, char *argv[]) {
 		case OPT_ExtractPixToPath: {
 			APar_ScanAtoms(m4afile);
 			openSomeFile(m4afile, true);
-			APar_PrintDataAtoms(m4afile, true, optarg, 0); //exportPix to a different path
+			APar_PrintDataAtoms(m4afile, optarg, 0, EXTRACT_ARTWORK); //exportPix to a different path
 			openSomeFile(m4afile, false);
 			break;
 		}
@@ -1383,19 +1430,153 @@ int main( int argc, char *argv[]) {
 
 		case Meta_uuid : {
 			APar_ScanAtoms(m4afile);
+			uint32_t uuid_dataType = 0;
+			uint32_t desc_len = 0;
+			uint8_t mime_len = 0;
+			char* uuid_file_path = NULL;
+			char* uuid_file_description = NULL;
+			char* uuid_file_extn = NULL;
+			char* uuid_file_mimetype = NULL;
+//			char* uuid_file_filename = NULL;
 			
-			//uuid atoms are handled differently, because they are user/private-extension atoms
-			//a standard path is provided in the "path.form", however a uuid atom has a name of 'uuid' in the vein of the traditional atom name
-			//PLUS a uuid extended 4byte name (1st argument), and then the number of the datatype (0,1,21) & the actual data  (3rd argument)
+			//a uuid in AP is a version 5 uuid created by getting a sha1 hash of a string (the atom name) in a namespace ('AP.sf.net'). This is guaranteed to be
+			//reproducible, so later it can be verified that this uuid (which could come from anywhere), is in fact made by AtomicParsley. This is achieved by
+			//storing the atom name string right after the uuid, and is read back later and a new uuid is created to see if it matches the discovered uuid. If
+			//they match, it will print out or extract to a file; if not, only its name will be displayed in the tree.
 			
-			// --meta-uuid "©foo" 1 'http://www.url.org'
+			// --meta-uuid "©foo" 1 'http://www.url.org'  --meta-uuid "pdf1" file /some/path/pic.pdf description="My Booty, Your Booty, Djbouti"
 			
-			//APar_Add_uuid_atom(m4afile, "moov.udta.meta.ilst.uuid=%s", optarg, AtomFlags_Data_Text, argv[optind +1], true); //apple iTunes bug; not allowed
-			//APar_Add_uuid_atom(m4afile, "moov.udta.meta.uuid=%s", optarg, AtomFlags_Data_Text, argv[optind +1], true);
+			if ( memcmp(argv[optind], "text", 5) == 0  || memcmp(argv[optind], "1", 2) == 0 ) uuid_dataType = AtomFlags_Data_Text;
+			if ( memcmp(argv[optind], "file", 5) == 0 ) {
+				uuid_dataType = AtomFlags_Data_uuid_binary;
+				if (optind+1 < argc) {
+					if (true) { //TODO: test the file to see if it exists
+						uuid_file_path = argv[optind + 1];
+						//get the file extension/suffix of the file to embed
+						uuid_file_extn = strrchr(uuid_file_path, '.'); //'.' inclusive; say goodbye to AP-0.8.8.tar.bz2
+						
+//#ifdef WIN32
+//#define path_delim '\'
+//#else
+//#define path_delim '/'
+//#endif
+//						uuid_file_filename = strrchr(uuid_file_path, path_delim)+1; //includes whatever extensions
+					}
+					//copy a pointer to description
+					int more_optional_args = 2;
+					while (optind + more_optional_args < argc) {
+						if ( memcmp(argv[optind + more_optional_args], "description=", 12) == 0 && argv[optind + more_optional_args][12]) {
+							uuid_file_description = argv[optind + more_optional_args] + 12;
+							desc_len = strlen(uuid_file_description)+1; //+1 for the trailing 1 byte NULL terminator
+						}
+						if ( memcmp(argv[optind + more_optional_args], "mime-type=", 10) == 0 && argv[optind + more_optional_args][10]) {
+							uuid_file_mimetype = argv[optind + more_optional_args] + 10;
+							mime_len = strlen(uuid_file_mimetype)+1; //+1 for the trailing 1 byte NULL terminator
+						}
+						if (memcmp(argv[optind+more_optional_args], "--", 2) == 0) {
+							break; //we've hit another cli argument
+						}
+						more_optional_args++;
+					}
+				}
+			}
+								
+			short genericUUID = APar_uuid_atom_Init("moov.udta.meta.uuid=%s", optarg, uuid_dataType, argv[optind +1], true);
 			
-			short genericUUID = APar_uuid_atom_Init("moov.udta.meta.uuid=%s", optarg, AtomFlags_Data_Text, argv[optind +1], true);
-			APar_Unified_atom_Put(genericUUID, argv[optind +1], UTF8_iTunesStyle_Unlimited, 0, 0);
+			if (uuid_dataType == AtomFlags_Data_uuid_binary && genericUUID > 0) {
+				TestFileExistence(uuid_file_path, true);
+				
+//format for a uuid atom set by AP:
+//4 bytes     - atom length as uin32_t
+//4 bytes     - atom name as iso 8859-1 atom name as a 4byte string set to 'uuid'
+//16 bytes    - the uuid; here a version 5 sha1-based hash derived from a name in a namespace of 'AtomicParsley.sf.net'
+//4 bytes     - the name of the desired atom to create a uuid for (this "name" of the uuid is the only cli accessible means of crafting the uuid)
+//4 bytes     - atom version & flags (currently 1 for 'text' or '88' for binary attachment)
+//4 bytes     - NULL space
+/////////////text or 1 for version/flags
+		//X bytes - utf8 string, no null termination
+/////////////binary attachment or 88 for version/flags
+		//4 bytes - length of utf8 string describing the attachment
+		//X bytes - utf8 string describing the attachment, null terminated
+		//1 byte  - length of the file suffix (including the period) of the originating file
+		//X bytes - utf8 string of the file suffix, null terminated
+		//1 byte  - length of the MIME-type
+		//X bytes - utf8 string holding the MIME-type, null terminated
+		//4 bytes - length of the attached binary data/file length
+		//X bytes - binary data
+				
+				uint32_t extn_len = strlen(uuid_file_extn)+1; //+1 for the trailing 1 byte NULL terminator
+				uint32_t file_len = (uint32_t)findFileSize(uuid_file_path);
+				
+				APar_MetaData_atom_QuickInit(genericUUID, uuid_dataType, 20, extn_len + desc_len + file_len + 100);
+				parsedAtoms[genericUUID].AtomicClassification = EXTENDED_ATOM; //it gets reset in QuickInit Above; force its proper setting
+				
+				if (uuid_file_description == NULL || desc_len == 0) {
+					APar_Unified_atom_Put(genericUUID, "[none]", UTF8_3GP_Style, 7, 32); //sets 4bytes desc_len, then 7bytes description (forced to "[none]"=6 + 1 byte NULL =7)
+				} else {
+					APar_Unified_atom_Put(genericUUID, uuid_file_description, UTF8_3GP_Style, desc_len, 32); //sets 4bytes desc_len, then Xbytes description (in that order)
+				}
+				
+				APar_Unified_atom_Put(genericUUID, uuid_file_extn, UTF8_3GP_Style, extn_len, 8); //sets 1bytes desc_len, then Xbytes file extension string (in that order)
+				
+				if (uuid_file_mimetype == NULL || mime_len == 0) {
+					APar_Unified_atom_Put(genericUUID, "none", UTF8_3GP_Style, 5, 8); //sets 4bytes desc_len, then 5bytes description (forced to "none" + 1byte null)
+				} else {
+					APar_Unified_atom_Put(genericUUID, uuid_file_mimetype, UTF8_3GP_Style, mime_len, 8); //sets 1 byte mime len, then Xbytes mime type
+				}
+				
+				FILE* uuid_binfile = APar_OpenFile(uuid_file_path, "rb");
+				APar_Unified_atom_Put(genericUUID, NULL, UTF8_3GP_Style, file_len, 32);
+				//store the data directly on the atom in AtomicData
+				uint32_t bin_bytes_read = APar_ReadFile(parsedAtoms[genericUUID].AtomicData + (parsedAtoms[genericUUID].AtomicLength - 32), uuid_binfile, file_len);
+				parsedAtoms[genericUUID].AtomicLength += bin_bytes_read;
+				fclose(uuid_binfile);
+				
+			} else { //text type
+				APar_Unified_atom_Put(genericUUID, argv[optind +1], UTF8_iTunesStyle_Unlimited, 0, 0);
+			}
+
 			break;
+		}
+		
+		case Opt_Extract_all_uuids : {
+			APar_ScanAtoms(m4afile);
+			char* output_path = NULL;
+			if (optind + 1 == argc) {
+				output_path = argv[optind];
+			}
+
+			openSomeFile(m4afile, true);
+			APar_PrintDataAtoms(m4afile, output_path, 0, EXTRACT_ALL_UUID_BINARYS); //exportPix to stripped m4afile path
+			openSomeFile(m4afile, false);
+			
+			exit(0);//never gets here
+			break;
+		}
+		
+		case Opt_Extract_a_uuid : {
+			APar_ScanAtoms(m4afile);
+			
+			char* uuid_path = (char*)calloc(1, sizeof(char)*256+1);
+			char* uuid_binary_str = (char*)calloc(1, sizeof(char)*20+1);
+			char uuid_4char_name[16]; memset(uuid_4char_name, 0, 16);
+			AtomicInfo* extractionAtom = NULL;
+			
+			UTF8Toisolat1((unsigned char*)&uuid_4char_name, 4, (unsigned char*)optarg, strlen(optarg) );
+			APar_generate_uuid_from_atomname(uuid_4char_name, uuid_binary_str);
+			APar_endian_uuid_bin_str_conversion(uuid_binary_str);
+			sprintf(uuid_path, "moov.udta.meta.uuid=%s", uuid_binary_str); //gives "moov.udta.meta.uuid=©url"
+			extractionAtom = APar_FindAtom(uuid_path, false, EXTENDED_ATOM, 0, true);
+			if (extractionAtom != NULL) {
+				openSomeFile(m4afile, true);
+				APar_Extract_uuid_binary_file(extractionAtom, m4afile, NULL);
+				openSomeFile(m4afile, false);
+			}
+			
+			free(uuid_path); uuid_path = NULL;
+			free(uuid_binary_str); uuid_binary_str = NULL;
+			exit(0);
+			break; //never gets here
 		}
 		
 		case Manual_atom_removal : {
@@ -1796,7 +1977,7 @@ int main( int argc, char *argv[]) {
 						copyright_area = ALL_TRACKS_ATOM;	
 					}
 				}
-				if (memcmp(argv[optind+1], "--", 2) == 0) {
+				if (optind+1 < argc && memcmp(argv[optind+1], "--", 2) == 0) {
 					break; //we've hit another cli argument
 				}
 			}

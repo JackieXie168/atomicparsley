@@ -32,19 +32,8 @@
 bool isJPEG=false;
 bool isPNG=false;
 
-off_t pic_file_size;
-
-void findPicFileSize(const char *path) {
-	struct stat picfileStats;
-	stat(path, &picfileStats);
-	pic_file_size=picfileStats.st_size;
-	
-	return;
-}
-
 void DetermineType(const char *picfilePath) {
-	char picHeader[9];
-	memset(picHeader, 0, 9);
+	char* picHeader = (char*)calloc(1, sizeof(char)*20);
 	u_int64_t r;
 	
 	FILE *pic_file = NULL;
@@ -52,31 +41,28 @@ void DetermineType(const char *picfilePath) {
   r = fread(picHeader, 8, 1, pic_file);
   fclose(pic_file);
 	
-	if (strncmp(picHeader, "\x89\x50\x4E\x47\x0D\x0A\x1A\x0A", 8) == 0) { //casts uchar* to char* (2)
+	if (memcmp(picHeader, "\x89\x50\x4E\x47\x0D\x0A\x1A\x0A", 8) == 0) {
 				isPNG=true;
 				isJPEG=false;
-	} else if (strncmp(picHeader, "\xFF\xD8\xFF\xE0", 4) == 0) {//casts uchar* to char* (2)
+	} else if (memcmp(picHeader, "\xFF\xD8\xFF\xE0", 4) == 0) {
 				isJPEG=true;
 				isPNG=false;
 	}
+	free(picHeader);
+	picHeader=NULL;
 	return;
 }
 
-char* DeriveNewPath(const char *filePath, PicPrefs myPicPrefs) {
+char* DeriveNewPath(const char *filePath, PicPrefs myPicPrefs, char* newpath) {
 	char* suffix = strrchr(filePath, '.');
-	//fprintf(stdout, "strsep %s\n", suffix);
 	
 	size_t filepath_len = strlen(filePath);
-	char* newpath = (char *)malloc(sizeof(char) * filepath_len + 30);
+	memset(newpath, 0, MAXPATHLEN+1);
 	size_t base_len = filepath_len-strlen(suffix);
-	strncpy(newpath, filePath, base_len);
+	memcpy(newpath, filePath, base_len);
+	memcpy(newpath+base_len, "-resized-", 9);
 	
-	char* appendage = "-resized-";
-	for (size_t i=0; i <= strlen(appendage); i++) {
-		newpath[base_len+i] = appendage[i];
-	}
-	
-	char randstring[5];
+	char* randstring = (char*)calloc(1, sizeof(char)*20);
 	struct timeval tv;
 	gettimeofday (&tv, NULL);
 		
@@ -98,15 +84,15 @@ char* DeriveNewPath(const char *filePath, PicPrefs myPicPrefs) {
 	} else if ((strncmp(suffix,".png",4) == 0) || (strncmp(suffix,".PNG",4) == 0)) {
 		isPNG=true;
 	}
+	
+	free(randstring);
+	randstring=NULL;
 	return newpath;
 }
 
-char* ResizeGivenImage(const char* filePath, PicPrefs myPicPrefs) {
-	char* new_path = NULL;
-	BOOL resize = false;
+bool ResizeGivenImage(const char* filePath, PicPrefs myPicPrefs, char* resized_path) {
+	bool resize = false;
 	NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
-	
-	//NSString *inFile = [NSString stringWithUTF8String: filePath];
 	
 	NSImage* source = [ [NSImage alloc] initWithContentsOfFile: [NSString stringWithUTF8String: filePath] ];
 	[source setScalesWhenResized: YES];
@@ -185,7 +171,7 @@ char* ResizeGivenImage(const char* filePath, PicPrefs myPicPrefs) {
 		}
 	}
 	
-	findPicFileSize(filePath);
+	off_t pic_file_size = findFileSize(filePath);
 	if ( ( (int)pic_file_size > myPicPrefs.max_Kbytes) && ( myPicPrefs.max_Kbytes != 0) ) {
 		resize = true;
 	}
@@ -245,10 +231,7 @@ char* ResizeGivenImage(const char* filePath, PicPrefs myPicPrefs) {
 		}
 		
 		[bitmap release];
-		//new_path = DeriveNewPath(filePath, myPicPrefs);
-		//const char* new_path = "/Users/walking/talking/rectum.jpg";
-		//NSString *outFile= [NSString stringWithUTF8String: new_path];
-		NSString *outFile= [NSString stringWithUTF8String: DeriveNewPath(filePath, myPicPrefs)];
+		NSString *outFile= [NSString stringWithUTF8String: DeriveNewPath(filePath, myPicPrefs, resized_path)];
 		//NSLog(outFile);
 		[[NSFileManager defaultManager]
           createFileAtPath: outFile
@@ -259,12 +242,9 @@ char* ResizeGivenImage(const char* filePath, PicPrefs myPicPrefs) {
 		[image release];
 		isJPEG=false;
 		isPNG=false;
-		//new_path = (char*)[outFile cStringUsingEncoding: [NSString NSUTF8StringEncoding] ];
-		//const char* stringToBeHashed = [outFile cStringUsingEncoding: NSNonLossyASCIIStringEncoding];
-		//fprintf(stdout, "lasting path %s\n", stringToBeHashed);
-		new_path = (char*)[outFile cStringUsingEncoding: NSNonLossyASCIIStringEncoding];
+		memcpy(resized_path, [outFile cStringUsingEncoding: NSUTF8StringEncoding], [outFile lengthOfBytesUsingEncoding:NSUTF8StringEncoding]);
 	}
 	[source release];
 	[pool release];
-	return new_path;
+	return resize;
 }
