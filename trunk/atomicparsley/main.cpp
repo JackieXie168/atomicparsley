@@ -611,6 +611,9 @@ void ExtractPaddingPrefs(char* env_padding_prefs) {
 	pad_prefs.minimum_required_padding_size = MINIMUM_REQUIRED_PADDING_LENGTH;
 	pad_prefs.maximum_present_padding_size = MAXIMUM_REQUIRED_PADDING_LENGTH;
 	
+	if (env_padding_prefs != NULL) {
+		if (env_padding_prefs[0] == 0x22 || env_padding_prefs[0] == 0x27) env_padding_prefs++;
+	}
 	char* env_pad_prefs_ptr = env_padding_prefs;
 	
 	while (env_pad_prefs_ptr != NULL) {
@@ -1564,8 +1567,12 @@ int main( int argc, char *argv[]) {
 			
 			UTF8Toisolat1((unsigned char*)&uuid_4char_name, 4, (unsigned char*)optarg, strlen(optarg) );
 			APar_generate_uuid_from_atomname(uuid_4char_name, uuid_binary_str);
-			APar_endian_uuid_bin_str_conversion(uuid_binary_str);
-			sprintf(uuid_path, "moov.udta.meta.uuid=%s", uuid_binary_str); //gives "moov.udta.meta.uuid=©url"
+			
+			//this will only append (and knock off) %s (anything) at the end of a string
+			uint16_t path_len = strlen("moov.udta.meta.uuid=%s");
+			memcpy(uuid_path, "moov.udta.meta.uuid=%s", path_len-2);
+			memcpy(uuid_path + (path_len-2), uuid_binary_str, 16);
+			
 			extractionAtom = APar_FindAtom(uuid_path, false, EXTENDED_ATOM, 0, true);
 			if (extractionAtom != NULL) {
 				openSomeFile(m4afile, true);

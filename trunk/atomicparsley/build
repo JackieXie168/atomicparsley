@@ -22,14 +22,14 @@ OS=`uname -s | cut -d '_' -f1`
 if (test $OS = Darwin) || (test $OS = Linux) ; then
 
   if (test $OS = Darwin) ; then
-    EXTRA_CPP_FLAGS="-DUTF8_ENABLED -DDARWIN_PLATFORM"
+    EXTRA_CPP_FLAGS="-DDARWIN_PLATFORM"
   else
-    EXTRA_CPP_FLAGS="-DUTF8_ENABLED"
+    EXTRA_CPP_FLAGS=""
   fi
 
 else
   ## Windows (cygwin & mingw) fall here ##
-  EXTRA_CPP_FLAGS="-DUTF8_ENABLED"
+  EXTRA_CPP_FLAGS=""
 
 fi
 
