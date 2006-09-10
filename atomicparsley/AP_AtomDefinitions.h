@@ -206,7 +206,7 @@ atomDefinition KnownAtoms[] = {
 	{"avcC",	{"avc1", "drmi"},		CHILD_ATOM,				REQUIRED_ONE,					SIMPLE_ATOM },
 	{"damr",	{"samr", "sawb"},		CHILD_ATOM,				REQUIRED_ONE,					SIMPLE_ATOM },
 	{"d263",	{"s263"},						CHILD_ATOM,				REQUIRED_ONE,					SIMPLE_ATOM },
-	{"dawp",	{"dawp"},		        CHILD_ATOM,				REQUIRED_ONE,					SIMPLE_ATOM },
+	{"dawp",	{"sawp"},		        CHILD_ATOM,				REQUIRED_ONE,					SIMPLE_ATOM },
 	{"devc",	{"sevc"},		        CHILD_ATOM,				REQUIRED_ONE,					SIMPLE_ATOM },
 	{"dqcp",	{"sqcp"},		        CHILD_ATOM,				REQUIRED_ONE,					SIMPLE_ATOM },
 	{"dsmv",	{"ssmv"},		        CHILD_ATOM,				REQUIRED_ONE,					SIMPLE_ATOM },

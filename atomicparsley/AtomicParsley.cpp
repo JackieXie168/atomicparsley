@@ -47,6 +47,8 @@
 #include "AP_NSFile_utils.h"
 #endif
 
+//#define DEBUG_V
+
 ///////////////////////////////////////////////////////////////////////////////////////
 //                               Global Variables                                    //
 ///////////////////////////////////////////////////////////////////////////////////////
@@ -97,7 +99,7 @@ short max_display_width = 45;
 #else
 short max_display_width = 75; //ah, figured out grub - vga=773 makes a whole new world open up
 #endif
-char* file_progress_buffer=(char*)malloc( sizeof(char)* (max_display_width+10) ); //+5 for any overflow in "%100", or "|"
+char* file_progress_buffer=(char*)calloc(1, sizeof(char)* (max_display_width+50) ); //+50 for any overflow in "%100", or "|"
 
 struct PicPrefs myPicturePrefs;
 bool parsed_prefs = false;
@@ -847,6 +849,10 @@ AtomicInfo* APar_FindAtom(const char* atom_name, bool createMissing, uint8_t ato
 	AtomicInfo* last_known_present_parent = NULL;
 	AtomicInfo atom_surrogate = { 0 };
 	
+#if defined(DEBUG_V)
+	fprintf(stdout, "debug: AP_FindAtom entry trying to find '%s'; create missing: %u\n", atom_name, createMissing);
+#endif
+	
 	while (search_atom_name != NULL) {
 		desired_index = 1; //reset the index
 		
@@ -854,6 +860,10 @@ AtomicInfo* APar_FindAtom(const char* atom_name, bool createMissing, uint8_t ato
 			search_atom_name+=5;
 			search_atom_type = atom_type;
  		}
+		
+#if defined(DEBUG_V)
+		fprintf(stdout, "debug: AP_FindAtom   loop evaluate test  %s (index=%u)\n", search_atom_name, atom_index);
+#endif
 		
 		size_t portion_len = strlen(search_atom_name);
 		if (memcmp(search_atom_name+4, ":[", 2) == 0 && memcmp(search_atom_name + portion_len -1, "]", 1) == 0) {
@@ -863,6 +873,10 @@ AtomicInfo* APar_FindAtom(const char* atom_name, bool createMissing, uint8_t ato
 			
 		} else if (memcmp(search_atom_name+4, "[", 1) == 0) {
 			sscanf(search_atom_name+5, "%hhu", &desired_index);
+			
+#if defined(DEBUG_V)
+			fprintf(stdout, "debug: AP_FindAtom     >#<indexed atom>#< '%s' at index=%u\n", search_atom_name, desired_index);
+#endif
 		}
 		
 		if (strlen(search_atom_name) == 4) {
@@ -884,12 +898,22 @@ AtomicInfo* APar_FindAtom(const char* atom_name, bool createMissing, uint8_t ato
 			//if iter == 0, that means test against 'ftyp' - and since its always 0, don't test it; its to know that the end of the tree is reached
 			if (iter != 0 && (parsedAtoms[iter].AtomicLevel == present_atomic_level || reverse_dns_name != NULL) ) {
 				result = APar_AtomicComparison(&atom_surrogate, iter, (search_atom_type == EXTENDED_ATOM ? match_full_uuids : false) );
+#if defined(DEBUG_V)
+				fprintf(stdout, "debug: AP_FindAtom     compare  %s(%u)  against %s (wanted index=%u)\n", search_atom_name, atom_index, parsedAtoms[iter].AtomicName, desired_index);
+			} else {
+				fprintf(stdout, "debug: AP_FindAtom       %s  rejected against %s\n", search_atom_name, parsedAtoms[iter].AtomicName);
+#endif
 			}
-			
 			if (result != NULL) { //something matched
 				atom_index++;
+#if defined(DEBUG_V)
+		fprintf(stdout, "debug: AP_FindAtom       ***matched*** current index=%u (want %u)\n", atom_index, desired_index);
+#endif
 				if (search_atom_type != UNKNOWN_ATOM || (search_atom_type == UNKNOWN_ATOM && known_atom != -1) ) {
 					thisAtom = result;
+#if defined(DEBUG_V)
+					fprintf(stdout, "debug: AP_FindAtom         perfect match: %s(%u) == existing %s(%u)\n", search_atom_name, desired_index, parsedAtoms[iter].AtomicName, atom_index);
+#endif
 				} else {
 					last_known_present_parent = result;   //if not, then it isn't the last atom, and must be some form of parent
 				}
@@ -907,7 +931,9 @@ AtomicInfo* APar_FindAtom(const char* atom_name, bool createMissing, uint8_t ato
 				//create that atom
 				if (last_known_present_parent != NULL) {					
 					short last_hierarchical_atom = 0;
-					
+#if defined(DEBUG_V)
+					fprintf(stdout, "debug: AP_FindAtom-------missing atom, need to create '%s'\n", search_atom_name);
+#endif					
 					if (search_atom_type == PACKED_LANG_ATOM) {
 						last_hierarchical_atom = APar_FindLastLikeNamedAtom(atom_surrogate.AtomicName, last_known_present_parent->AtomicNumber);
 					} else {
@@ -3300,8 +3326,10 @@ short APar_uuid_atom_Init(const char* atom_path, char* uuidName, const uint32_t 
 	char uuid_path[256];
 	char uuid_binary_str[20];
 	char uuid_4char_name[10];
-	memset(uuid_path, 0, 256);
+	memset(uuid_path, 0, 20);
+	memset(uuid_binary_str, 0, 20);
 	memset(uuid_4char_name, 0, 10);
+	uint16_t path_len = 0;
 	
 	if (shellAtom) {
 		UTF8Toisolat1((unsigned char*)&uuid_4char_name, 4, (unsigned char*)uuidName, strlen(uuidName) );
@@ -3312,13 +3340,16 @@ short APar_uuid_atom_Init(const char* atom_path, char* uuidName, const uint32_t 
 	APar_generate_uuid_from_atomname(uuid_4char_name, uuid_binary_str);
 	APar_endian_uuid_bin_str_conversion(uuid_binary_str);	
 	
-#if defined (_MSC_VER) /* sprintf must behave differently in win32 VisualC as a DEBUG release */
-	strncpy(uuid_path, atom_path, strlen(atom_path) -2 );
-	strncat(uuid_path, uuid_binary_str, 16);
-#else
-	sprintf(uuid_path, atom_path, uuid_binary_str); //gives "moov.udta.meta.uuid=©url"
-#endif
+	//this will only append (and knock off) %s (anything) at the end of a string
+	path_len = strlen(atom_path);
+	memcpy(uuid_path, atom_path, path_len-2);
+	memcpy(uuid_path + (path_len-2), uuid_binary_str, 16);
 	
+#if defined(DEBUG_V)
+	fprintf(stdout, "debug: APar_uuid_atom_Init desired atom '%s' converted to uuidv5: ", uuidName);
+	APar_print_uuid( (ap_uuid_t*)(uuid_path + (path_len-2)) );
+#endif	
+
 	if ( uuidValue == NULL || strlen(uuidValue) == 0) {
 		APar_RemoveAtom(uuid_path, EXTENDED_ATOM, 0); //find the atom; don't create if it's "" to remove
 		return -1;
@@ -3766,7 +3797,7 @@ bool APar_Readjust_STCO_atom(uint32_t mdat_position, short stco_number) {
 ///////////////////////////////////////////////////////////////////////////////////////
 
 void APar_ForcePadding(uint32_t padding_amount) {
-	if (tree_display_only) {
+	if (tree_display_only || padding_amount == 0) {
 		return;
 	}
 	
@@ -3803,7 +3834,7 @@ void APar_ConsilidatePadding(uint32_t force_padding_amount) {
 		primary_repository = udta_dynamics.free_atom_repository;
 	} else if (udta_dynamics.free_atom_secondary_repository) {
 		primary_repository = udta_dynamics.free_atom_secondary_repository;
-	} else {
+	} else if (force_padding_amount >=8) {
 		APar_InterjectNewAtom("free", CHILD_ATOM, SIMPLE_ATOM, force_padding_amount, 0, 0, 1, APar_FindLastChild_of_ParentAtom(udta_dynamics.moov_atom) );
 		return;
 	}
@@ -3863,7 +3894,7 @@ void APar_ForcePadding_sans_udta() {
 			}
 		}
 	}
-	if (free_padding_space <= pad_prefs.minimum_required_padding_size) {
+	if (free_padding_space <= pad_prefs.minimum_required_padding_size && pad_prefs.default_padding_size >= 8) {
 		APar_InterjectNewAtom("free", CHILD_ATOM, SIMPLE_ATOM, pad_prefs.default_padding_size, 0, 0, 1, APar_FindLastChild_of_ParentAtom(moov_atom) );
 	}
 	return;
@@ -4020,7 +4051,7 @@ void APar_DetermineDynamicUpdate(bool initial_pass) {
 			if (udta_dynamics.max_usable_free_space <= pad_prefs.minimum_required_padding_size) {
 				if (psp_brand) {
 					udta_dynamics.dynamic_updating = true;
-				} else {
+				} else if (pad_prefs.default_padding_size >= 8) {
 					APar_InterjectNewAtom("free", CHILD_ATOM, SIMPLE_ATOM, pad_prefs.default_padding_size, 0, 0, 1, APar_FindLastChild_of_ParentAtom(udta_dynamics.moov_atom) );
 					new_file_size += pad_prefs.default_padding_size; //used in shell progress bar; easier to just outright add it than go through the whole tree
 				}
@@ -4154,9 +4185,9 @@ void APar_DetermineNewFileLength() {
 				//pseudo 64-bit mdat length
 				new_file_size += parsedAtoms[thisAtomNumber].AtomicLengthExtended; //used in progressbar
 			}
-		}
-		if (parsedAtoms[thisAtomNumber].AtomicLength == 0) {				
-	    new_file_size += (uint32_t)file_size - parsedAtoms[thisAtomNumber].AtomicStart; //used in progressbar; mdat.length = 1
+			if (parsedAtoms[thisAtomNumber].AtomicLength == 0) {				
+				new_file_size += (uint32_t)file_size - parsedAtoms[thisAtomNumber].AtomicStart; //used in progressbar; mdat.length = 1
+			}
 		}
 		if (parsedAtoms[thisAtomNumber].NextAtomNumber == 0) {
 			break;
@@ -4949,8 +4980,6 @@ void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_origi
 		}
 	}
 	
-	//APar_PrintAtomicTree();
-	APar_FreeMemory();
 	free(temp_file_name);
 	if (free_modified_name) free(originating_file);
 	temp_file_name=NULL;

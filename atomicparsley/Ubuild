@@ -18,7 +18,7 @@ mkdir -p obj_files/386
 OS=`uname -s | cut -d '_' -f1`
 
 if (test $OS = Darwin) || (test $OS = Linux) ; then
-  EXTRA_CPP_FLAGS="-DUTF8_ENABLED -DDARWIN_PLATFORM"
+  EXTRA_CPP_FLAGS="-DDARWIN_PLATFORM"
 fi
 
 echo "Building Universal Binary"
