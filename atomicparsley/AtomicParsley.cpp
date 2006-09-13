@@ -2369,6 +2369,8 @@ void APar_ScanAtoms(const char *path, bool scan_for_tree_ONLY) {
 						dataSize = (uint32_t)(file_size - jump);
 					}
 					
+					if (dataSize == 0 && (atom[0] == 0 && atom[1] == 0 && atom[2] == 0 && atom[3] == 0) ) break; //Apple has decided to add around 2k of NULL space outside of any atom structure starting with iTunes 7.0.0
+					
 					//diagnose damage to 'cprt' by libmp4v2 in 1.4.1 & 1.5.0.1
 					//typically, the length of this atom (dataSize) will exceeed it parent (which is reported as 17)
 					//true length ot this data will be 9 - impossible for iTunes-style 'data' atom.
@@ -3027,7 +3029,7 @@ void APar_Unified_atom_Put(short atom_num, const char* unicode_data, uint8_t tex
 				total_bytes = strlen(unicode_data);
 				total_bytes++;  //include the terminating NULL
 				
-			} else if (text_tag_style == UTF8_iTunesStyle_256byteLimited) {
+			} else if (text_tag_style == UTF8_iTunesStyle_256glyphLimited) {
 
 				uint32_t utf8_bytes = strlen(unicode_data);
 				total_bytes = utf8_length(unicode_data, 255);
@@ -3107,11 +3109,11 @@ void APar_Verify__udta_meta_hdlr__atom() {
 		hdlrAtom = APar_FindAtom("moov.udta.meta.hdlr", true, VERSIONED_ATOM, 0);
 		
 		APar_MetaData_atom_QuickInit(hdlrAtom->AtomicNumber, 0, 0);
-		APar_Unified_atom_Put(hdlrAtom->AtomicNumber, NULL, UTF8_iTunesStyle_256byteLimited, 0x6D646972, 32); //'mdir'
-		APar_Unified_atom_Put(hdlrAtom->AtomicNumber, NULL, UTF8_iTunesStyle_256byteLimited, 0x6170706C, 32); //'appl'
-		APar_Unified_atom_Put(hdlrAtom->AtomicNumber, NULL, UTF8_iTunesStyle_256byteLimited, 0, 32);
-		APar_Unified_atom_Put(hdlrAtom->AtomicNumber, NULL, UTF8_iTunesStyle_256byteLimited, 0, 32);
-		APar_Unified_atom_Put(hdlrAtom->AtomicNumber, NULL, UTF8_iTunesStyle_256byteLimited, 0, 16);
+		APar_Unified_atom_Put(hdlrAtom->AtomicNumber, NULL, UTF8_iTunesStyle_256glyphLimited, 0x6D646972, 32); //'mdir'
+		APar_Unified_atom_Put(hdlrAtom->AtomicNumber, NULL, UTF8_iTunesStyle_256glyphLimited, 0x6170706C, 32); //'appl'
+		APar_Unified_atom_Put(hdlrAtom->AtomicNumber, NULL, UTF8_iTunesStyle_256glyphLimited, 0, 32);
+		APar_Unified_atom_Put(hdlrAtom->AtomicNumber, NULL, UTF8_iTunesStyle_256glyphLimited, 0, 32);
+		APar_Unified_atom_Put(hdlrAtom->AtomicNumber, NULL, UTF8_iTunesStyle_256glyphLimited, 0, 16);
 	}
 	return;
 }
@@ -3158,8 +3160,8 @@ void APar_MetaData_atomGenre_Set(const char* atomPayload) {
 				
 				genreAtom = APar_FindAtom(std_genre_data_atom, true, VERSIONED_ATOM, 0);
 				APar_MetaData_atom_QuickInit(genreAtom->AtomicNumber, AtomFlags_Data_Binary, 0);
-				APar_Unified_atom_Put(genreAtom->AtomicNumber, NULL, UTF8_iTunesStyle_256byteLimited, 0, 8);
-				APar_Unified_atom_Put(genreAtom->AtomicNumber, NULL, UTF8_iTunesStyle_256byteLimited, (uint32_t)genre_number, 8);
+				APar_Unified_atom_Put(genreAtom->AtomicNumber, NULL, UTF8_iTunesStyle_256glyphLimited, 0, 8);
+				APar_Unified_atom_Put(genreAtom->AtomicNumber, NULL, UTF8_iTunesStyle_256glyphLimited, (uint32_t)genre_number, 8);
 
 			} else {
 				
@@ -3174,7 +3176,7 @@ void APar_MetaData_atomGenre_Set(const char* atomPayload) {
 				}
 				genreAtom = APar_FindAtom(cstm_genre_data_atom, true, VERSIONED_ATOM, 0);
 				APar_MetaData_atom_QuickInit(genreAtom->AtomicNumber, AtomFlags_Data_Text, 0);
-				APar_Unified_atom_Put(genreAtom->AtomicNumber, atomPayload, UTF8_iTunesStyle_256byteLimited, 0, 0);
+				APar_Unified_atom_Put(genreAtom->AtomicNumber, atomPayload, UTF8_iTunesStyle_256glyphLimited, 0, 0);
 			}
 		}
 	} //end if (metadata_style == ITUNES_STYLE)
