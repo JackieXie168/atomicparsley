@@ -89,6 +89,8 @@ uint32_t new_file_size = 0; //used for the progressbar
 uint32_t brand = 0;
 uint32_t mdatData = 0; //now global, used in bitrate calcs
 
+uint32_t gapless_void_padding = 0; //possibly used in the context of gapless playback support by Apple
+
 struct udta_stats udta_dynamics;
 struct padding_preferences pad_prefs;
 
@@ -1985,6 +1987,9 @@ void APar_PrintAtomicTree() {
 			fprintf(stdout, " Padding available: %u bytes.", udta_dynamics.max_usable_free_space);
 		}
 	}
+	if (gapless_void_padding > 0) {
+		fprintf(stdout, "\nGapless playback null space at end of file: %u bytes.", gapless_void_padding);
+	}
 	fprintf(stdout, "\n------------------------------------------------------\n");
 	
 	free(tree_padding);
@@ -2369,7 +2374,10 @@ void APar_ScanAtoms(const char *path, bool scan_for_tree_ONLY) {
 						dataSize = (uint32_t)(file_size - jump);
 					}
 					
-					if (dataSize == 0 && (atom[0] == 0 && atom[1] == 0 && atom[2] == 0 && atom[3] == 0) ) break; //Apple has decided to add around 2k of NULL space outside of any atom structure starting with iTunes 7.0.0
+					if (dataSize == 0 && (atom[0] == 0 && atom[1] == 0 && atom[2] == 0 && atom[3] == 0) ) {
+						gapless_void_padding = file_size-jump; //Apple has decided to add around 2k of NULL space outside of any atom structure starting with iTunes 7.0.0
+						break; //its possible this is part of gapless playback - but then why would it come after the 'free' at the end of a file like gpac writes?
+					} //after actual tested its elimination, it doesn't seem to be required for gapless playback
 					
 					//diagnose damage to 'cprt' by libmp4v2 in 1.4.1 & 1.5.0.1
 					//typically, the length of this atom (dataSize) will exceeed it parent (which is reported as 17)
@@ -3031,15 +3039,17 @@ void APar_Unified_atom_Put(short atom_num, const char* unicode_data, uint8_t tex
 				
 			} else if (text_tag_style == UTF8_iTunesStyle_256glyphLimited) {
 
-				uint32_t utf8_bytes = strlen(unicode_data);
-				total_bytes = utf8_length(unicode_data, 255);
+				uint32_t raw_bytes = strlen(unicode_data);
+				total_bytes = utf8_length(unicode_data, 255); //counts the number of characters, not bytes
 				
-				if (utf8_bytes > total_bytes) {
+				if (raw_bytes > total_bytes && total_bytes > 255) {
 					
 					fprintf(stdout, "AtomicParsley warning: %s was trimmed to 255 characters (%u characters over)\n", 
 					        parsedAtoms[ APar_FindParentAtom(atom_num, parsedAtoms[atom_num].AtomicLevel) ].AtomicName,
 									                                 utf8_length(unicode_data+total_bytes, 0) );
-				}			
+				} else {
+					total_bytes = raw_bytes;
+				}
 						
 			} else if (text_tag_style == UTF8_iTunesStyle_Unlimited) {
 				total_bytes = strlen(unicode_data);
@@ -4289,6 +4299,18 @@ void APar_DetermineAtomLengths() {
 //                          Atom Writing Functions                                   //
 ///////////////////////////////////////////////////////////////////////////////////////
 
+/*----------------------
+APar_ValidateAtoms
+
+    A gaggle of tests go on here - to TRY to make sure that files are not corrupted.
+		
+		1. because there is a limit to the number of atoms, test to make sure we haven't hit MAX_ATOMS (probably only likely on a 300MB fragmented file ever 2 secs)
+		2. test that the atom name is at least 4 letters long. So far, only quicktime atoms have NULLs in their names.
+		3. For files over 300k, make sure that no atom can present larger than the filesize (which would be bad); handy for when the file isn't parsed correctly
+		4. Test to make sure 'mdat' is at file-level. That is the only place it should ever be.
+		5. (A crude) Test to see if 'trak' atoms have a child 'tkhd' atom. If setting a copyright notice on a track at index built with some compilers faux 'trak's are made
+		6. If the file shunk below 90% (after accounting for additions or removals), error out - something went awry.
+----------------------*/
 void APar_ValidateAtoms() {
 	bool atom_name_with_4_characters = true;
 	short iter = 0;
@@ -4329,6 +4351,13 @@ void APar_ValidateAtoms() {
 		if (strncmp(parsedAtoms[iter].AtomicName, "mdat", 4) == 0 && parsedAtoms[iter].AtomicLevel != 1) {
 			fprintf(stderr, "AtomicParsley error: mdat atom was found at an illegal (not at top level). Aborting. %c\n", '\a');
 			exit(1); //the error which forced this was some bad atom length redetermination; probably won't be fixed
+		}
+		
+		if (memcmp(parsedAtoms[iter].AtomicName, "trak", 4) == 0 && parsedAtoms[iter+1].NextAtomNumber != 0) { //prevent writing any malformed tracks
+			if (memcmp(parsedAtoms[ parsedAtoms[iter].NextAtomNumber ].AtomicName, "tkhd", 4) != 0) {
+				fprintf(stderr, "AtomicParsley error: incorrect track structure. %c\n", '\a');
+				exit(1);
+			}
 		}
 		
 		iter=parsedAtoms[iter].NextAtomNumber;
@@ -4717,6 +4746,42 @@ uint32_t APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file
 	return bytes_written;
 }
 
+/*----------------------
+APar_copy_gapless_padding
+	mp4file - destination file
+	last_atom_pos - the last byte in the destination file that is contained by any atom (in parsedAtoms[] array)
+	buffer - a buffer that will be used to set & write out from the NULLs used in gapless padding
+
+    Add the discovered amount of already present gapless void padding at the end of the file (which is *not* contained by any atom at all) back into the destination
+		file.
+		
+		Update: it would seem that this gapless void padding at the end of the file is not critical to gapless playback. In my 1 test of the thing, it seemed to work
+		regardless of whether this NULL space was present or not, 'pgap' seemed to work. But, since Apple put it in for some reason, it will be left there unless explicity
+		directed not to (via AP_PADDING). Although tying ordinary padding to this gapless padding may reduce flexibility - the assumption is that someone interested in
+		squeezing out wasted space would want to eliminate this wasted space too (and so far, it does seem wasted).
+----------------------*/
+void APar_copy_gapless_padding(FILE* mp4file, uint32_t last_atom_pos, char* buffer) {
+	uint32_t gapless_padding_bytes_written = 0;
+	while (gapless_padding_bytes_written < gapless_void_padding) {
+		if (gapless_padding_bytes_written + max_buffer <= gapless_void_padding ) {
+			memset(buffer, 0, max_buffer);
+			
+			fseeko(mp4file, (last_atom_pos + gapless_padding_bytes_written), SEEK_SET);
+			fwrite(buffer, (size_t)max_buffer, 1, mp4file);
+			gapless_padding_bytes_written += max_buffer;
+			
+		} else { //less then 512k of gapless padding (here's hoping we get here always)
+			memset(buffer, 0, (gapless_void_padding - gapless_padding_bytes_written) );
+			
+			fseeko(mp4file, (last_atom_pos + gapless_padding_bytes_written), SEEK_SET);
+			fwrite(buffer, (size_t)(gapless_void_padding - gapless_padding_bytes_written), 1, mp4file);
+			gapless_padding_bytes_written+= (gapless_void_padding - gapless_padding_bytes_written);
+			break;
+		}
+	}
+	return;
+}
+
 void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_original) {
 	char* temp_file_name=(char*)malloc( sizeof(char)* 3500 );
 	char* file_buffer=(char*)malloc( sizeof(char)* max_buffer + 1 );
@@ -4854,10 +4919,13 @@ void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_origi
 			}
 			
 			//prevent any looping back to atoms already written
-			thisAtom->AtomicNumber = -1; //parsedAtoms[thisAtomNumber].AtomicNumber = -1;
-			thisAtomNumber = thisAtom->NextAtomNumber; //thisAtomNumber = parsedAtoms[thisAtomNumber].NextAtomNumber;
+			thisAtom->AtomicNumber = -1;
+			thisAtomNumber = thisAtom->NextAtomNumber;
 		}
 		if (!udta_dynamics.dynamic_updating) {
+			if (gapless_void_padding > 0 && pad_prefs.default_padding_size > 0) { //only when some sort of padding is wanted will the gapless null padding be copied
+				APar_copy_gapless_padding(temp_file, temp_file_bytes_written, file_buffer);
+			}
 			fprintf(stdout, "\n Finished writing to temp file.\n");
 			fclose(temp_file);
 		}
