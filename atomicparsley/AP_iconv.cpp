@@ -682,7 +682,9 @@ unsigned int utf8_length(const char *in_string, unsigned int char_limit) {
 			utf8_string_length++;
 			utf8_str += bytes_in_char;
 			byte_count += bytes_in_char;
-		}
+		} else {
+			break;
+		} 
 				
 		if (char_limit != 0 && char_limit == utf8_string_length) {
 			utf8_string_length = byte_count;

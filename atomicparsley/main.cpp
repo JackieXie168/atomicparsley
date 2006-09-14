@@ -178,7 +178,7 @@ static char* shortHelp_text =
 "  --podcastGUID  (URL)        Set the episode's URL tag\n"
 "  --purchaseDate (UTC)        Set time of purchase\n"
 "  --encodingTool (string)     Set the name of the encoder\n"
-"  --gapless      (booleam)    Set the gapless playback flag\n"
+"  --gapless      (boolean)    Set the gapless playback flag\n"
 "\n"
 "Deleting tags\n"
 "  Set the value to \"\":        --artist \"\" --stik \"\" --bpm \"\"\n"
@@ -388,6 +388,22 @@ static char* fileLevelHelp_text =
 "Note: while AtomicParsley is still in the beta stage, the original file will always remain untouched - \n"
 "      unless given the --overWrite flag when if possible, utilizing available padding to update tags\n"
 "      will be tried (falling back to a full rewrite if changes are greater than the found padding).\n"
+"----------------------------------------------------------------------------------------------------\n"
+" iTunes 7 & Gapless playback:\n"
+"\n"
+" iTunes 7 adds NULL space at the ends of files (filled with zeroes). It is possble this is how iTunes\n"
+" implements gapless playback - perhaps not. In any event, with AtomicParsley you can choose to preserve\n"
+" that NULL space, or you can eliminate its presence (typically around 2,000 bytes). The default behavior\n"
+" is to preserve it - if it is present at all. You can choose to eliminate it by setting the environ-\n"
+" mental preference for AP_PADDING to have DEFAULT_PAD=0\n"
+"\n"
+#if defined (_MSC_VER)
+"Example:\n"
+"   c:> SET AP_PADDING=\"DEFAULT_PAD=0\"\n"
+#else
+"Example (bash style):\n"
+"   $ export AP_PADDING=\"DEFAULT_PAD=0\"\n"
+#endif
 "----------------------------------------------------------------------------------------------------\n"
 ;
 
