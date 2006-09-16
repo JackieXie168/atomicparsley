@@ -214,8 +214,13 @@ void APar_ShowMPEG4VisualProfileInfo(TrackInfo* track_info) {
 		fprintf(stdout, "Simple Profile, Level 2"); //00000010
 	} else if (mp4v_profile == 0x03) {
 		fprintf(stdout, "Simple Profile, Level 3");     //most files will land here  //00000011
+		
+	} else if (mp4v_profile == 0x08) {            //Compressor can create these in 3gp files
+		fprintf(stdout, "Simple Profile, Level 0"); //ISO 14496-2:2004(e) //00001000
 	
-	//Reserved 00000100 - 00010000
+	//Reserved 00000100 - 00000111
+	} else if (mp4v_profile == 0x10) {
+		fprintf(stdout, "Simple Scalable Profile, Level 0"); //00010000
 	} else if (mp4v_profile == 0x11) {
 		fprintf(stdout, "Simple Scalable Profile, Level 1"); //00010001
 	} else if (mp4v_profile == 0x12) {
@@ -327,8 +332,8 @@ void APar_ShowMPEG4VisualProfileInfo(TrackInfo* track_info) {
 	} else if (mp4v_profile == 0xE8) {
 		fprintf(stdout, "Core Studio Profile, Level 4"); //11101000
 		
-	//Reserved 11101001 - 11110000
-	//somewhat of a confict with http://lists.mpegif.org/pipermail/mp4-tech/2003-July/002444.html
+	//Reserved 11101001 - 11101111
+	//ISO 14496-2:2004(e)
 	} else if (mp4v_profile == 0xF0) {
 		fprintf(stdout, "Advanced Simple Profile, Level 0"); //11110000
 	} else if (mp4v_profile == 0xF1) {
@@ -342,26 +347,27 @@ void APar_ShowMPEG4VisualProfileInfo(TrackInfo* track_info) {
 		fprintf(stdout, "Advanced Simple Profile, Level 4"); //11110100
 	} else if (mp4v_profile == 0xF5) {
 		fprintf(stdout, "Advanced Simple Profile, Level 5"); //11110101
+		
+	//Reserved 11110110
 	} else if (mp4v_profile == 0xF7) {
 		fprintf(stdout, "Advanced Simple Profile, Level 3b"); //11110111
-		
-	//which means that there is an overlap @ 11110111; so FineGranularity will just be excluded for now
-/*
-Fine Granularity Scalable Profile/Level 0
-11110110
-Fine Granularity Scalable Profile/Level 1
-11110111
-Fine Granularity Scalable Profile/Level 2
-11111000
-Fine Granularity Scalable Profile/Level 3
-11111001
-Fine Granularity Scalable Profile/Level 4
-11111010
-Reserved
-11111011 11111110
-Reserved for Escape
-11111111
-*/
+	
+	} else if (mp4v_profile == 0xF7) {
+		fprintf(stdout, "Fine Granularity Scalable Profile/Level 0"); //11111000
+	} else if (mp4v_profile == 0xF7) {
+		fprintf(stdout, "Fine Granularity Scalable Profile/Level 1"); //11111001
+	} else if (mp4v_profile == 0xF7) {
+		fprintf(stdout, "Fine Granularity Scalable Profile/Level 2"); //11111010
+	} else if (mp4v_profile == 0xF7) {
+		fprintf(stdout, "Fine Granularity Scalable Profile/Level 3"); //11111011
+	} else if (mp4v_profile == 0xF7) {
+		fprintf(stdout, "Fine Granularity Scalable Profile/Level 4"); //11111100
+	} else if (mp4v_profile == 0xF7) {
+		fprintf(stdout, "Fine Granularity Scalable Profile/Level 5"); //11111101
+
+	//Reserved 11111110
+	//Reserved for Escape 11111111
+
 	} else {
 		fprintf(stdout, "Unknown profile: 0x%X", mp4v_profile);
 	}
@@ -911,6 +917,7 @@ void APar_Extract_esds_Info(char* uint32_buffer, FILE* isofile, short track_leve
 						track_info->channels = (uint16_t)APar_ExtractChannelInfo(isofile, esds_start + offset_into_esds);
 						
 					} else if (track_info->type_of_track & VIDEO_TRACK) {
+						//technically, visual_object_sequence_start_code should be tested aginst 0x000001B0
 						if (APar_read16(uint32_buffer, isofile, esds_start + offset_into_esds+2) == 0x01B0) {
 							track_info->m4v_profile = APar_read8(isofile, esds_start + offset_into_esds+2+2);
 						}
@@ -1049,6 +1056,7 @@ void APar_ExtractTrackDetails(char* uint32_buffer, FILE* isofile, Trackage* trac
 	if (track_info->contains_esds) {
 		APar_TrackLevelInfo(track, "esds");
 		
+		//technically, user_data_start_code should be tested aginst 0x000001B2; TODO: it should only be read up to section 3's length too
 		_offset = APar_FindValueInAtom(uint32_buffer, isofile, track->track_atom, 24, 0x01B2);
 		
 		if (_offset > 0 && _offset < parsedAtoms[track->track_atom].AtomicLength) {

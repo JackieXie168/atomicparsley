@@ -240,7 +240,7 @@ extern uint8_t forced_suffix_type;
 
 //==========================================================//
 
-#define AtomicParsley_version	"0.8.8"
+#define AtomicParsley_version	"0.9.0"
 
 #define MAX_ATOMS 1024
 #define MAXDATA_PAYLOAD 1256
