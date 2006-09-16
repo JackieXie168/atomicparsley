@@ -56,8 +56,8 @@
 bool modified_atoms = false;
 bool alter_original = false;
 
-bool cvs_build = true; //controls which type of versioning - cvs build-time stamp
-//bool cvs_build = false; //controls which type of versioning - release number
+bool svn_build = true; //controls which type of versioning - svn build-time stamp
+//bool svn_build = false; //controls which type of versioning - release number
 
 FILE* source_file = NULL;
 uint32_t file_size;
@@ -141,7 +141,7 @@ void ShowVersionInfo() {
 #define unicode_enabled	"(utf8)"
 #endif
 
-	if (cvs_build) {  //below is the versioning from svn if used; remember to switch to AtomicParsley_version for a release
+	if (svn_build) {  //below is the versioning from svn if used; remember to switch to AtomicParsley_version for a release
 
 		fprintf(stdout, "AtomicParsley from svn built on %s %s\n", __DATE__, unicode_enabled);
 	
@@ -3826,6 +3826,7 @@ void APar_ForcePadding(uint32_t padding_amount) {
 	} else {
 		APar_InterjectNewAtom("free", CHILD_ATOM, SIMPLE_ATOM, padding_amount, 0, 0, 1, APar_FindLastChild_of_ParentAtom(udta_dynamics.moov_atom) );
 	}
+	new_file_size += padding_amount;
 	return;
 }
 
@@ -3848,6 +3849,7 @@ void APar_ConsilidatePadding(uint32_t force_padding_amount) {
 		primary_repository = udta_dynamics.free_atom_secondary_repository;
 	} else if (force_padding_amount >=8) {
 		APar_InterjectNewAtom("free", CHILD_ATOM, SIMPLE_ATOM, force_padding_amount, 0, 0, 1, APar_FindLastChild_of_ParentAtom(udta_dynamics.moov_atom) );
+		new_file_size += force_padding_amount;
 		return;
 	}
 	
@@ -3908,6 +3910,7 @@ void APar_ForcePadding_sans_udta() {
 	}
 	if (free_padding_space <= pad_prefs.minimum_required_padding_size && pad_prefs.default_padding_size >= 8) {
 		APar_InterjectNewAtom("free", CHILD_ATOM, SIMPLE_ATOM, pad_prefs.default_padding_size, 0, 0, 1, APar_FindLastChild_of_ParentAtom(moov_atom) );
+		new_file_size += pad_prefs.default_padding_size;
 	}
 	return;
 }
