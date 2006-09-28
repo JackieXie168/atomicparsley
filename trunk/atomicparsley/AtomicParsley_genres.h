@@ -28,3 +28,6 @@ stiks* MatchStikNumber(uint8_t in_stik_num);
 void ListStikValues();
 
 sfIDs* MatchStoreFrontNumber(uint32_t storefrontnum);
+
+bool MatchLanguageCode(const char* in_code);
+void ListLanguageCodes();

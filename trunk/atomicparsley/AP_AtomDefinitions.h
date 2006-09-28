@@ -229,6 +229,7 @@ atomDefinition KnownAtoms[] = {
 	{"loci",	{"udta"},						CHILD_ATOM,				OPTIONAL_MANY,				PACKED_LANG_ATOM },
 	
 	{"ID32",	{"meta"},						CHILD_ATOM,				OPTIONAL_MANY,				PACKED_LANG_ATOM },     //id3v2 tag
+	{"tsel",  {"udta"},						CHILD_ATOM,				OPTIONAL_MANY,				SIMPLE_ATOM },        //but only at track level in a 3gp file
 
 	//{"chpl",	{"udta"},						CHILD_ATOM,				OPTIONAL_ONCE,				VERSIONED_ATOM },		//Nero - seems to be versioned
 	//{"ndrm",	{"udta"},						CHILD_ATOM,				OPTIONAL_ONCE,				VERSIONED_ATOM },		//Nero - seems to be versioned

@@ -41,7 +41,7 @@
 #include "AtomicParsley.h"
 #include "AP_AtomExtracts.h"
 #include "AP_iconv.h"                 /* for xmlInitEndianDetection used in endian utf16 conversion */
-#include "AtomicParsley_genres.h"     //for stik comparison function
+#include "AtomicParsley_genres.h"
 #include "APar_uuid.h"
 
 // define one-letter cli options for
@@ -412,15 +412,15 @@ static char* _3gpHelp_text =
 "AtomicParsley 3gp help page for setting 3GPP-style metadata.\n"
 "----------------------------------------------------------------------------------------------------\n"
 "  3GPP text tags can be encoded in either UTF-8 (default input encoding) or UTF-16 (converted from UTF-8)\n"
-"  Many 3GPP text tags can be set for a desired language by a 3-letter-lowercase code (default is \"eng\")\n"
-"  See   http://www.loc.gov/standards/iso639-2/langcodes.html   to obtain codes (codes are *not* checked).\n"
+"  Many 3GPP text tags can be set for a desired language by a 3-letter-lowercase code (default is \"eng\").\n"
 "  For tags that support the language attribute (all except year), more than one tag of the same name\n"
 "  (3 titles for example) differing in the language code is supported.\n"
 "\n"
 "  iTunes-style metadata is not supported by the 3GPP TS 26.244 version 6.4.0 Release 6 specification.\n"
-"  3GPP tags are set in a different hierarchy: moov.udta (versus iTunes moov.udta.meta.ilst). Other 3rd\n"
-"  party utilities may allow setting iTunes-style metadata in 3gp files. When a 3gp file is detected\n"
-"  (file extension doesn't matter), only 3gp spec-compliant metadata will be read & written.\n"
+"  3GPP asset tags can be set at movie level or track level & are set in a different hierarchy: moov.udta \n"
+"  if at movie level (versus iTunes moov.udta.meta.ilst). Other 3rd party utilities may allow setting\n"
+"  iTunes-style metadata in 3gp files. When a 3gp file is detected (file extension doesn't matter), only\n"
+"  3gp spec-compliant metadata will be read & written.\n"
 "\n"
 "  Note1: there are a number of different 'brands' that 3GPP files come marked as. Some will not be \n"
 "         supported by AtomicParsley due simply to them being unknown and untested. You can compile your\n"
@@ -434,25 +434,25 @@ static char* _3gpHelp_text =
 "         more glyphs than others.\n"
 "\n"
 "----------------------------------------------------------------------------------------------------\n"
-" Tag setting options (default lang is 'eng'; default encoding is UTF8):\n"
+" Tag setting options (default user data area is movie level; default lang is 'eng'; default encoding is UTF8):\n"
 "     required arguments are in (parentheses); optional arguments are in [brackets]\n"
 "\n"
-"  --3gp-title           (str)   [lang=3str]   [UTF16]  .........  Set a 3gp media title tag\n"
-"  --3gp-author          (str)   [lang=3str]   [UTF16]  .........  Set a 3gp author of the media tag\n"
-"  --3gp-performer       (str)   [lang=3str]   [UTF16]  .........  Set a 3gp performer or artist tag\n"
-"  --3gp-genre           (str)   [lang=3str]   [UTF16]  .........  Set a 3gp genre asset tag\n"
-"  --3gp-description     (str)   [lang=3str]   [UTF16]  .........  Set a 3gp description or caption tag\n"
-"  --3gp-copyright       (str)   [lang=3str]   [UTF16]  .........  Set a 3gp copyright notice tag*\n"
+"  --3gp-title           (str)  [lang=3str]  [UTF16]  [area]  .........  Set a 3gp media title tag\n"
+"  --3gp-author          (str)  [lang=3str]  [UTF16]  [area]  .........  Set a 3gp author of the media tag\n"
+"  --3gp-performer       (str)  [lang=3str]  [UTF16]  [area]  .........  Set a 3gp performer or artist tag\n"
+"  --3gp-genre           (str)  [lang=3str]  [UTF16]  [area]  .........  Set a 3gp genre asset tag\n"
+"  --3gp-description     (str)  [lang=3str]  [UTF16]  [area]  .........  Set a 3gp description or caption tag\n"
+"  --3gp-copyright       (str)  [lang=3str]  [UTF16]  [area]  .........  Set a 3gp copyright notice tag*\n"
 "\n"
-"  --3gp-album           (str)   [track=int]  [lang=3str] [UTF16]  Set a 3gp album tag (& opt. tracknum)\n"
-"  --3gp-year            (int)   ................................  Set a 3gp recording year tag (4 digit only)\n"
+"  --3gp-album           (str)  [lang=3str]  [UTF16]  [trknum=int] [area]  Set a 3gp album tag (& opt. tracknum)\n"
+"  --3gp-year            (int)  [area]  ...........................  Set a 3gp recording year tag (4 digit only)\n"
 "\n"
-"  --3gp-rating          (str)  [entity=4str]  [criteria=4str]  [lang=3str]  [UTF16]  Set a 3gp rating tag\n"
-"  --3gp-classification  (str)  [entity=4str]  [index=int]      [lang=3str]  [UTF16]  Set classification tag\n"
+"  --3gp-rating          (str)  [entity=4str]  [criteria=4str]  [lang=3str]  [UTF16]  [area]   Rating tag\n"
+"  --3gp-classification  (str)  [entity=4str]  [index=int]      [lang=3str]  [UTF16]  [area]   Classification\n"
 "\n"
-"  --3gp-keyword         (str)    [lang=3str]   [UTF16]     Format of str is 'keywords=word1,word2,word3,word4'\n"
+"  --3gp-keyword         (str)   [lang=3str]  [UTF16]  [area]   Format of str: 'keywords=word1,word2,word3,word4'\n"
 "\n"
-"  --3gp-location        (str)    [lang=3str]   [UTF16]     Set a 3gp location tag (defaults to Central Park)\n"
+"  --3gp-location        (str)   [lang=3str]  [UTF16]  [area]   Set a 3gp location tag (default: Central Park)\n"
 "                                 [longitude=fxd.pt]  [latitude=fxd.pt]  [altitude=fxd.pt]\n"
 "                                 [role=str]  [body=str]  [notes=str]\n"
 "                                 fxd.pt values are decimal coordinates (55.01209, 179.25W, 63)\n"
@@ -460,8 +460,12 @@ static char* _3gpHelp_text =
 "                                         a negative value in coordinates will be seen as a cli flag\n"
 "                                         append 'S', 'W' or 'B': lat=55S, long=90.23W, alt=90.25B\n"
 "\n"
-"Note: 4str = a 4 letter string like \"PG13\"; 3str is a 3 letter string like \"eng\"; int is an integer\n"
-"*Note2: The 3gp copyright asset can potentially be altered by using the --ISO-copyright setting.\n"
+" [area] can be \"movie\", \"track\" or \"track=num\" where 'num' is the number of the track. If not specificied,\n"
+" assets will be placed at movie level. The \"track\" option sets the asset across all available tracks\n"
+"\n"
+"Note1: '4str' = a 4 letter string like \"PG13\"; 3str is a 3 letter string like \"eng\"; int is an integer\n"
+"Note2: List all languages for '3str' with \"AtomicParsley --language-list (unknown languages become \"und\")\n"
+"*Note3: The 3gp copyright asset can potentially be altered by using the --ISO-copyright setting.\n"
 
 "----------------------------------------------------------------------------------------------------\n"
 "Usage: AtomicParsley [3gpFILE] --option [argument] [optional_arguments]  [ --option2 [argument2]...] \n"
@@ -633,19 +637,32 @@ void GetBasePath(const char *filepath, char* &basepath) {
 	return;
 }
 
-void find_optional_args(char *argv[], int start_optindargs, uint16_t &packed_lang, bool &asUTF16, int max_optargs) {
+void find_optional_args(char *argv[], int start_optindargs, uint16_t &packed_lang, bool &asUTF16, uint8_t &udta_container, uint8_t &trk_idx, int max_optargs) {
 	asUTF16 = false;
 	packed_lang = 5575; //und = 0x55C4 = 21956, but QTPlayer doesn't like und //eng =  0x15C7 = 5575
 	
 	for (int i= 0; i <= max_optargs-1; i++) {
 		if ( argv[start_optindargs + i] && start_optindargs + i <= total_args ) {
 			if ( memcmp(argv[start_optindargs + i], "lang=", 5) == 0 ) {
-				packed_lang = PackLanguage(argv[start_optindargs +i], 5);
+				if (!MatchLanguageCode(argv[start_optindargs +i]+5) ) {
+					packed_lang = PackLanguage("und", 0);
+				} else {
+					packed_lang = PackLanguage(argv[start_optindargs +i], 5);
+				}
 			
 			} else if ( memcmp(argv[start_optindargs + i], "UTF16", 5) == 0 ) {
 				asUTF16 = true;
+			} else if ( memcmp(argv[optind + i], "movie", 6) == 0 ) {
+				udta_container = MOVIE_LEVEL_ATOM;
+			} else if ( memcmp(argv[optind + i], "track=", 6) == 0 ) {
+				char* track_index_str = argv[optind + i];
+				strsep(&track_index_str, "=");
+				sscanf(track_index_str, "%hhu", &trk_idx);
+				udta_container = SINGLE_TRACK_ATOM;	
+			} else if ( memcmp(argv[optind + i], "track", 6) == 0 ) {
+				udta_container = ALL_TRACKS_ATOM;
 			}
-			if (memcmp(argv[start_optindargs + i], "--", 2) == 0) {
+			if (memcmp(argv[start_optindargs + i], "-", 1) == 0) {
 				break; //we've hit another cli argument
 			}
 		}
@@ -727,6 +744,9 @@ int main( int argc, char *argv[]) {
 			
 		} else if ( memcmp(argv[1], "--stik-list", 11) == 0 ) {
 			ListStikValues(); exit(0);
+			
+		} else if ( memcmp(argv[1], "--language-list", 16) == 0 ) {
+			ListLanguageCodes(); exit(0);
 		}
 	}
 	
@@ -1632,6 +1652,12 @@ int main( int argc, char *argv[]) {
 		
 		//3gp tags
 		
+		/*
+		First, scan the file to get at atom tree (only happens once). Then take the cli args and look for optional arguments. All arguments begin with -- or -; other args
+		are optional and are determined by directly testing arguments. Optional arguments common to the 3gp asset group (language, unicode, track/movie userdata) are
+		extracted in find_optional_args. Setting assets in all tracks requires getting the number of tracks. Loop through either once (for movie & single track) or as
+		many tracks there are for all tracks. Each pass through the loop, set the individual pieces of metadata.
+		*/
 		case _3GP_Title : {
 			APar_ScanAtoms(m4afile);
 			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER, 2, "title") ) {
@@ -1639,10 +1665,25 @@ int main( int argc, char *argv[]) {
 			}
 			bool set_UTF16_text = false;
 			uint16_t packed_lang = 0;
-			find_optional_args(argv, optind, packed_lang, set_UTF16_text, 2);
+			uint8_t userdata_area = MOVIE_LEVEL_ATOM;
+			uint8_t selected_track = 0;
+			uint8_t a_track = 0;//unused
+			short an_atom = 0;//unused
+			uint8_t asset_iterations = 0;
+
+			find_optional_args(argv, optind, packed_lang, set_UTF16_text, userdata_area, selected_track, 3);
 			
-			short title_3GP_atom = APar_UserData_atom_Init("moov.udta.titl", optarg, packed_lang);
-			APar_Unified_atom_Put(title_3GP_atom, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
+			if (userdata_area == MOVIE_LEVEL_ATOM || userdata_area == SINGLE_TRACK_ATOM) {
+				asset_iterations = 1;
+			} else if (userdata_area == ALL_TRACKS_ATOM) {
+				APar_TrackInfo(asset_iterations, a_track, an_atom); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
+			}
+			
+			for (uint8_t i_asset = 1; i_asset <= asset_iterations; i_asset++) {
+				short title_3GP_atom = APar_UserData_atom_Init("titl", optarg, userdata_area, asset_iterations == 1 ? selected_track : i_asset, packed_lang);
+				APar_Unified_atom_Put(title_3GP_atom, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
+				title_3GP_atom = -1;
+			}
 			break;
 		}
 		
@@ -1653,10 +1694,25 @@ int main( int argc, char *argv[]) {
 			}
 			bool set_UTF16_text = false;
 			uint16_t packed_lang = 0;
-			find_optional_args(argv, optind, packed_lang, set_UTF16_text, 2);
+			uint8_t userdata_area = MOVIE_LEVEL_ATOM;
+			uint8_t selected_track = 0;
+			uint8_t a_track = 0;//unused
+			short an_atom = 0;//unused
+			uint8_t asset_iterations = 0;
+
+			find_optional_args(argv, optind, packed_lang, set_UTF16_text, userdata_area, selected_track, 3);
 			
-			short author_3GP_atom = APar_UserData_atom_Init("moov.udta.auth", optarg, packed_lang);
-			APar_Unified_atom_Put(author_3GP_atom, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
+			if (userdata_area == MOVIE_LEVEL_ATOM || userdata_area == SINGLE_TRACK_ATOM) {
+				asset_iterations = 1;
+			} else if (userdata_area == ALL_TRACKS_ATOM) {
+				APar_TrackInfo(asset_iterations, a_track, an_atom); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
+			}
+			
+			for (uint8_t i_asset = 1; i_asset <= asset_iterations; i_asset++) {
+				short author_3GP_atom = APar_UserData_atom_Init("auth", optarg, userdata_area, asset_iterations == 1 ? selected_track : i_asset, packed_lang);
+				APar_Unified_atom_Put(author_3GP_atom, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
+				author_3GP_atom = -1;
+			}
 			break;
 		}
 		
@@ -1667,10 +1723,25 @@ int main( int argc, char *argv[]) {
 			}
 			bool set_UTF16_text = false;
 			uint16_t packed_lang = 0;
-			find_optional_args(argv, optind, packed_lang, set_UTF16_text, 2);
+			uint8_t userdata_area = MOVIE_LEVEL_ATOM;
+			uint8_t selected_track = 0;
+			uint8_t a_track = 0;//unused
+			short an_atom = 0;//unused
+			uint8_t asset_iterations = 0;
+
+			find_optional_args(argv, optind, packed_lang, set_UTF16_text, userdata_area, selected_track, 3);
 			
-			short performer_3GP_atom = APar_UserData_atom_Init("moov.udta.perf", optarg, packed_lang);
-			APar_Unified_atom_Put(performer_3GP_atom, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
+			if (userdata_area == MOVIE_LEVEL_ATOM || userdata_area == SINGLE_TRACK_ATOM) {
+				asset_iterations = 1;
+			} else if (userdata_area == ALL_TRACKS_ATOM) {
+				APar_TrackInfo(asset_iterations, a_track, an_atom); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
+			}
+			
+			for (uint8_t i_asset = 1; i_asset <= asset_iterations; i_asset++) {
+				short performer_3GP_atom = APar_UserData_atom_Init("perf", optarg, userdata_area, asset_iterations == 1 ? selected_track : i_asset, packed_lang);
+				APar_Unified_atom_Put(performer_3GP_atom, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
+				performer_3GP_atom = -1;
+			}
 			break;
 		}
 		
@@ -1681,10 +1752,25 @@ int main( int argc, char *argv[]) {
 			}
 			bool set_UTF16_text = false;
 			uint16_t packed_lang = 0;
-			find_optional_args(argv, optind, packed_lang, set_UTF16_text, 2);
+			uint8_t userdata_area = MOVIE_LEVEL_ATOM;
+			uint8_t selected_track = 0;
+			uint8_t a_track = 0;//unused
+			short an_atom = 0;//unused
+			uint8_t asset_iterations = 0;
+
+			find_optional_args(argv, optind, packed_lang, set_UTF16_text, userdata_area, selected_track, 3);
 			
-			short genre_3GP_atom = APar_UserData_atom_Init("moov.udta.gnre", optarg, packed_lang);
-			APar_Unified_atom_Put(genre_3GP_atom, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
+			if (userdata_area == MOVIE_LEVEL_ATOM || userdata_area == SINGLE_TRACK_ATOM) {
+				asset_iterations = 1;
+			} else if (userdata_area == ALL_TRACKS_ATOM) {
+				APar_TrackInfo(asset_iterations, a_track, an_atom); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
+			}
+			
+			for (uint8_t i_asset = 1; i_asset <= asset_iterations; i_asset++) {
+				short genre_3GP_atom = APar_UserData_atom_Init("gnre", optarg, userdata_area, asset_iterations == 1 ? selected_track : i_asset, packed_lang);
+				APar_Unified_atom_Put(genre_3GP_atom, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
+				genre_3GP_atom = -1;
+			}
 			break;
 		}
 		
@@ -1695,10 +1781,25 @@ int main( int argc, char *argv[]) {
 			}
 			bool set_UTF16_text = false;
 			uint16_t packed_lang = 0;
-			find_optional_args(argv, optind, packed_lang, set_UTF16_text, 2);
+			uint8_t userdata_area = MOVIE_LEVEL_ATOM;
+			uint8_t selected_track = 0;
+			uint8_t a_track = 0;//unused
+			short an_atom = 0;//unused
+			uint8_t asset_iterations = 0;
+
+			find_optional_args(argv, optind, packed_lang, set_UTF16_text, userdata_area, selected_track, 3);
 			
-			short description_3GP_atom = APar_UserData_atom_Init("moov.udta.dscp", optarg, packed_lang);
-			APar_Unified_atom_Put(description_3GP_atom, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
+			if (userdata_area == MOVIE_LEVEL_ATOM || userdata_area == SINGLE_TRACK_ATOM) {
+				asset_iterations = 1;
+			} else if (userdata_area == ALL_TRACKS_ATOM) {
+				APar_TrackInfo(asset_iterations, a_track, an_atom); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
+			}
+			
+			for (uint8_t i_asset = 1; i_asset <= asset_iterations; i_asset++) {
+				short description_3GP_atom = APar_UserData_atom_Init("dscp", optarg, userdata_area, asset_iterations == 1 ? selected_track : i_asset, packed_lang);
+				APar_Unified_atom_Put(description_3GP_atom, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
+				description_3GP_atom = -1;
+			}
 			break;
 		}
 		
@@ -1709,10 +1810,25 @@ int main( int argc, char *argv[]) {
 			}
 			bool set_UTF16_text = false;
 			uint16_t packed_lang = 0;
-			find_optional_args(argv, optind, packed_lang, set_UTF16_text, 2);
+			uint8_t userdata_area = MOVIE_LEVEL_ATOM;
+			uint8_t selected_track = 0;
+			uint8_t a_track = 0;//unused
+			short an_atom = 0;//unused
+			uint8_t asset_iterations = 0;
+
+			find_optional_args(argv, optind, packed_lang, set_UTF16_text, userdata_area, selected_track, 3);
 			
-			short copyright_3GP_atom = APar_UserData_atom_Init("moov.udta.cprt", optarg, packed_lang);
-			APar_Unified_atom_Put(copyright_3GP_atom, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
+			if (userdata_area == MOVIE_LEVEL_ATOM || userdata_area == SINGLE_TRACK_ATOM) {
+				asset_iterations = 1;
+			} else if (userdata_area == ALL_TRACKS_ATOM) {
+				APar_TrackInfo(asset_iterations, a_track, an_atom); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
+			}
+			
+			for (uint8_t i_asset = 1; i_asset <= asset_iterations; i_asset++) {
+				short copyright_3GP_atom = APar_UserData_atom_Init("cprt", optarg, userdata_area, asset_iterations == 1 ? selected_track : i_asset, packed_lang);
+				APar_Unified_atom_Put(copyright_3GP_atom, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
+				copyright_3GP_atom = -1;
+			}
 			break;
 		}
 		
@@ -1723,23 +1839,40 @@ int main( int argc, char *argv[]) {
 			}
 			bool set_UTF16_text = false;
 			uint16_t packed_lang = 0;
-			find_optional_args(argv, optind, packed_lang, set_UTF16_text, 3);
+			uint8_t userdata_area = MOVIE_LEVEL_ATOM;
+			uint8_t selected_track = 0;
+			uint8_t a_track = 0;//unused
+			short an_atom = 0;//unused
+			uint8_t asset_iterations = 0;
 			uint8_t tracknum = 0;
 			
-			short album_3GP_atom = APar_UserData_atom_Init("moov.udta.albm", optarg, packed_lang);
-			APar_Unified_atom_Put(album_3GP_atom, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
+			find_optional_args(argv, optind, packed_lang, set_UTF16_text, userdata_area, selected_track, 4);
 			
 			//cygle through the remaining independant arguments (before the next --cli_flag) and figure out if any are useful to us; already have lang & utf16
-			for (int i= 0; i < 3; i++) { //3 possible arguments for this tag (the first - which doesn't count - is the data for the tag itself)
+			for (int i= 0; i <= 4; i++) { //3 possible arguments for this tag (the first - which doesn't count - is the data for the tag itself)
 				if ( argv[optind + i] && optind + i <= total_args) {
-					if ( memcmp(argv[optind + i], "track=", 6) == 0 ) {
+					if ( memcmp(argv[optind + i], "trknum=", 7) == 0 ) {
 						char* track_num = argv[optind + i];
 						strsep(&track_num,"=");
 						sscanf(track_num, "%hhu", &tracknum);
-						APar_Unified_atom_Put(album_3GP_atom, NULL, UTF8_3GP_Style, (uint32_t)tracknum, 8);
-					}			
+					}
+					if (memcmp(argv[optind + i], "-", 1) == 0) break;
 				}
 			}
+
+			if (userdata_area == MOVIE_LEVEL_ATOM || userdata_area == SINGLE_TRACK_ATOM) {
+				asset_iterations = 1;
+			} else if (userdata_area == ALL_TRACKS_ATOM) {
+				APar_TrackInfo(asset_iterations, a_track, an_atom); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
+			}
+			
+			for (uint8_t i_asset = 1; i_asset <= asset_iterations; i_asset++) {
+				short album_3GP_atom = APar_UserData_atom_Init("albm", optarg, userdata_area, asset_iterations == 1 ? selected_track : i_asset, packed_lang);
+				APar_Unified_atom_Put(album_3GP_atom, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
+				if (tracknum != 0) {
+					APar_Unified_atom_Put(album_3GP_atom, NULL, UTF8_3GP_Style, (uint32_t)tracknum, 8);
+				}
+			}			
 			break;
 		}
 		
@@ -1748,11 +1881,38 @@ int main( int argc, char *argv[]) {
 			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER, 2, "year") ) {
 				break;
 			}
+			uint8_t userdata_area = MOVIE_LEVEL_ATOM;
+			uint8_t selected_track = 0;
+			uint8_t a_track = 0;//unused
+			short an_atom = 0;//unused
+			uint8_t asset_iterations = 0;
 			uint16_t year_tag = 0;
+
+			if ( argv[optind] && optind <= total_args) {
+				if ( memcmp(argv[optind], "movie", 6) == 0 ) {
+					userdata_area = MOVIE_LEVEL_ATOM;					}
+				if ( memcmp(argv[optind], "track=", 6) == 0 ) {
+					char* trak_idx = argv[optind];
+					strsep(&trak_idx, "=");
+					sscanf(trak_idx, "%hhu", &selected_track);
+					userdata_area = SINGLE_TRACK_ATOM;	
+				} else if ( memcmp(argv[optind], "track", 6) == 0 ) {
+					userdata_area = ALL_TRACKS_ATOM;	
+				}
+			}
+			
 			sscanf(optarg, "%hu", &year_tag);
 			
-			short rec_year_3GP_atom = APar_UserData_atom_Init("moov.udta.yrrc", optarg, 0);
-			APar_Unified_atom_Put(rec_year_3GP_atom, NULL, UTF8_3GP_Style, (uint32_t)year_tag, 16);
+			if (userdata_area == MOVIE_LEVEL_ATOM || userdata_area == SINGLE_TRACK_ATOM) {
+				asset_iterations = 1;
+			} else if (userdata_area == ALL_TRACKS_ATOM) {
+				APar_TrackInfo(asset_iterations, a_track, an_atom); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
+			}
+			
+			for (uint8_t i_asset = 1; i_asset <= asset_iterations; i_asset++) {
+				short rec_year_3GP_atom = APar_UserData_atom_Init("yrrc", optarg, userdata_area, asset_iterations == 1 ? selected_track : i_asset, 0);
+				APar_Unified_atom_Put(rec_year_3GP_atom, NULL, UTF8_3GP_Style, (uint32_t)year_tag, 16);
+			}
 			break;	
 		}
 		
@@ -1765,9 +1925,15 @@ int main( int argc, char *argv[]) {
 			char rating_criteria[5] = { 'N', 'O', 'N', 'E', 0 };
 			bool set_UTF16_text = false;
 			uint16_t packed_lang = 0;
-			find_optional_args(argv, optind, packed_lang, set_UTF16_text, 4);
-			
-			for (int i= 0; i < 4; i++) { //3 possible arguments for this tag (the first - which doesn't count - is the data for the tag itself)
+			uint8_t userdata_area = MOVIE_LEVEL_ATOM;
+			uint8_t selected_track = 0;
+			uint8_t a_track = 0;//unused
+			short an_atom = 0;//unused
+			uint8_t asset_iterations = 0;
+
+			find_optional_args(argv, optind, packed_lang, set_UTF16_text, userdata_area, selected_track, 5);
+						
+			for (int i= 0; i < 5; i++) { //3 possible arguments for this tag (the first - which doesn't count - is the data for the tag itself)
 				if ( argv[optind + i] && optind + i <= total_args) {
 					if ( memcmp(argv[optind + i], "entity=", 7) == 0 ) {
 						char* entity = argv[optind + i];
@@ -1779,13 +1945,24 @@ int main( int argc, char *argv[]) {
 						strsep(&criteria,"=");
 						memcpy(&rating_criteria, criteria, 4);
 					}
+					if (memcmp(argv[optind + i], "-", 1) == 0) break; //we've hit another cli argument
 				}
 			}
-			short rating_3GP_atom = APar_UserData_atom_Init("moov.udta.rtng", optarg, packed_lang);
 			
-			APar_Unified_atom_Put(rating_3GP_atom, NULL, UTF8_3GP_Style, UInt32FromBigEndian(rating_entity), 32);
-			APar_Unified_atom_Put(rating_3GP_atom, NULL, UTF8_3GP_Style, UInt32FromBigEndian(rating_criteria), 32);
-			APar_Unified_atom_Put(rating_3GP_atom, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
+			if (userdata_area == MOVIE_LEVEL_ATOM || userdata_area == SINGLE_TRACK_ATOM) {
+				asset_iterations = 1;
+			} else if (userdata_area == ALL_TRACKS_ATOM) {
+				APar_TrackInfo(asset_iterations, a_track, an_atom); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
+			}
+			
+			for (uint8_t i_asset = 1; i_asset <= asset_iterations; i_asset++) {
+				short rating_3GP_atom = APar_UserData_atom_Init("rtng", optarg, userdata_area, asset_iterations == 1 ? selected_track : i_asset, packed_lang);
+			
+				APar_Unified_atom_Put(rating_3GP_atom, NULL, UTF8_3GP_Style, UInt32FromBigEndian(rating_entity), 32);
+				APar_Unified_atom_Put(rating_3GP_atom, NULL, UTF8_3GP_Style, UInt32FromBigEndian(rating_criteria), 32);
+				APar_Unified_atom_Put(rating_3GP_atom, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
+				rating_3GP_atom = -1;
+			}
 			break;	
 		}
 		
@@ -1798,7 +1975,13 @@ int main( int argc, char *argv[]) {
 			uint16_t classification_index = 0;
 			bool set_UTF16_text = false;
 			uint16_t packed_lang = 0;
-			find_optional_args(argv, optind, packed_lang, set_UTF16_text, 4);
+			uint8_t userdata_area = MOVIE_LEVEL_ATOM;
+			uint8_t selected_track = 0;
+			uint8_t a_track = 0;//unused
+			short an_atom = 0;//unused
+			uint8_t asset_iterations = 0;
+			
+			find_optional_args(argv, optind, packed_lang, set_UTF16_text, userdata_area, selected_track, 5);
 			
 			for (int i= 0; i < 4; i++) { //3 possible arguments for this tag (the first - which doesn't count - is the data for the tag itself)
 				if ( argv[optind + i] && optind + i <= total_args) {
@@ -1812,13 +1995,24 @@ int main( int argc, char *argv[]) {
 						strsep(&cls_idx, "=");
 						sscanf(cls_idx, "%hu", &classification_index);
 					}
+					if (memcmp(argv[optind + i], "-", 1) == 0) break; //we've hit another cli argument
 				}
 			}
-			short classification_3GP_atom = APar_UserData_atom_Init("moov.udta.clsf", optarg, packed_lang);
 			
-			APar_Unified_atom_Put(classification_3GP_atom, NULL, UTF8_3GP_Style, UInt32FromBigEndian(classification_entity), 32);
-			APar_Unified_atom_Put(classification_3GP_atom, NULL, UTF8_3GP_Style, classification_index, 16);
-			APar_Unified_atom_Put(classification_3GP_atom, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
+			if (userdata_area == MOVIE_LEVEL_ATOM || userdata_area == SINGLE_TRACK_ATOM) {
+				asset_iterations = 1;
+			} else if (userdata_area == ALL_TRACKS_ATOM) {
+				APar_TrackInfo(asset_iterations, a_track, an_atom); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
+			}
+			
+			for (uint8_t i_asset = 1; i_asset <= asset_iterations; i_asset++) {
+				short classification_3GP_atom = APar_UserData_atom_Init("clsf", optarg, userdata_area, asset_iterations == 1 ? selected_track : i_asset, packed_lang);
+				
+				APar_Unified_atom_Put(classification_3GP_atom, NULL, UTF8_3GP_Style, UInt32FromBigEndian(classification_entity), 32);
+				APar_Unified_atom_Put(classification_3GP_atom, NULL, UTF8_3GP_Style, classification_index, 16);
+				APar_Unified_atom_Put(classification_3GP_atom, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
+				classification_3GP_atom = -1;
+			}
 			break;	
 		}
 		
@@ -1829,7 +2023,20 @@ int main( int argc, char *argv[]) {
 			}
 			bool set_UTF16_text = false;
 			uint16_t packed_lang = 0;
-			find_optional_args(argv, optind, packed_lang, set_UTF16_text, 3);
+			uint8_t userdata_area = MOVIE_LEVEL_ATOM;
+			uint8_t selected_track = 0;
+			uint8_t a_track = 0;//unused
+			short an_atom = 0;//unused
+			uint8_t asset_iterations = 0;
+			char* formed_keyword_struct = NULL;
+
+			find_optional_args(argv, optind, packed_lang, set_UTF16_text, userdata_area, selected_track, 4);
+			
+			if (userdata_area == MOVIE_LEVEL_ATOM || userdata_area == SINGLE_TRACK_ATOM) {
+				asset_iterations = 1;
+			} else if (userdata_area == ALL_TRACKS_ATOM) {
+				APar_TrackInfo(asset_iterations, a_track, an_atom); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
+			}
 			
 			if (strrchr(optarg, '=') != NULL) { //must be in the format of:   keywords=foo1,foo2,foo3,foo4
 				char* arg_keywords = optarg;
@@ -1854,20 +2061,28 @@ int main( int argc, char *argv[]) {
 						break;
 					}
 				}
-
-				short keyword_3GP_atom = APar_UserData_atom_Init("moov.udta.kywd", keyword_strlen ? "temporary" : "", packed_lang); //just a "temporary" valid string to satisfy a test there
-				if (keyword_strlen > 0) {
-					APar_Unified_atom_Put(keyword_3GP_atom, NULL, UTF8_3GP_Style, (uint32_t)packed_lang, 16);
-					APar_Unified_atom_Put(keyword_3GP_atom, NULL, UTF8_3GP_Style, keyword_count, 8);
-					char* formed_keyword_struct = (char*)malloc(sizeof(char)* set_UTF16_text ? keyword_strlen * 4 : keyword_strlen * 2); // *4 should carry utf16's BOM & TERM
-					memset(formed_keyword_struct, 0, set_UTF16_text ? keyword_strlen * 4 : keyword_strlen * 2 );
-					uint32_t keyword_struct_bytes = APar_3GP_Keyword_atom_Format(keywords_globbed, keyword_count, set_UTF16_text, formed_keyword_struct);
-					APar_atom_Binary_Put(keyword_3GP_atom, formed_keyword_struct, keyword_struct_bytes, 3);
+				
+				formed_keyword_struct = (char*)calloc(1, sizeof(char)* set_UTF16_text ? keyword_strlen * 4 : keyword_strlen * 2); // *4 should carry utf16's BOM & TERM
+				uint32_t keyword_struct_bytes = APar_3GP_Keyword_atom_Format(keywords_globbed, keyword_count, set_UTF16_text, formed_keyword_struct);
+				
+				for (uint8_t i_asset = 1; i_asset <= asset_iterations; i_asset++) {
+					short keyword_3GP_atom = APar_UserData_atom_Init("kywd", keyword_strlen ? "temporary" : "", userdata_area, asset_iterations == 1 ? selected_track : i_asset, packed_lang); //just a "temporary" valid string to satisfy a test there
+					if (keyword_strlen > 0) {
+						APar_Unified_atom_Put(keyword_3GP_atom, NULL, UTF8_3GP_Style, (uint32_t)packed_lang, 16);
+						APar_Unified_atom_Put(keyword_3GP_atom, NULL, UTF8_3GP_Style, keyword_count, 8);
+						APar_atom_Binary_Put(keyword_3GP_atom, formed_keyword_struct, keyword_struct_bytes, 3);
+					}
+					keyword_3GP_atom = -1;
+				}
+				if (formed_keyword_struct != NULL) {
 					free(formed_keyword_struct);
 					formed_keyword_struct = NULL;
 				}
 			} else {
-				APar_UserData_atom_Init("moov.udta.kywd", "", packed_lang);
+				//APar_UserData_atom_Init("moov.udta.kywd", "", packed_lang);
+				for (uint8_t i_asset = 1; i_asset <= asset_iterations; i_asset++) {
+					APar_UserData_atom_Init("kywd", "", userdata_area, asset_iterations == 1 ? selected_track : i_asset, packed_lang);
+				}
 			}
 			break;	
 		}
@@ -1879,9 +2094,11 @@ int main( int argc, char *argv[]) {
 			}
 			bool set_UTF16_text = false;
 			uint16_t packed_lang = 0;
-			find_optional_args(argv, optind, packed_lang, set_UTF16_text, 9);
-			
-			
+			uint8_t userdata_area = MOVIE_LEVEL_ATOM;
+			uint8_t selected_track = 0;
+			uint8_t a_track = 0;//unused
+			short an_atom = 0;//unused
+			uint8_t asset_iterations = 0;
 			double longitude = -73.98; //if you don't provide a place, you WILL be put right into Central Park. Welcome to New York City... now go away.
 			double latitude = 40.77;
 			double altitude = 4.3;
@@ -1889,7 +2106,9 @@ int main( int argc, char *argv[]) {
 			char* astronomical_body = "Earth";
 			char* additional_notes = "no notes";
 			
-			for (int i= 0; i < 9; i++) { //9 possible arguments for this tag (the first - which doesn't count - is the data for the tag itself)
+			find_optional_args(argv, optind, packed_lang, set_UTF16_text, userdata_area, selected_track, 10);
+			
+			for (int i= 0; i <= 10; i++) { //9 possible arguments for this tag (the first - which doesn't count - is the data for the tag itself)
 				if ( argv[optind + i] && optind + i <= total_args) {
 					if ( memcmp(argv[optind + i], "longitude=", 10) == 0 ) {
 						char* _long = argv[optind + i];
@@ -1936,24 +2155,33 @@ int main( int argc, char *argv[]) {
 						strsep(&_add_notes,"=");
 						additional_notes = _add_notes;
 					}
+					if (memcmp(argv[optind + i], "-", 1) == 0) break; //we've hit another cli argument
 				}
 			}
 			
 			//fprintf(stdout, "long, lat, alt = %lf %lf %lf\n", longitude, latitude, altitude);
+			if (userdata_area == MOVIE_LEVEL_ATOM || userdata_area == SINGLE_TRACK_ATOM) {
+				asset_iterations = 1;
+			} else if (userdata_area == ALL_TRACKS_ATOM) {
+				APar_TrackInfo(asset_iterations, a_track, an_atom); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
+			}
 			
 			if (longitude < -180.0 || longitude > 180.0 || latitude < -90.0 || latitude > 90.0) {
 				fprintf(stdout, "AtomicParsley warning: longitude or latitude was invalid; skipping setting location\n");
 			} else {
-			
-				short location_3GP_atom = APar_UserData_atom_Init("moov.udta.loci", optarg, packed_lang);
-				APar_Unified_atom_Put(location_3GP_atom, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
-				APar_Unified_atom_Put(location_3GP_atom, NULL, false, (uint32_t)role, 8);
-				
-				APar_Unified_atom_Put(location_3GP_atom, NULL, false, float_to_16x16bit_fixed_point(longitude), 32);
-				APar_Unified_atom_Put(location_3GP_atom, NULL, false, float_to_16x16bit_fixed_point(latitude), 32);
-				APar_Unified_atom_Put(location_3GP_atom, NULL, false, float_to_16x16bit_fixed_point(altitude), 32);
-				APar_Unified_atom_Put(location_3GP_atom, astronomical_body, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), 0, 0);
-				APar_Unified_atom_Put(location_3GP_atom, additional_notes, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), 0, 0);
+				for (uint8_t i_asset = 1; i_asset <= asset_iterations; i_asset++) {
+					//short location_3GP_atom = APar_UserData_atom_Init("moov.udta.loci", optarg, packed_lang);
+					short location_3GP_atom = APar_UserData_atom_Init("loci", optarg, userdata_area, asset_iterations == 1 ? selected_track : i_asset, packed_lang);
+					APar_Unified_atom_Put(location_3GP_atom, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
+					APar_Unified_atom_Put(location_3GP_atom, NULL, false, (uint32_t)role, 8);
+					
+					APar_Unified_atom_Put(location_3GP_atom, NULL, false, float_to_16x16bit_fixed_point(longitude), 32);
+					APar_Unified_atom_Put(location_3GP_atom, NULL, false, float_to_16x16bit_fixed_point(latitude), 32);
+					APar_Unified_atom_Put(location_3GP_atom, NULL, false, float_to_16x16bit_fixed_point(altitude), 32);
+					APar_Unified_atom_Put(location_3GP_atom, astronomical_body, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), 0, 0);
+					APar_Unified_atom_Put(location_3GP_atom, additional_notes, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), 0, 0);
+					location_3GP_atom = -1;
+				}
 			}
 			break;	
 		}
@@ -1962,12 +2190,12 @@ int main( int argc, char *argv[]) {
 		case ISO_Copyright: {
 			APar_ScanAtoms(m4afile);
 			
-			uint8_t copyright_area = MOVIE_LEVEL_ATOM;
+			uint8_t userdata_area = MOVIE_LEVEL_ATOM;
 			bool set_UTF16_text = false;
 			uint16_t packed_lang = 0;
-			uint8_t selected_tracks = 0;
-			find_optional_args(argv, optind, packed_lang, set_UTF16_text, 3);
-			
+			uint8_t selected_track = 0;
+			find_optional_args(argv, optind, packed_lang, set_UTF16_text, userdata_area, selected_track, 3);
+/*			
 			for (int i= 0; i <= 3; i++) { //3 possible arguments for this tag
 				if ( argv[optind + i] && optind + i <= total_args) {
 					if ( memcmp(argv[optind + i], "movie", 6) == 0 ) {
@@ -1975,7 +2203,7 @@ int main( int argc, char *argv[]) {
 					if ( memcmp(argv[optind + i], "track=", 6) == 0 ) {
 						char* trak_idx = argv[optind + i];
 						strsep(&trak_idx, "=");
-						sscanf(trak_idx, "%hhu", &selected_tracks);
+						sscanf(trak_idx, "%hhu", &selected_track);
 						copyright_area = SINGLE_TRACK_ATOM;	
 					} else if ( memcmp(argv[optind + i], "track", 6) == 0 ) {
 						copyright_area = ALL_TRACKS_ATOM;	
@@ -1985,8 +2213,8 @@ int main( int argc, char *argv[]) {
 					break; //we've hit another cli argument
 				}
 			}
-			
-			APar_ISO_UserData_Set("cprt", optarg, copyright_area, selected_tracks, packed_lang, set_UTF16_text);
+*/			
+			APar_ISO_UserData_Set("cprt", optarg, userdata_area, selected_track, packed_lang, set_UTF16_text);
 
 			break;
 		}
