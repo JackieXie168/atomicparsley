@@ -47,6 +47,10 @@
 #include "AP_NSFile_utils.h"
 #endif
 
+#if !defined (_MSC_VER)
+#include <unistd.h>
+#endif
+
 //#define DEBUG_V
 
 ///////////////////////////////////////////////////////////////////////////////////////
@@ -3271,6 +3275,27 @@ void APar_MetaData_atomArtwork_Set(const char* artworkPath, char* env_PicOptions
 }
 
 /*----------------------
+APar_sprintf_atompath
+	dest_path - the destination string that will hold the final path
+	target_atom_name - the name of the atom that will be used to fill the %s portion of the tokenized path
+	track_index - the index into the trak[X] that needs to be found; fills the %u portion of the tokenized path
+	udta_container - the area in which 'udta' will be: either movie level (the easiest) or track level (which requires an index into a specific 'trak' atom)
+	dest_len - the amount of malloc'ed bytes for dest_path
+
+    Fill a destinaiton path with the fully expressed atom path taking track indexes into consideration
+----------------------*/
+void APar_sprintf_atompath(char* dest_path, char* target_atom_name, uint8_t track_index, uint8_t udta_container, uint16_t dest_len) {
+	memset(dest_path, 0, dest_len);
+	if (udta_container == MOVIE_LEVEL_ATOM) {
+		memcpy(dest_path, "moov.udta.", 10);
+		memcpy(dest_path +10, target_atom_name, 4);
+	} else {
+		sprintf(dest_path, "moov.trak[%u].udta.%s", track_index, target_atom_name);
+	}
+	return;
+}
+
+/*----------------------
 APar_3GP_Keyword_atom_Format
 	keywords_globbed - the globbed string of keywords ('foo1,foo2,foo_you')
 	keyword_count - count of keywords in the above globbed string
@@ -3473,47 +3498,79 @@ APar_UserData_atom_Init
 			NOTE: the language setting (if supported - yrrc doesn't) occurs in different places in 3GP atoms. Most occur right after atom flags/versioning - but
 			in rtng/clsf they occur later. The language is instead stored in binary form amid the data for the atom, but is also put into the parsedAtoms[] array
 			(that information is only used in finding atoms not the actual writing of atoms out). Both (storing the language in AtomicData in binary form & put in
-			the parsedAtoms[] AtomicInfo array) forms are required to implement multiple language support for 3gp atoms
+			the parsedAtoms[] AtomicInfo array) forms are required to implement multiple language support for 3gp atoms.
+			
+			NOTE2: Perhaps there is something wrong with Apple's implementation of 3gp metadata, or I'm loosing my mind. The exact same utf8 string that shows up in a
+			3gp file as ??? - ??? shows up *perfect* in an mp4 or mov container. Encoded as utf16 same problem a sample string using Polish glyphs in utf8 has some
+			gylphs missing with lang=eng. The same string with 'lang=pol', and different glyphs are missing. The problem occurs using unicode.org's ConvertUTF8toUTF16
+			or using libxmls's UTF8ToUTF16BE (when converting to utf16) in the same places - except for the copyright symbol which unicode.org's ConvertUTF16toUTF8 didn't
+			properly convert - which was the reason why libxml's functions are now used. And at no point can I get the audio protected P-in-a-circle glyph to show up in
+			utf8 or utf16. To summarize, either I am completely overlooking some interplay (of lang somehow changing the utf8 or utf16 standard), the unicode translations
+			are off (which in the case of utf8 is embedded directly on Mac OS X, so that can't be it), or Apple's 3gp implementation is off.
 ----------------------*/
-short APar_UserData_atom_Init(const char* atom_path, const char* UD_Payload, uint16_t UD_lang) {
-	//Perhaps there is something wrong with Apple's implementation of 3gp metadata, or I'm loosing my mind.
-	//the exact same utf8 string that shows up in a 3gp file as ??? - ??? shows up *perfect* in an mp4 or mov container. encoded as utf16 same problem
-	//a sample string using Polish glyphs in utf8 has some gylphs missing with lang=eng. The same string with 'lang=pol', and different glyphs are missing.
-	//the problem occurs using unicode.org's ConvertUTF8toUTF16 or using libxmls's UTF8ToUTF16BE (when converting to utf16) in the same places - except for the copyright symbol which unicode.org's ConvertUTF16toUTF8 didn't properly convert - which was the reason why libxml's functions are now used. And at no point can I get the audio protected P-in-a-circle glyph to show up in utf8 or utf16.
-	//to summarize, either I am completely overlooking some interplay (of lang somehow changing the utf8 or utf16 standard), the unicode translations are off (which in the case of utf8 is embedded directly on Mac OS X, so that can't be it), or Apple's 3gp implementation is off.
-	
-	bool retain_atom = true;
-	AtomicInfo* desiredAtom = NULL;
-	
-	if ( strlen(UD_Payload) == 0) {
-		retain_atom = false;
-	}
+short APar_UserData_atom_Init(char* userdata_atom_name, const char* atom_payload, uint8_t udta_container, uint8_t track_idx, uint16_t userdata_lang) {
 	uint8_t atom_type = PACKED_LANG_ATOM;
-	if (UD_lang == 0) {
-		atom_type = VERSIONED_ATOM;
+	uint8_t total_tracks = 0;
+	uint8_t total_settings = 0;
+	uint8_t a_track = 0;//unused
+	short an_atom = 0;//unused
+	AtomicInfo* desiredAtom = NULL;
+	char* userdata_atom_path = NULL;
+	
+	if (userdata_lang == 0)  atom_type = VERSIONED_ATOM;
+		
+	APar_TrackInfo(total_tracks, a_track, an_atom); //With track_num set to 0, it will return the total trak atom into total_tracks here.
+	
+	if (track_idx > total_tracks || (track_idx == 0 && udta_container == SINGLE_TRACK_ATOM) ) {
+		APar_assert(false, 5, userdata_atom_name);
+		return -1;
 	}
 	
-	if ( !retain_atom ) {
-		APar_RemoveAtom(atom_path, atom_type, atom_type == VERSIONED_ATOM ? 1 : UD_lang); //find the atom; don't create if it's "" to remove
+	if (udta_container == MOVIE_LEVEL_ATOM || udta_container == SINGLE_TRACK_ATOM) {
+		total_settings = 1;
+	} else if (udta_container == ALL_TRACKS_ATOM) {
+		total_settings = total_tracks;
+	}
+	userdata_atom_path = (char*)malloc(sizeof(char)* 400 );
+	
+	if (udta_container == MOVIE_LEVEL_ATOM) {
+		APar_sprintf_atompath(userdata_atom_path, userdata_atom_name, 0xFF, MOVIE_LEVEL_ATOM, 400);
+	} else if (udta_container == ALL_TRACKS_ATOM) {
+		APar_sprintf_atompath(userdata_atom_path, userdata_atom_name, track_idx, ALL_TRACKS_ATOM, 400);
+	} else {
+		APar_sprintf_atompath(userdata_atom_path, userdata_atom_name, track_idx, SINGLE_TRACK_ATOM, 400);
+	}
+	
+	if ( strlen(atom_payload) == 0) {
+		
+		APar_RemoveAtom(userdata_atom_path, atom_type, atom_type == VERSIONED_ATOM ? 1 : userdata_lang); //find the atom; don't create if it's "" to remove
+		free(userdata_atom_path); userdata_atom_path = NULL;
 		return -1;
 	} else {
 		modified_atoms = true;
-		desiredAtom = APar_FindAtom(atom_path, true, atom_type, UD_lang);
+		if (udta_container != MOVIE_LEVEL_ATOM) prevent_update_using_padding = true; //because updating via padding works off of 'moov.udta', a full rewrite is req for tracks.
 		
-		parsedAtoms[desiredAtom->AtomicNumber].AtomicData = (char*)malloc(sizeof(char)* MAXDATA_PAYLOAD ); //puts a hard limit on the length of strings (the spec doesn't)
-		memset(parsedAtoms[desiredAtom->AtomicNumber].AtomicData, 0, sizeof(char)* MAXDATA_PAYLOAD );
-		
-		parsedAtoms[desiredAtom->AtomicNumber].AtomicLength = 12; // 4bytes atom length, 4 bytes atom length, 4 bytes version/flags (NULLs)
-		parsedAtoms[desiredAtom->AtomicNumber].AtomicVerFlags = 0;
-		parsedAtoms[desiredAtom->AtomicNumber].AtomicContainerState = CHILD_ATOM;
-		parsedAtoms[desiredAtom->AtomicNumber].AtomicClassification = atom_type;
-		parsedAtoms[desiredAtom->AtomicNumber].AtomicLanguage = UD_lang;
+		desiredAtom = APar_FindAtom(userdata_atom_path, true, atom_type, userdata_lang);
+	
+		desiredAtom->AtomicData = (char*)calloc(1, sizeof(char)* MAXDATA_PAYLOAD ); //puts a hard limit on the length of strings (the spec doesn't)
+	
+		desiredAtom->AtomicLength = 12; // 4bytes atom length, 4 bytes atom length, 4 bytes version/flags (NULLs)
+		desiredAtom->AtomicVerFlags = 0;
+		desiredAtom->AtomicContainerState = CHILD_ATOM;
+		desiredAtom->AtomicClassification = atom_type;
+		desiredAtom->AtomicLanguage = userdata_lang;
 	}
+	free(userdata_atom_path); userdata_atom_path = NULL;
 	return desiredAtom->AtomicNumber;
 }
 
+/*----------------------
+APar_StandardTime
+	formed_time - the destination string
+
+    Print the ISO 8601 Coordinated Universal Time (UTC) timestamp (in YYYY-MM-DDTHH:MM:SSZ form)
+----------------------*/
 void APar_StandardTime(char* &formed_time) {
-	//ISO 8601 Coordinated Universal Time (UTC)
   time_t rawtime;
   struct tm *timeinfo;
 
@@ -3563,15 +3620,13 @@ void APar_ISO_UserData_Set(char* iso_atom_name, const char* iso_payload, uint8_t
 	}
 	char* iso_atom_path = (char*)malloc(sizeof(char)* 400 );
 	
-	for (uint8_t i = 1; i <= total_settings; i++) {
-		memset(iso_atom_path, 0, 400);
+	for (uint8_t i = 1; i <= total_settings; i++) {		
 		if (iso_container == MOVIE_LEVEL_ATOM) {
-				memcpy(iso_atom_path, "moov.udta.", 10);
-				memcpy(iso_atom_path+10, iso_atom_name, 4);
+			APar_sprintf_atompath(iso_atom_path, iso_atom_name, 0xFF, MOVIE_LEVEL_ATOM, 400);
 		} else if (iso_container == ALL_TRACKS_ATOM) {
-			sprintf(iso_atom_path, "moov.trak[%u].udta.%s", i, iso_atom_name);
-		} else if (iso_container == SINGLE_TRACK_ATOM) {
-			sprintf(iso_atom_path, "moov.trak[%u].udta.%s", iso_track, iso_atom_name);
+			APar_sprintf_atompath(iso_atom_path, iso_atom_name, i, ALL_TRACKS_ATOM, 400);
+		} else {
+			APar_sprintf_atompath(iso_atom_path, iso_atom_name, iso_track, SINGLE_TRACK_ATOM, 400);
 		}
 	
 		if ( strlen(iso_payload) == 0) {
@@ -4463,6 +4518,10 @@ void APar_TestTracksForKind() {
 
 void APar_DeriveNewPath(const char *filePath, char* temp_path, int output_type, const char* file_kind, char* forced_suffix, bool random_filename = true) {
 	char* suffix = NULL;
+	char* file_name = NULL;
+	size_t file_name_len = 0;
+	bool relative_path = false;
+	
 	if (forced_suffix == NULL) {
 		suffix = strrchr(filePath, '.');
 	} else {
@@ -4480,11 +4539,19 @@ void APar_DeriveNewPath(const char *filePath, char* temp_path, int output_type, 
 		memcpy(temp_path, filePath, base_len);
 		memcpy(temp_path + base_len, file_kind, strlen(file_kind));
 #else
-		char* file_name = strrchr(filePath, '/');
-		size_t file_name_len = strlen(file_name);
-		memcpy(temp_path, filePath, filepath_len-file_name_len+1);
+		file_name = strrchr(filePath, '/');
+		if (file_name != NULL) {
+			file_name_len = strlen(file_name);
+			memcpy(temp_path, filePath, filepath_len-file_name_len+1);
+		} else {
+			getcwd(temp_path, MAXPATHLEN);
+			file_name = (char*)filePath;
+			file_name_len = strlen(file_name);
+			memcpy(temp_path + strlen(temp_path), "/", 1);
+			relative_path = true;
+		}
 		memcpy(temp_path + strlen(temp_path), ".", 1);
-		memcpy(temp_path + strlen(temp_path), file_name+1, file_name_len - strlen(suffix) -1);
+		memcpy(temp_path + strlen(temp_path), (relative_path ? file_name : file_name+1), file_name_len - strlen(suffix) -1);
 		memcpy(temp_path + strlen(temp_path), file_kind, strlen(file_kind));
 #endif
 	}
@@ -4980,7 +5047,6 @@ void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_origi
 		fclose(source_file);
 		fclose(temp_file);
 		remove(temp_file_name);
-		fclose(temp_file);
 		fprintf(stdout, "  completed.\n");
 	
 	} else if (rewrite_original && !outfile) { //disable overWrite when writing out to a specifically named file; presumably the enumerated output file was meant to be the final destination
