@@ -409,6 +409,10 @@ void APar_ShowMPEG4AACProfileInfo(TrackInfo* track_info) {
 		fprintf(stdout, "  MPEG-4 AAC Main Synthesis Profile");
 	} else if (track_info->descriptor_object_typeID == 13) {
 		fprintf(stdout, "  MPEG-4 AAC Wavetable Synthesis Profile");
+	} else if (track_info->descriptor_object_typeID == 31) {
+		fprintf(stdout, "  MPEG-4 ALS Audio Lossless Coding"); //I think that mp4alsRM18 writes the channels wrong after objectedID: 0xF880 has 0 channels; 0xF890 is 2ch
+	} else {
+		fprintf(stdout, "  MPEG-4 Unknown profile: 0x%X", track_info->descriptor_object_typeID);
 	}
 	return;
 }
@@ -754,7 +758,7 @@ APar_ExtractChannelInfo
 	isofile - the file to be scanned
 	pos - the position within the file that carries the channel info (in esds)
 
-    The channel info in esds is bitpacks, so read it in isolation and shift the bits around to get at it
+    The channel info in esds is bitpacked, so read it in isolation and shift the bits around to get at it
 ----------------------*/
 uint8_t APar_ExtractChannelInfo(FILE* isofile, uint32_t pos) {
 	uint8_t packed_channels = APar_read8(isofile, pos);
@@ -905,7 +909,7 @@ void APar_Extract_esds_Info(char* uint32_buffer, FILE* isofile, short track_leve
 				offset_into_esds += APar_skip_filler(isofile, esds_start + offset_into_esds);
 			
 				uint8_t section5_length = APar_read8(isofile, esds_start + offset_into_esds);
-				if ( section5_length <= section4_length && section5_length != 0) {
+				if ( (section5_length <= section4_length || section4_length == 1) && section5_length != 0) {
 					track_info->section5_length = section5_length;
 					offset_into_esds+=1;
 					
@@ -931,7 +935,7 @@ void APar_Extract_esds_Info(char* uint32_buffer, FILE* isofile, short track_leve
 			break;
 		}
 	}
-	if (track_info->section5_length == 0 && track_info->type_of_track & AUDIO_TRACK) {
+	if ( (track_info->section5_length == 0 && track_info->type_of_track & AUDIO_TRACK) || track_info->channels == 0) {
 		track_info->channels = APar_read16(uint32_buffer, isofile, parsedAtoms[track_level_atom].AtomicStart + 40);
 	}
 	return;
