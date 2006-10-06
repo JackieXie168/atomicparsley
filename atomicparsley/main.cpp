@@ -96,7 +96,7 @@
 #define Meta_dump                'Q'
 #define Manual_atom_removal      'R'
 #define Opt_FreeFree             'F'
-#define Opt_Keep_mdat_pos        'M'
+//#define Opt_Keep_mdat_pos        'M'
 #define OPT_OutputFile           'o'
 
 #define OPT_OverWrite            'W'
@@ -327,7 +327,6 @@ static char* fileLevelHelp_text =
 "------------------------------------------------------------------------------------------------\n"
 " File services:\n"
 "\n"
-"  --mdatLock         ,  -M            Prevents moving mdat atoms to the end (poss. useful for PSP files)\n"
 "  --freefree [num]   ,                Remove \"free\" atoms which only act as filler in the file\n"
 "                                      ?(num)? - optional integer argument to delete 'free's to desired level\n"
 "\n"
@@ -495,12 +494,12 @@ static char* ISOHelp_text =
 "  asset if set at movie level & given the same language to set the copyright on. This copyright\n"
 "  notice is the only metadata tag defined by the reference ISO 14496-12 specification.\n"
 "\n"
-"  The ISO copyright can be set at movie level, at track level for a single track, or for all tracks.\n"
-"  Multiple languages are supported. See   http://www.loc.gov/standards/iso639-2/langcodes.html  for\n"
-"  language codes (codes are *not* checked). Tags can also be set in utf8 or utf16.\n"
+"  ISO copyright notices can be set at movie level, track level for a single track, or for all tracks.\n"
+"  Multiple copyright notices are allowed, but they must differ in the language setting. To see avail-\n"
+"  able languages use \"AtomicParsley --language-list\". Notices can be set in utf8 or utf16.\n"
 "\n"
-"  --ISO-copyright  (str)  [option]  [lang=3str]  [UTF16]   Set a copyright at a desired level\n"
-"                           option may be \"movie\", \"track\", or \"track=int\" where int is a track#.\n"
+"  --ISO-copyright  (str)  [movie|track|track=#]  [lang=3str]  [UTF16]   Set a copyright notice\n"
+"                                                           # in 'track=#' denotes the target track\n"
 "                                                           3str is the 3 letter ISO-639-2 language.\n"
 "                                                           Brackets [] show optional parameters.\n"
 "                                                           Defaults are: movie level, 'eng' in utf8.\n"
@@ -745,7 +744,11 @@ int main( int argc, char *argv[]) {
 		} else if ( memcmp(argv[1], "--stik-list", 11) == 0 ) {
 			ListStikValues(); exit(0);
 			
-		} else if ( memcmp(argv[1], "--language-list", 16) == 0 ) {
+		} else if ( memcmp(argv[1], "--language-list", 16) == 0 ||
+								memcmp(argv[1], "--languages-list", 17) == 0 ||
+								memcmp(argv[1], "--list-language", 16) == 0 ||
+								memcmp(argv[1], "--list-languages", 17) == 0 ||
+								memcmp(argv[1], "-ll", 3) == 0) {
 			ListLanguageCodes(); exit(0);
 		}
 	}
@@ -817,7 +820,6 @@ int main( int argc, char *argv[]) {
 		{ "extract1uuid",     required_argument,  NULL,           Opt_Extract_a_uuid },
 		
 		{ "freefree",         optional_argument,  NULL,           Opt_FreeFree },
-		{ "mdatLock",         0,                  NULL,           Opt_Keep_mdat_pos },
 		{ "metaEnema",        0,                  NULL,						Metadata_Purge },
 		{ "manualAtomRemove", required_argument,  NULL,           Manual_atom_removal },
 		{ "udtaEnema",        0,                  NULL,           UserData_Purge },
@@ -1803,11 +1805,16 @@ int main( int argc, char *argv[]) {
 			break;
 		}
 		
-		case _3GP_Copyright : {
+		case ISO_Copyright:       //ISO copyright atom common to all files that are derivatives of the base media file format, identical to....
+		case _3GP_Copyright : {   //the 3gp copyright asset; this gets a test for major branding (but only with the cli arg --3gp-copyright).
 			APar_ScanAtoms(m4afile);
-			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER, 2, "copyright") ) {
-				break;
+			
+			if (c == _3GP_Copyright) {
+				if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER, 2, "copyright") ) {
+					break;
+				}
 			}
+			
 			bool set_UTF16_text = false;
 			uint16_t packed_lang = 0;
 			uint8_t userdata_area = MOVIE_LEVEL_ATOM;
@@ -2186,39 +2193,6 @@ int main( int argc, char *argv[]) {
 			break;	
 		}
 		
-		//ISO atom common to all files
-		case ISO_Copyright: {
-			APar_ScanAtoms(m4afile);
-			
-			uint8_t userdata_area = MOVIE_LEVEL_ATOM;
-			bool set_UTF16_text = false;
-			uint16_t packed_lang = 0;
-			uint8_t selected_track = 0;
-			find_optional_args(argv, optind, packed_lang, set_UTF16_text, userdata_area, selected_track, 3);
-/*			
-			for (int i= 0; i <= 3; i++) { //3 possible arguments for this tag
-				if ( argv[optind + i] && optind + i <= total_args) {
-					if ( memcmp(argv[optind + i], "movie", 6) == 0 ) {
-						copyright_area = MOVIE_LEVEL_ATOM;					}
-					if ( memcmp(argv[optind + i], "track=", 6) == 0 ) {
-						char* trak_idx = argv[optind + i];
-						strsep(&trak_idx, "=");
-						sscanf(trak_idx, "%hhu", &selected_track);
-						copyright_area = SINGLE_TRACK_ATOM;	
-					} else if ( memcmp(argv[optind + i], "track", 6) == 0 ) {
-						copyright_area = ALL_TRACKS_ATOM;	
-					}
-				}
-				if (optind+1 < argc && memcmp(argv[optind+1], "--", 2) == 0) {
-					break; //we've hit another cli argument
-				}
-			}
-*/			
-			APar_ISO_UserData_Set("cprt", optarg, userdata_area, selected_track, packed_lang, set_UTF16_text);
-
-			break;
-		}
-		
 		//utility functions
 		
 		case Metadata_Purge : {
@@ -2252,12 +2226,7 @@ int main( int argc, char *argv[]) {
 			
 			break;
 		}
-		
-		case Opt_Keep_mdat_pos : {
-			move_moov_atom = false;
-			break;
-		}
-		
+				
 		case OPT_OverWrite : {
 			alter_original = true;
 			break;
