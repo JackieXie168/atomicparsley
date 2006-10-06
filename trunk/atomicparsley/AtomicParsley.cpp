@@ -644,18 +644,6 @@ short APar_FindLastAtom() {
 	return this_atom_num;
 }
 
-short APar_FindEndingAtom() {
-	short end_atom_num = 0; //start our search with the first atom
-	while (true) {
-		if ( (parsedAtoms[end_atom_num].NextAtomNumber == 0) || (end_atom_num == atom_number-1) ) {
-			break;
-		} else {
-			end_atom_num = parsedAtoms[end_atom_num].NextAtomNumber;
-		}
-	}
-	return end_atom_num;
-}
-
 short APar_FindLastChild_of_ParentAtom(short thisAtom) {
 	short child_atom = parsedAtoms[thisAtom].NextAtomNumber;
 	short last_atom = thisAtom; //if there are no children, this will be the first and last atom in the hiearchy
@@ -1605,7 +1593,7 @@ void APar_ExtractDataAtom(int this_atom_number) {
 						
 						switch(bytes_rep) {
 							case 1 : {
-								if ( (memcmp(parent_atom_name, "cpil", 4) == 0) || (memcmp(parent_atom_name, "pcst", 4) == 0) ) {
+								if ( (memcmp(parent_atom_name, "cpil", 4) == 0) || (memcmp(parent_atom_name, "pcst", 4) == 0) || (memcmp(parent_atom_name, "pgap", 4) == 0) ) {
 									if (data_payload[0] == 1) {
 										fprintf(stdout, "true\n");
 									} else {
@@ -3487,13 +3475,16 @@ short APar_MetaData_atom_Init(const char* atom_path, const char* MD_Payload, con
 
 /*----------------------
 APar_UserData_atom_Init
-	atom_path - the hierarchical path to the specific 3gp-style(Quicktime-style) asset atom that will be found (and created if necessary)
-	UD_Payload - the information to be carried (also used as a test if NULL to remove the atom)
-	UD_lang - the language for the tag (multiple tags with the same name, but different languages are supported for some of these atoms)
+	userdata_atom_name - the name of the atom to be set ('titl', 'loci', 'cprt')
+	atom_payload - the information to be carried (also used as a test if NULL to remove the atom)
+	udta_container - determines whether to create an atom path at movie level or track level
+	track_idx - provide the track for the target atom if at track level
+	userdata_lang - the language for the tag (multiple tags with the same name, but different languages are supported for some of these atoms)
 
-    UserData_Init will search for and create the necessary hierarchy so that the atom can be initialized to carry the payload data on AtomicData
-		3GP-style assets are different from iTunes-style metadata. 3GP assets are carried directly on the atom (iTunes md is on a child 'data' atom),
-		has a packed language code, and can be in utf8 or utf16 which are NULL terminated (not so in iTunes md). The two implementations are separate
+    UserData_Init can be called multiple times from a single cli invocation (if used to target at atom at track level for all tracks). Since it can be called
+		repeatedly, the atom path is created here based on the container for 'udta': 'moov' for movie level or 'trak' at track level. If there is no payload that
+		atom path is found & if found to exists is removed. If the payload does contain something, the created atom path is created, initialized & the language
+		setting is set (for internal AP use) for that atom.
 		
 			NOTE: the language setting (if supported - yrrc doesn't) occurs in different places in 3GP atoms. Most occur right after atom flags/versioning - but
 			in rtng/clsf they occur later. The language is instead stored in binary form amid the data for the atom, but is also put into the parsedAtoms[] array
@@ -3507,11 +3498,12 @@ APar_UserData_atom_Init
 			properly convert - which was the reason why libxml's functions are now used. And at no point can I get the audio protected P-in-a-circle glyph to show up in
 			utf8 or utf16. To summarize, either I am completely overlooking some interplay (of lang somehow changing the utf8 or utf16 standard), the unicode translations
 			are off (which in the case of utf8 is embedded directly on Mac OS X, so that can't be it), or Apple's 3gp implementation is off.
+			
+			TODO NOTE: the track modification date should change if set at track level because of this
 ----------------------*/
 short APar_UserData_atom_Init(char* userdata_atom_name, const char* atom_payload, uint8_t udta_container, uint8_t track_idx, uint16_t userdata_lang) {
 	uint8_t atom_type = PACKED_LANG_ATOM;
 	uint8_t total_tracks = 0;
-	uint8_t total_settings = 0;
 	uint8_t a_track = 0;//unused
 	short an_atom = 0;//unused
 	AtomicInfo* desiredAtom = NULL;
@@ -3526,11 +3518,6 @@ short APar_UserData_atom_Init(char* userdata_atom_name, const char* atom_payload
 		return -1;
 	}
 	
-	if (udta_container == MOVIE_LEVEL_ATOM || udta_container == SINGLE_TRACK_ATOM) {
-		total_settings = 1;
-	} else if (udta_container == ALL_TRACKS_ATOM) {
-		total_settings = total_tracks;
-	}
 	userdata_atom_path = (char*)malloc(sizeof(char)* 400 );
 	
 	if (udta_container == MOVIE_LEVEL_ATOM) {
@@ -3578,77 +3565,6 @@ void APar_StandardTime(char* &formed_time) {
   timeinfo = gmtime (&rawtime);
 	strftime(formed_time ,100 , "%Y-%m-%dT%H:%M:%SZ", timeinfo); //that hanging Z is there; denotes the UTC
 	
-	return;
-}
-
-/*----------------------
-APar_ISO_UserData_Set
-	iso_atom_name - the name of the atom that will be set/removed
-	iso_payload - the information the atom is to carry (possibly of zero length, meaning remove)
-	iso_container - specifies where to place/find the atom: movie level, all tracks, or a single track
-	iso_track - if the container will be a single track, this will carry exactly which track to work on
-	packed_lang - the packed language code for the atom (defaults to packed 'eng')
-	set_UTF16_text - controls whether to set iso_payload as utf16 encoded text
-
-    Gather the number of tracks first, then based on which container (moov.udta or moov.trak.udta) construct the atom path using the index into which trak
-		atom. Loop through either once (for a specific track or at movie level) or for all tracks if setting the notification for all tracks. If whatever is
-		to be set is "", then remove that atom (removal takes the language into consideration). If the playload is not "", then find & create the sparse atom,
-		initialize its AtomicData, and send the atom off with the payload to be set in APar_Unified_atom_Put.
-		
-			TODO NOTE: the track modification date should change because of this
-----------------------*/
-void APar_ISO_UserData_Set(char* iso_atom_name, const char* iso_payload, uint8_t iso_container, uint8_t iso_track, uint16_t packed_lang, bool set_UTF16_text) {
-	uint8_t total_tracks = 0;
-	uint8_t total_settings = 0;
-	uint8_t a_track = 0;//unused
-	short an_atom = 0;//unused
-	AtomicInfo* desiredAtom = NULL;
-	
-	APar_TrackInfo(total_tracks, a_track, an_atom); //With track_num set to 0, it will return the total trak atom into total_tracks here.
-	
-	if (iso_track > total_tracks || (iso_track == 0 && iso_container == SINGLE_TRACK_ATOM) ) {
-		APar_assert(false, 5, iso_atom_name);
-		return;
-	}
-	
-	if (iso_container == MOVIE_LEVEL_ATOM) {
-		total_settings = 1;
-	} else if (iso_container == ALL_TRACKS_ATOM) {
-		total_settings = total_tracks;
-	} else if (iso_container == SINGLE_TRACK_ATOM) {
-		total_settings = 1;
-	}
-	char* iso_atom_path = (char*)malloc(sizeof(char)* 400 );
-	
-	for (uint8_t i = 1; i <= total_settings; i++) {		
-		if (iso_container == MOVIE_LEVEL_ATOM) {
-			APar_sprintf_atompath(iso_atom_path, iso_atom_name, 0xFF, MOVIE_LEVEL_ATOM, 400);
-		} else if (iso_container == ALL_TRACKS_ATOM) {
-			APar_sprintf_atompath(iso_atom_path, iso_atom_name, i, ALL_TRACKS_ATOM, 400);
-		} else {
-			APar_sprintf_atompath(iso_atom_path, iso_atom_name, iso_track, SINGLE_TRACK_ATOM, 400);
-		}
-	
-		if ( strlen(iso_payload) == 0) {
-			APar_RemoveAtom(iso_atom_path, PACKED_LANG_ATOM, packed_lang); //find the atom; don't create if it's "" to remove
-		} else {
-			modified_atoms = true;
-			if (iso_container != MOVIE_LEVEL_ATOM) prevent_update_using_padding = true; //because updating via padding works off of 'moov.udta', a full rewrite is req for tracks.
-			
-			desiredAtom = APar_FindAtom(iso_atom_path, true, PACKED_LANG_ATOM, packed_lang);
-		
-			desiredAtom->AtomicData = (char*)malloc(sizeof(char)* MAXDATA_PAYLOAD ); //puts a hard limit on the length of strings (the spec doesn't)
-			memset(desiredAtom->AtomicData, 0, sizeof(char)* MAXDATA_PAYLOAD );
-		
-			desiredAtom->AtomicLength = 12; // 4bytes atom length, 4 bytes atom length, 4 bytes version/flags (NULLs)
-			desiredAtom->AtomicVerFlags = 0;
-			desiredAtom->AtomicContainerState = CHILD_ATOM;
-			desiredAtom->AtomicClassification = PACKED_LANG_ATOM;
-			desiredAtom->AtomicLanguage = packed_lang;
-			APar_Unified_atom_Put(desiredAtom->AtomicNumber, iso_payload, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
-		}
-	}
-	free(iso_atom_path); iso_atom_path = NULL;
 	return;
 }
 
