@@ -83,6 +83,9 @@
 #define Meta_EncodingTool        0xB7
 #define Meta_PlayGapless         0xBA
 
+#define Meta_ReverseDNS_Form     'M'
+#define Meta_rDNS_rating         0xBB
+
 #define Meta_StandardDate        'Z'
 #define Meta_URL                 'u'
 #define Meta_Information         'i'
@@ -96,7 +99,6 @@
 #define Meta_dump                'Q'
 #define Manual_atom_removal      'R'
 #define Opt_FreeFree             'F'
-//#define Opt_Keep_mdat_pos        'M'
 #define OPT_OutputFile           'o'
 
 #define OPT_OverWrite            'W'
@@ -186,6 +188,7 @@ static char* shortHelp_text =
 "  manually removal:           --manualAtomRemove \"moov.udta.meta.ilst.ATOM\"\n"
 "\n"
 "More detailed iTunes help is available with AtomicParsley --longhelp\n"
+"Setting reverse DNS forms for iTunes files: see --reverseDNS-help\n"
 "Setting 3gp assets into 3GPP & derivative files: see --3gp-help\n"
 "Setting copyright notices for all files: see --ISO-help\n"
 "For file-level options & padding info: see --file-help\n"
@@ -198,6 +201,7 @@ static char* longHelp_text =
 "AtomicParsley help page for setting iTunes-style metadata into MPEG-4 files. \n"
 "              (3gp help available with AtomicParsley --3gp-help)\n"
 "          (ISO copyright help available with AtomicParsley --ISO-help)\n"
+"      (reverse DNS form help available with AtomicParsley --reverseDNS-help)\n"
 "Usage: AtomicParsley [mp4FILE]... [OPTION]... [ARGUMENT]... [ [OPTION2]...[ARGUMENT2]...] \n"
 "\n"
 "example: AtomicParsley /path/to.mp4 -e ~/Desktop/pix\n"
@@ -589,6 +593,33 @@ static char* uuidHelp_text =
 "------------------------------------------------------------------------------------------------\n"
 ;
 
+static char* rDNSHelp_text =
+"AtomicParsley help page for setting reverse domain '----' metadata atoms.\n"
+"----------------------------------------------------------------------------------------------------\n"
+"          Please note that the reverse DNS format supported here is not feature complete.\n"
+"\n"
+" Another style of metadata that iTunes uses is called the reverse DNS format. For all known tags,\n"
+" iTunes offers no user-accessible exposure to these tags or their contents. This reverse DNS form has\n"
+" a differnt form than other iTunes tags that have a atom name that describes the content of 'data'\n"
+" atom it contains. In the reverseDNS format, the parent to the structure called the '----' atom, with\n"
+" children atoms that describe & contain the metadata carried. The 'mean' child contains the reverse\n"
+" domain itself ('com.apple.iTunes') & the 'name' child contains the descriptor ('iTunNORM'). A 'data'\n"
+" atom follows that actually contains the contents of the tag.n"
+"\n"
+"  --contentRating (rating)             Set the US TV/motion picture media content rating\n"
+"                                         for available ratings use \"AtomicParsley --rating-list\n"
+
+"  --rDNSatom      (str)   name=(name_str) domain=(reverse_domain)  Manually set a reverseDNS atom.\n"
+"\n"
+" To set the form manually, 3 things are required: a domain, a name, and content.\n"
+" Examples:\n"
+"  --contentRating \"NC-17\" --contentRating \"TV-Y7\"\n"
+"  --rDNSatom \"mpaa|PG-13|300|\" name=iTunEXTC domain=com.apple.iTunes\n"
+"  --contentRating \"\"\n"
+"  --rDNSatom \"\" name=iTunEXTC domain=com.apple.iTunes\n"
+"----------------------------------------------------------------------------------------------------\n"
+;
+
 void ExtractPaddingPrefs(char* env_padding_prefs) {
 	pad_prefs.default_padding_size = DEFAULT_PADDING_LENGTH;
 	pad_prefs.minimum_required_padding_size = MINIMUM_REQUIRED_PADDING_LENGTH;
@@ -738,6 +769,9 @@ int main( int argc, char *argv[]) {
 		} else if ( (strncmp(argv[1],"--uuid-help", 11) == 0) || (strncmp(argv[1],"-uuid-help", 10) == 0) || (strncmp(argv[1],"-uh", 3) == 0) ) {
 			fprintf(stdout, "%s\n", uuidHelp_text); exit(0);
 			
+		} else if ( (strncmp(argv[1],"--reverseDNS-help", 18) == 0) || (strncmp(argv[1],"-rDNS-help", 10) == 0) || (strncmp(argv[1],"-rh", 3) == 0) ) {
+			fprintf(stdout, "%s\n", rDNSHelp_text); exit(0);
+			
 		} else if ( memcmp(argv[1], "--genre-list", 12) == 0 ) {
 			ListGenresValues(); exit(0);
 			
@@ -750,6 +784,10 @@ int main( int argc, char *argv[]) {
 								memcmp(argv[1], "--list-languages", 17) == 0 ||
 								memcmp(argv[1], "-ll", 3) == 0) {
 			ListLanguageCodes(); exit(0);
+
+		} else if (memcmp(argv[1], "--ratings-list", 3) == 0) {
+			ListMediaRatings(); exit(0);
+		
 		}
 	}
 	
@@ -811,6 +849,9 @@ int main( int argc, char *argv[]) {
 		{ "purchaseDate",     required_argument,  NULL,           Meta_PurchaseDate },
 		{ "encodingTool",     required_argument,  NULL,           Meta_EncodingTool },
 		{ "gapless",          required_argument,  NULL,           Meta_PlayGapless },
+		
+		{ "rDNSatom",         required_argument,  NULL,           Meta_ReverseDNS_Form },
+		{ "contentRating",    required_argument,  NULL,           Meta_rDNS_rating },
 		
 		{ "tagtime",          optional_argument,  NULL,						Meta_StandardDate },
 		{ "information",      required_argument,  NULL,           Meta_Information },
@@ -900,10 +941,8 @@ int main( int argc, char *argv[]) {
 				if (memcmp(argv[optind], "+", 1) == 0) {
 					APar_PrintDataAtoms(m4afile, NULL, PRINT_FREE_SPACE + PRINT_PADDING_SPACE + PRINT_USER_DATA_SPACE + PRINT_MEDIA_SPACE, PRINT_DATA );
 				} else {
-					fprintf(stdout, "---------------------------\n  Track level ISO user data:\n");
+					fprintf(stdout, "---------------------------\n");
 					APar_print_ISO_UserData_per_track();
-					fprintf(stdout, "---------------------------\n  3GPP assets/ISO user data:\n");
-					APar_PrintUserDataAssests();
 					fprintf(stdout, "---------------------------\n  iTunes-style metadata tags:\n");
 					APar_PrintDataAtoms(m4afile, NULL, PRINT_FREE_SPACE + PRINT_PADDING_SPACE + PRINT_USER_DATA_SPACE + PRINT_MEDIA_SPACE, PRINT_DATA );
 					fprintf(stdout, "---------------------------\n");
@@ -1679,6 +1718,7 @@ int main( int argc, char *argv[]) {
 				asset_iterations = 1;
 			} else if (userdata_area == ALL_TRACKS_ATOM) {
 				APar_TrackInfo(asset_iterations, a_track, an_atom); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
+				if (asset_iterations == 1) selected_track = 1; //otherwise, APar_UserData_atom_Init will shift to non-existing track 0
 			}
 			
 			for (uint8_t i_asset = 1; i_asset <= asset_iterations; i_asset++) {
@@ -1708,6 +1748,7 @@ int main( int argc, char *argv[]) {
 				asset_iterations = 1;
 			} else if (userdata_area == ALL_TRACKS_ATOM) {
 				APar_TrackInfo(asset_iterations, a_track, an_atom); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
+				if (asset_iterations == 1) selected_track = 1;
 			}
 			
 			for (uint8_t i_asset = 1; i_asset <= asset_iterations; i_asset++) {
@@ -1737,6 +1778,7 @@ int main( int argc, char *argv[]) {
 				asset_iterations = 1;
 			} else if (userdata_area == ALL_TRACKS_ATOM) {
 				APar_TrackInfo(asset_iterations, a_track, an_atom); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
+				if (asset_iterations == 1) selected_track = 1;
 			}
 			
 			for (uint8_t i_asset = 1; i_asset <= asset_iterations; i_asset++) {
@@ -1766,6 +1808,7 @@ int main( int argc, char *argv[]) {
 				asset_iterations = 1;
 			} else if (userdata_area == ALL_TRACKS_ATOM) {
 				APar_TrackInfo(asset_iterations, a_track, an_atom); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
+				if (asset_iterations == 1) selected_track = 1;
 			}
 			
 			for (uint8_t i_asset = 1; i_asset <= asset_iterations; i_asset++) {
@@ -1795,6 +1838,7 @@ int main( int argc, char *argv[]) {
 				asset_iterations = 1;
 			} else if (userdata_area == ALL_TRACKS_ATOM) {
 				APar_TrackInfo(asset_iterations, a_track, an_atom); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
+				if (asset_iterations == 1) selected_track = 1;
 			}
 			
 			for (uint8_t i_asset = 1; i_asset <= asset_iterations; i_asset++) {
@@ -1829,6 +1873,7 @@ int main( int argc, char *argv[]) {
 				asset_iterations = 1;
 			} else if (userdata_area == ALL_TRACKS_ATOM) {
 				APar_TrackInfo(asset_iterations, a_track, an_atom); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
+				if (asset_iterations == 1) selected_track = 1;
 			}
 			
 			for (uint8_t i_asset = 1; i_asset <= asset_iterations; i_asset++) {
@@ -1871,6 +1916,7 @@ int main( int argc, char *argv[]) {
 				asset_iterations = 1;
 			} else if (userdata_area == ALL_TRACKS_ATOM) {
 				APar_TrackInfo(asset_iterations, a_track, an_atom); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
+				if (asset_iterations == 1) selected_track = 1;
 			}
 			
 			for (uint8_t i_asset = 1; i_asset <= asset_iterations; i_asset++) {
@@ -1914,6 +1960,7 @@ int main( int argc, char *argv[]) {
 				asset_iterations = 1;
 			} else if (userdata_area == ALL_TRACKS_ATOM) {
 				APar_TrackInfo(asset_iterations, a_track, an_atom); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
+				if (asset_iterations == 1) selected_track = 1;
 			}
 			
 			for (uint8_t i_asset = 1; i_asset <= asset_iterations; i_asset++) {
@@ -1960,6 +2007,7 @@ int main( int argc, char *argv[]) {
 				asset_iterations = 1;
 			} else if (userdata_area == ALL_TRACKS_ATOM) {
 				APar_TrackInfo(asset_iterations, a_track, an_atom); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
+				if (asset_iterations == 1) selected_track = 1;
 			}
 			
 			for (uint8_t i_asset = 1; i_asset <= asset_iterations; i_asset++) {
@@ -2010,6 +2058,7 @@ int main( int argc, char *argv[]) {
 				asset_iterations = 1;
 			} else if (userdata_area == ALL_TRACKS_ATOM) {
 				APar_TrackInfo(asset_iterations, a_track, an_atom); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
+				if (asset_iterations == 1) selected_track = 1;
 			}
 			
 			for (uint8_t i_asset = 1; i_asset <= asset_iterations; i_asset++) {
@@ -2043,6 +2092,7 @@ int main( int argc, char *argv[]) {
 				asset_iterations = 1;
 			} else if (userdata_area == ALL_TRACKS_ATOM) {
 				APar_TrackInfo(asset_iterations, a_track, an_atom); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
+				if (asset_iterations == 1) selected_track = 1;
 			}
 			
 			if (strrchr(optarg, '=') != NULL) { //must be in the format of:   keywords=foo1,foo2,foo3,foo4
@@ -2171,6 +2221,7 @@ int main( int argc, char *argv[]) {
 				asset_iterations = 1;
 			} else if (userdata_area == ALL_TRACKS_ATOM) {
 				APar_TrackInfo(asset_iterations, a_track, an_atom); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
+				if (asset_iterations == 1) selected_track = 1;
 			}
 			
 			if (longitude < -180.0 || longitude > 180.0 || latitude < -90.0 || latitude > 90.0) {
@@ -2191,6 +2242,75 @@ int main( int argc, char *argv[]) {
 				}
 			}
 			break;	
+		}
+		
+		case Meta_ReverseDNS_Form : { //--ReverseDNS "mv-ma" name=iTuneEXTC domain=com.apple.iTunes			
+			char* reverseDNS_atomname = NULL;
+			char* reverseDNS_atomdomain = NULL;
+			uint16_t reverseDNS_dataindex = 1;
+			uint32_t rdns_atom_flags = AtomFlags_Data_Text;
+			
+			APar_ScanAtoms(m4afile);
+			
+			for (int i= 0; i <= 5-1; i++) {
+				if ( argv[optind + i] && optind + i <= argc ) {
+					if ( memcmp(argv[optind + i], "name=", 5) == 0 ) {
+						reverseDNS_atomname = argv[optind + i]+5;
+					} else if ( memcmp(argv[optind + i], "domain=", 7) == 0 ) {
+						reverseDNS_atomdomain = argv[optind + i]+7;
+					} else if ( memcmp(argv[optind + i], "index=", 6) == 0 ) {
+						sscanf(argv[optind + i]+6, "%hu", &reverseDNS_dataindex);
+					} else if ( memcmp(argv[optind + i], "datatype=", 9) == 0 ) {
+						//sscanf into an unsigned integer (of variable bit length); TODO: currently not implemented
+						if ( memcmp(argv[optind + i]+9, "text", 4) != 0 ) {
+							rdns_atom_flags = 100; //something non-sensical currently
+						}
+					}
+					if (memcmp(argv[optind + i], "-", 1) == 0) {
+						break; //we've hit another cli argument
+					}
+				}
+			}
+			
+			if (reverseDNS_atomname == NULL) {
+				fprintf(stdout, "AtomicParsley warning: no name for the reverseDNS form was found. Skipping.\n");
+				
+			} else if ((int)strlen(reverseDNS_atomname) != test_conforming_alpha_string(reverseDNS_atomname) ) {
+				fprintf(stdout, "AtomicParsley warning: Some part of the reverseDNS atom name was non-conforming. Skipping.\n");
+				
+			} else if (reverseDNS_dataindex != 1) {
+				fprintf(stdout, "AtomicParsley warning: only 1 index is currently supported in the reverseDNS form. Skipping.\n");
+				
+			} else if (reverseDNS_atomdomain == NULL) {
+				fprintf(stdout, "AtomicParsley warning: no domain for the reverseDNS form was found. Skipping.\n");
+				
+			} else if (memcmp(reverseDNS_atomdomain, "com.apple.iTunes", 16+1) != 0) {
+				fprintf(stdout, "AtomicParsley warning: currently, only the 'com.apple.iTunes' domain is supported. Skipping.\n");
+				
+			} else if (rdns_atom_flags != AtomFlags_Data_Text) {
+				fprintf(stdout, "AtomicParsley warning: currently, only the strings are supported in reverseDNS atoms. Skipping.\n");
+				
+			} else {
+				short rDNS_data_atom = APar_reverseDNS_atom_Init(reverseDNS_atomname, optarg, &rdns_atom_flags, reverseDNS_atomdomain, &reverseDNS_dataindex);
+				APar_Unified_atom_Put(rDNS_data_atom, optarg, UTF8_iTunesStyle_Unlimited, 0, 0);
+			}
+			
+			break;
+		}
+		
+		case Meta_rDNS_rating : {
+			char* media_rating = Expand_cli_mediastring(optarg);
+			uint32_t rDNS_data_flags = AtomFlags_Data_Text;
+			uint16_t rDNS_data_idx = 1;
+			
+			APar_ScanAtoms(m4afile);
+			
+			if (media_rating != NULL || strlen(optarg) == 0) {
+				short rDNS_rating_data_atom = APar_reverseDNS_atom_Init("iTunEXTC", media_rating, &rDNS_data_flags, "com.apple.iTunes", &rDNS_data_idx);
+				APar_Unified_atom_Put(rDNS_rating_data_atom, media_rating, UTF8_iTunesStyle_Unlimited, 0, 0);
+			}
+		
+			break;
 		}
 		
 		//utility functions

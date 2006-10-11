@@ -356,6 +356,10 @@ void APar_FreeMemory() {
 			free(parsedAtoms[iter].ReverseDNSname);
 			parsedAtoms[iter].ReverseDNSname = NULL;
 		}
+		if (parsedAtoms[iter].ReverseDNSdomain != NULL) {
+			free(parsedAtoms[iter].ReverseDNSdomain);
+			parsedAtoms[iter].ReverseDNSdomain = NULL;
+		}
 		if (parsedAtoms[iter].uuid_ap_atomname != NULL) {
 			free(parsedAtoms[iter].uuid_ap_atomname);
 			parsedAtoms[iter].uuid_ap_atomname = NULL;
@@ -702,12 +706,13 @@ APar_AtomicComparison
 	proto_atom - the temporary atom structure to run the tests on
 	test_atom - the exising atom to compare the proto_atom against
 	match_full_uuids - selects whether to match by atom names (4 bytes) or uuids(16 bytes) which are stored on AtomicName
+	reverseDNSdomain - the reverse DNS like com.foo.thing (only used with reverseDNS atoms: ----, mean, name)
 
     Test if proto_atom matches a single atom (test_atom) by name, level & classification (packed_lang_atom, extended atom...); for certain types of data 
 		(like packed_lang & reverseDNS 'moov.udta.meta.ilst.----.name:[iTunNORM] atoms currently) add finer grained tests. The return result will be NULL
 		if not matched, or returns the atom it matches.
 ----------------------*/
-AtomicInfo* APar_AtomicComparison(AtomicInfo* proto_atom, short test_atom, bool match_full_uuids) {
+AtomicInfo* APar_AtomicComparison(AtomicInfo* proto_atom, short test_atom, bool match_full_uuids, const char* reverseDNSdomain) {
 	AtomicInfo* return_atom = NULL;
 	size_t ATOM_TEST_LEN = (match_full_uuids ? 16 : 4);
 	
@@ -734,7 +739,17 @@ AtomicInfo* APar_AtomicComparison(AtomicInfo* proto_atom, short test_atom, bool 
 			size_t test_rdns_len = strlen(parsedAtoms[test_atom].ReverseDNSname) + 1;
 			size_t rdns_strlen = (proto_rdns_len > test_rdns_len? proto_rdns_len : test_rdns_len);
 			if (memcmp(proto_atom->ReverseDNSname, parsedAtoms[test_atom].ReverseDNSname, rdns_strlen) == 0) {
-				return_atom = &parsedAtoms[test_atom];
+				if (reverseDNSdomain == NULL) { //lock onto the first reverseDNS form irrespective of domain (TODO: manualAtomRemove will cause this to be NULL)
+					return_atom = &parsedAtoms[test_atom];
+				} else {
+#if defined(DEBUG_V)
+					fprintf(stdout, "AP_AtomicComparison   testing wanted rDNS %s domain against atom '%s' %s rDNS domain\n", reverseDNSdomain, parsedAtoms[test_atom].AtomicName,
+					                                                              parsedAtoms[APar_FindPrecedingAtom(test_atom)].ReverseDNSdomain);
+#endif
+					if ( memcmp(reverseDNSdomain, parsedAtoms[APar_FindPrecedingAtom(test_atom)].ReverseDNSdomain, strlen(reverseDNSdomain)+1) == 0 ) {
+						return_atom = &parsedAtoms[test_atom];
+					}
+				}
 			}
 		} else {
 			return_atom = &parsedAtoms[test_atom];
@@ -809,6 +824,7 @@ APar_FindAtom
 	atom_type - the classification of the last atom (packed language, uuid extended atom...)
 	atom_lang - the language of the 3gp asset used when atom_type is packed language type
 	match_full_uuids - match 16byte full uuids (typically removing ( possibly non-AP) uuids via --manualAtomRemoval; AP uuids (the new ones) still work on 4bytes**
+	reverseDNSdomain - the reverse DNS like com.foo.thing (only used with reverseDNS atoms: ----, mean, name)
 
     Follow through the atom tree starting with the atom following 'ftyp'. Testing occurs on an atom level basis; a stand-in temporary skeletal atom
 		is created to evaluate. If they atoms are deemed matching, atom_name is advanced forward (it still contains the full path, but only 4bytes are
@@ -829,7 +845,7 @@ APar_FindAtom
 		sha1 hashed uuid of a name in a given namespace, the identical name in the identical namespace will yield identical an identical uuid (if corrected for endianness).
 		This means that that matching by 4 bytes of atom name is the functional equvalent of matching by 16byte uuids.
 ----------------------*/
-AtomicInfo* APar_FindAtom(const char* atom_name, bool createMissing, uint8_t atom_type, uint16_t atom_lang, bool match_full_uuids) {
+AtomicInfo* APar_FindAtom(const char* atom_name, bool createMissing, uint8_t atom_type, uint16_t atom_lang, bool match_full_uuids, const char* reverseDNSdomain) {
 	AtomicInfo* thisAtom = NULL;
 	char* search_atom_name = (char*)atom_name;
 	char* reverse_dns_name = NULL;
@@ -891,7 +907,7 @@ AtomicInfo* APar_FindAtom(const char* atom_name, bool createMissing, uint8_t ato
 			
 			//if iter == 0, that means test against 'ftyp' - and since its always 0, don't test it; its to know that the end of the tree is reached
 			if (iter != 0 && (parsedAtoms[iter].AtomicLevel == present_atomic_level || reverse_dns_name != NULL) ) {
-				result = APar_AtomicComparison(&atom_surrogate, iter, (search_atom_type == EXTENDED_ATOM ? match_full_uuids : false) );
+				result = APar_AtomicComparison(&atom_surrogate, iter, (search_atom_type == EXTENDED_ATOM ? match_full_uuids : false), reverseDNSdomain );
 #if defined(DEBUG_V)
 				fprintf(stdout, "debug: AP_FindAtom     compare  %s(%u)  against %s (wanted index=%u)\n", search_atom_name, atom_index, parsedAtoms[iter].AtomicName, desired_index);
 			} else {
@@ -1031,396 +1047,6 @@ void APar_fprintf_UTF8_data(char* utf8_encoded_data) {
 #else
 	fprintf(stdout, "%s", utf8_encoded_data);
 #endif
-	return;
-}
-
-void APar_PrintUnicodeAssest(char* unicode_string, int asset_length) { //3gp files
-	if (memcmp(unicode_string, "\xFE\xFF", 2) == 0 ) { //utf16
-		fprintf(stdout, " (utf16)] : ");
-
-#if defined (_MSC_VER)
-		if (GetVersion() & 0x80000000 || UnicodeOutputStatus == UNIVERSAL_UTF8) { //pre-NT or AP-utf8.exe (pish, thats my win98se, and without unicows support convert utf16toutf8 and output raw bytes)
-			unsigned char* utf8_data = Convert_multibyteUTF16_to_UTF8(unicode_string, (asset_length -13) * 6, asset_length-14);
-			fprintf(stdout, "%s", utf8_data);
-		
-			free(utf8_data);
-			utf8_data = NULL;
-		
-		} else {
-			wchar_t* utf16_data = Convert_multibyteUTF16_to_wchar(unicode_string, (asset_length - 16) / 2, true);
-			//wchar_t* utf16_data = Convert_multibyteUTF16_to_wchar(unicode_string, ((asset_length - 16) / 2) + 1, true);
-			APar_unicode_win32Printout(utf16_data);
-		
-			free(utf16_data);
-			utf16_data = NULL;
-		}
-#else
-		unsigned char* utf8_data = Convert_multibyteUTF16_to_UTF8(unicode_string, (asset_length-13) * 6, asset_length-14);
-		fprintf(stdout, "%s", utf8_data);
-		
-		free(utf8_data);
-		utf8_data = NULL;
-#endif
-	
-	} else { //utf8
-		fprintf(stdout, " (utf8)] : ");
-		
-		APar_fprintf_UTF8_data(unicode_string);
-	
-	}
-	return;
-}
-
-//the difference between APar_PrintUnicodeAssest above and APar_SimplePrintUnicodeAssest below is:
-//APar_PrintUnicodeAssest contains the entire contents of the atom, NULL bytes and all
-//APar_SimplePrintUnicodeAssest contains a purely unicode string (either utf8 or utf16 with BOM)
-//and slight output formatting differences
-
-void APar_SimplePrintUnicodeAssest(char* unicode_string, int asset_length, bool print_encoding) { //3gp files
-	if (memcmp(unicode_string, "\xFE\xFF", 2) == 0 ) { //utf16
-		if (print_encoding) {
-			fprintf(stdout, " (utf16): ");
-		}
-
-#if defined (_MSC_VER)
-		if (GetVersion() & 0x80000000 || UnicodeOutputStatus == UNIVERSAL_UTF8) { //pre-NT or AP-utf8.exe (pish, thats my win98se, and without unicows support convert utf16toutf8 and output raw bytes)
-			unsigned char* utf8_data = Convert_multibyteUTF16_to_UTF8(unicode_string, asset_length * 6, asset_length-14);
-			fprintf(stdout, "%s", utf8_data);
-		
-			free(utf8_data);
-			utf8_data = NULL;
-		
-		} else {
-			wchar_t* utf16_data = Convert_multibyteUTF16_to_wchar(unicode_string, asset_length / 2, true);
-			//wchar_t* utf16_data = Convert_multibyteUTF16_to_wchar(unicode_string, (asset_length / 2) + 1, true);
-			APar_unicode_win32Printout(utf16_data);
-		
-			free(utf16_data);
-			utf16_data = NULL;
-		}
-#else
-		unsigned char* utf8_data = Convert_multibyteUTF16_to_UTF8(unicode_string, asset_length * 6, asset_length);
-		fprintf(stdout, "%s", utf8_data);
-		
-		free(utf8_data);
-		utf8_data = NULL;
-#endif
-	
-	} else { //utf8
-		if (print_encoding) {
-			fprintf(stdout, " (utf8): ");
-		}
-		
-		APar_fprintf_UTF8_data(unicode_string);
-	
-	}
-	return;
-}
-
-/*----------------------
-APar_print_ISO_UserData_per_track
-
-    This will only show what is under moov.trak.udta atoms (not moov.udta). Get the total number of tracks; construct the moov.trak[index].udta path to find,
-		then if the atom after udta is of a greater level, read in from the file & print out what it contains.
-----------------------*/
-void APar_print_ISO_UserData_per_track() {
-	uint8_t total_tracks = 0;
-	uint8_t a_track = 0;//unused
-	short an_atom = 0;//unused
-	short a_trak_atom = 0;
-	char iso_atom_path[400];
-	AtomicInfo* trak_udtaAtom = NULL;
-
-	APar_TrackInfo(total_tracks, a_track, an_atom); //With track_num set to 0, it will return the total trak atom into total_tracks here.
-	
-	
-	for (uint8_t i = 1; i <= total_tracks; i++) {
-		memset(&iso_atom_path, 0, 400);
-		sprintf(iso_atom_path, "moov.trak[%u].udta", i);
-		
-		trak_udtaAtom = APar_FindAtom(iso_atom_path, false, SIMPLE_ATOM, 0);
-		
-		fprintf(stdout, "Track %i:\n", i);
-	
-		if (trak_udtaAtom != NULL && parsedAtoms[trak_udtaAtom->NextAtomNumber].AtomicLevel == trak_udtaAtom->AtomicLevel+1) {
-			a_trak_atom = trak_udtaAtom->NextAtomNumber;
-			while (parsedAtoms[a_trak_atom].AtomicLevel == trak_udtaAtom->AtomicLevel+1) { //only work on moov.trak[i].udta's child atoms
-			
-				char bitpacked_lang[3];
-				memset(bitpacked_lang, 0, 3);
-				unsigned char unpacked_lang[3];
-		
-				uint32_t box_length = parsedAtoms[a_trak_atom].AtomicLength;
-				char* box_data = (char*)malloc(sizeof(char)*box_length);
-				memset(box_data, 0, sizeof(char)*box_length);
-
-				if (memcmp(parsedAtoms[a_trak_atom].AtomicName, "cprt", 4) == 0) {
-					fprintf(stdout, " Copyright ");
-				} else {
-					fprintf(stdout, " Atom \"%s\" ", parsedAtoms[a_trak_atom].AtomicName);
-				}
-				
-				uint16_t packed_lang = APar_read16(bitpacked_lang, source_file, parsedAtoms[a_trak_atom].AtomicStart + 12);
-				APar_UnpackLanguage(unpacked_lang, packed_lang);
-				
-				APar_readX(box_data, source_file, parsedAtoms[a_trak_atom].AtomicStart + 14, box_length-14); //4bytes length, 4 bytes name, 4 bytes flags, 2 bytes lang
-				fprintf(stdout, "[lang=%s", unpacked_lang);
-				APar_PrintUnicodeAssest(box_data, box_length);
-				fprintf(stdout, "\n");
-				
-				free(box_data);
-				box_data=NULL;
-				
-				a_trak_atom = parsedAtoms[a_trak_atom].NextAtomNumber;
-			}
-		} else {
-			fprintf(stdout, " No user data for this track.\n");
-		}
-	}
-	
-	return;
-}
-
-void APar_PrintUserDataAssests() { //3gp files
-
-#if defined (UTF8_ENABLED)
-	fprintf(stdout, "\xEF\xBB\xBF"); //Default to output of a UTF-8 BOM (except under win32's WriteConsoleW where it gets transparently eliminated)
-#elif defined (_MSC_VER)
-	if (UnicodeOutputStatus == WIN32_UTF16) {
-		APar_unicode_win32Printout(L"\xEF\xBB\xBF"); //TODO: is this necessary? was it ever???
-	}
-#endif
-	
-	AtomicInfo* udtaAtom = APar_FindAtom("moov.udta", false, SIMPLE_ATOM, 0);
-	
-	if (udtaAtom == NULL) return;
-
-	for (int i=udtaAtom->NextAtomNumber; i < atom_number; i++) {
-		if ( parsedAtoms[i].AtomicLevel <= udtaAtom->AtomicLevel ) { //we've gone too far
-			break;
-		}
-		if (parsedAtoms[i].AtomicLevel == udtaAtom->AtomicLevel + 1) {
-			
-			uint32_t box = UInt32FromBigEndian(parsedAtoms[i].AtomicName);
-			
-			char bitpacked_lang[3];
-			memset(bitpacked_lang, 0, 3);
-			unsigned char unpacked_lang[3];
-			
-			uint32_t box_length = parsedAtoms[i].AtomicLength;
-			char* box_data = (char*)malloc(sizeof(char)*box_length);
-			memset(box_data, 0, sizeof(char)*box_length);
-			
-			switch (box) {
-				case 0x7469746C : //'titl'
-				case 0x64736370 : //'dscp'
-				case 0x63707274 : //'cprt'
-				case 0x70657266 : //'perf'
-				case 0x61757468 : //'auth'
-				case 0x676E7265 : //'gnre'
-				case 0x616C626D : //'albm'
-					{
-					fprintf(stdout, "User data \"%s\" ", parsedAtoms[i].AtomicName);
-					
-					uint16_t packed_lang = APar_read16(bitpacked_lang, source_file, parsedAtoms[i].AtomicStart + 12);
-					APar_UnpackLanguage(unpacked_lang, packed_lang);
-					
-					APar_readX(box_data, source_file, parsedAtoms[i].AtomicStart + 14, box_length-14); //4bytes length, 4 bytes name, 4 bytes flags, 2 bytes lang
-					
-					//get tracknumber *after* we read the whole tag; if we have a utf16 tag, it will have a BOM, indicating if we have to search for 2 NULLs or a utf8 single NULL, then the ****optional**** tracknumber
-					uint16_t track_num = 1000; //tracknum is a uint8_t, so setting it > 256 means a number wasn't found
-					if (box == 0x616C626D) { //'albm' has an *optional* uint8_t at the end for tracknumber; if the last byte in the tag is not 0, then it must be the optional tracknum (or a non-compliant, non-NULL-terminated string). This byte is the length - (14 bytes +1tracknum) or -15
-						if (box_data[box_length - 15] != 0) {
-							track_num = (uint16_t)box_data[box_length - 15];
-							box_data[box_length - 15] = 0; //NULL out the last byte if found to be not 0 - it will impact unicode conversion if it remains
-						}
-					}
-					
-					fprintf(stdout, "[lang=%s", unpacked_lang);
-
-					APar_PrintUnicodeAssest(box_data, box_length);
-					
-					if (box == 0x616C626D && track_num != 1000) {
-						fprintf(stdout, "  |  Track: %u", track_num);
-					}
-					fprintf(stdout, "\n");
-					break;
-					}
-				
-				case 0x72746E67 : //'rtng'
-					{
-					fprintf(stdout, "User data \"%s\" ", parsedAtoms[i].AtomicName);
-					
-					APar_readX(box_data, source_file, parsedAtoms[i].AtomicStart + 12, 4);
-					
-					fprintf(stdout, "[Rating Entity=%s", box_data);
-					//fprintf(stdout, " Rating Criteria: %u%u%u%u", box_data[4], box_data[5], box_data[6], box_data[7]);
-					memset(box_data, 0, box_length);
-					APar_readX(box_data, source_file, parsedAtoms[i].AtomicStart + 16, 4);
-					fprintf(stdout, " | Criteria=%s", box_data);
-					
-					uint16_t packed_lang = APar_read16(bitpacked_lang, source_file, parsedAtoms[i].AtomicStart + 20);
-					APar_UnpackLanguage(unpacked_lang, packed_lang);
-					fprintf(stdout, " lang=%s", unpacked_lang);
-					
-					memset(box_data, 0, box_length);
-					APar_readX(box_data, source_file, parsedAtoms[i].AtomicStart + 22, box_length-8);
-					
-					APar_PrintUnicodeAssest(box_data, box_length-8);
-					fprintf(stdout, "\n");
-					break;
-					}
-				
-				case 0x636C7366 : //'clsf'
-					{
-					fprintf(stdout, "User data \"%s\" ", parsedAtoms[i].AtomicName);
-					
-					APar_readX(box_data, source_file, parsedAtoms[i].AtomicStart + 12, box_length-12); //4bytes length, 4 bytes name, 4 bytes flags, 2 bytes lang
-					
-					fprintf(stdout, "[Classification Entity=%s", box_data);
-					fprintf(stdout, " | Index=%u", UInt16FromBigEndian(box_data + 4) );
-					
-					uint16_t packed_lang = APar_read16(bitpacked_lang, source_file, parsedAtoms[i].AtomicStart + 18);
-					APar_UnpackLanguage(unpacked_lang, packed_lang);
-					fprintf(stdout, " lang=%s", unpacked_lang);
-						
-					APar_PrintUnicodeAssest(box_data +8, box_length-8);
-					fprintf(stdout, "\n");
-					break;
-					}
-
-				case 0x6B797764 : //'kywd'
-					{
-					fprintf(stdout, "User data \"%s\" ", parsedAtoms[i].AtomicName);
-					
-					uint32_t box_offset = 12;
-					
-					uint16_t packed_lang = APar_read16(bitpacked_lang, source_file, parsedAtoms[i].AtomicStart + box_offset);
-					box_offset+=2;
-					
-					APar_UnpackLanguage(unpacked_lang, packed_lang);
-					
-					uint8_t keyword_count = APar_read8(source_file, parsedAtoms[i].AtomicStart + box_offset);
-					box_offset++;
-					fprintf(stdout, "[Keyword count=%u", keyword_count);
-					fprintf(stdout, " lang=%s]", unpacked_lang);
-					
-					char* keyword_data = (char*)malloc(sizeof(char)* box_length * 2);
-					
-					for(uint8_t x = 1; x <= keyword_count; x++) {
-						memset(keyword_data, 0, box_length * 2);
-						uint8_t keyword_length = APar_read8(source_file, parsedAtoms[i].AtomicStart + box_offset);
-						box_offset++;
-						
-						APar_readX(keyword_data, source_file, parsedAtoms[i].AtomicStart + box_offset, (uint32_t)keyword_length);
-						box_offset+=keyword_length;
-						APar_SimplePrintUnicodeAssest(keyword_data, keyword_length, true);
-					}
-					free(keyword_data);
-					keyword_data = NULL;
-					
-					fprintf(stdout, "\n");
-					break;
-					}
-					
-				case 0x6C6F6369 : //'loci' aka The Most Heinous Metadata Atom Every Invented - decimal meters? fictional location? Astromical Body? Say I shoot it on the International Space Station? That isn't a Astronimical Body. And 16.16 alt only goes up to 20.3 miles (because of negatives, its really 15.15) & the ISS is at 230 miles. Oh, pish.... what ever shall I do? I fear I am on the horns of a dilema.
-					{
-					fprintf(stdout, "User data \"%s\" ", parsedAtoms[i].AtomicName);
-					
-					uint32_t box_offset = 12;
-					uint16_t packed_lang = APar_read16(bitpacked_lang, source_file, parsedAtoms[i].AtomicStart + box_offset);
-					box_offset+=2;
-					
-					APar_UnpackLanguage(unpacked_lang, packed_lang);
-					
-					APar_readX(box_data, source_file, parsedAtoms[i].AtomicStart + box_offset, box_length);
-					fprintf(stdout, "[lang=%s] ", unpacked_lang);
-					
-					//the length of the location string is unknown (max is box lenth), but the long/lat/alt/body/notes needs to be retrieved.
-					//test if the location string is utf16; if so search for 0x0000 (or if utf8, find the first NULL).
-					if ( memcmp(box_data, "\xFE\xFF", 2) == 0 ) {
-						uint32_t new_tally = widechar_len(box_data, box_length);
-						box_offset+= 2 * widechar_len(box_data, box_length) + 2; //*2 for utf16 (double-byte); +2 for the terminating NULL
-						fprintf(stdout, "(utf16) ");
-					} else {
-						fprintf(stdout, "(utf8) ");
-						box_offset+= strlen(box_data) + 1; //+1 for the terminating NULL
-					}
-					fprintf(stdout, "Location: ");
-					APar_SimplePrintUnicodeAssest(box_data, box_length, false);
-					
-					uint8_t location_role = APar_read8(source_file, parsedAtoms[i].AtomicStart + box_offset);
-					box_offset++;
-					switch(location_role) {
-						case 0 : {
-							fprintf(stdout, " (Role: shooting location) ");
-							break;
-						}
-						case 1 : {
-							fprintf(stdout, " (Role: real location) ");
-							break;
-						}
-						case 2 : {
-							fprintf(stdout, " (Role: fictional location) ");
-							break;
-						}
-						default : {
-							fprintf(stdout, " (Role: [reserved]) ");
-							break;
-						}
-					}
-					
-					char* float_buffer = (char*)malloc(sizeof(char)* 5);
-					memset(float_buffer, 0, 5);
-					
-					fprintf(stdout, "[Long %lf", fixed_point_16x16bit_to_double( APar_read32(float_buffer, source_file, parsedAtoms[i].AtomicStart + box_offset) ) );
-					box_offset+=4;
-					fprintf(stdout, " Lat %lf", fixed_point_16x16bit_to_double( APar_read32(float_buffer, source_file, parsedAtoms[i].AtomicStart + box_offset) ) );
-					box_offset+=4;
-					fprintf(stdout, " Alt %lf ", fixed_point_16x16bit_to_double( APar_read32(float_buffer, source_file, parsedAtoms[i].AtomicStart + box_offset) ) );
-					box_offset+=4;
-					free(float_buffer);
-					float_buffer = NULL;
-					
-					if (box_offset < box_length) {
-						fprintf(stdout, " Body: ");
-						APar_SimplePrintUnicodeAssest(box_data+box_offset-14, box_length-box_offset, false);
-						if ( memcmp(box_data+box_offset-14, "\xFE\xFF", 2) == 0 ) {
-							uint32_t new_tally = widechar_len(box_data+box_offset-14, box_length-box_offset);
-							box_offset+= 2 * widechar_len(box_data+box_offset-14, box_length-box_offset) + 2; //*2 for utf16 (double-byte); +2 for the terminating NULL
-						} else {
-							box_offset+= strlen(box_data+box_offset-14) + 1; //+1 for the terminating NULL
-						}
-					}
-					fprintf(stdout, "]");
-					
-					if (box_offset < box_length) {
-						fprintf(stdout, " Notes: ");
-						APar_SimplePrintUnicodeAssest(box_data+box_offset-14, box_length-box_offset, false);
-					}
-					
-					fprintf(stdout, "\n");
-					break;
-					}
-					
-				case 0x79727263 : //'yrrc'
-					{
-					fprintf(stdout, "User data \"%s\" ", parsedAtoms[i].AtomicName);
-					
-					uint16_t recording_year = APar_read16(bitpacked_lang, source_file, parsedAtoms[i].AtomicStart + 12);
-					fprintf(stdout, ": %u\n", recording_year);
-					break;
-					}
-				
-				default : 
-					{
-					break;
-					}
-			}
-			free(box_data);
-			box_data = NULL;
-		}
-	}
 	return;
 }
 
@@ -1728,7 +1354,7 @@ void APar_PrintDataAtoms(const char *path, char* output_path, uint8_t supplement
             thisAtom->AtomicVerFlags == (uint32_t)AtomFlags_Data_UInt) && target_information == PRINT_DATA ) {
 				if (strncmp(parent->AtomicName, "----", 4) == 0) {
 					if (memcmp(parsedAtoms[i-1].AtomicName, "name", 4) == 0) {
-						fprintf(stdout, "Atom \"%s\" [%s] contains: ", parent->AtomicName, parsedAtoms[i-1].ReverseDNSname);
+						fprintf(stdout, "Atom \"%s\" [%s;%s] contains: ", parent->AtomicName, parsedAtoms[i-2].ReverseDNSdomain, parsedAtoms[i-1].ReverseDNSname);
 						APar_ExtractDataAtom(i);
 					}
 				
@@ -1832,6 +1458,379 @@ void APar_PrintDataAtoms(const char *path, char* output_path, uint8_t supplement
 	}
 	
 	return;
+}
+
+void APar_PrintUnicodeAssest(char* unicode_string, int asset_length) { //3gp files
+	if (memcmp(unicode_string, "\xFE\xFF", 2) == 0 ) { //utf16
+		fprintf(stdout, " (utf16)] : ");
+
+#if defined (_MSC_VER)
+		if (GetVersion() & 0x80000000 || UnicodeOutputStatus == UNIVERSAL_UTF8) { //pre-NT or AP-utf8.exe (pish, thats my win98se, and without unicows support convert utf16toutf8 and output raw bytes)
+			unsigned char* utf8_data = Convert_multibyteUTF16_to_UTF8(unicode_string, (asset_length -13) * 6, asset_length-14);
+			fprintf(stdout, "%s", utf8_data);
+		
+			free(utf8_data);
+			utf8_data = NULL;
+		
+		} else {
+			wchar_t* utf16_data = Convert_multibyteUTF16_to_wchar(unicode_string, (asset_length - 16) / 2, true);
+			//wchar_t* utf16_data = Convert_multibyteUTF16_to_wchar(unicode_string, ((asset_length - 16) / 2) + 1, true);
+			APar_unicode_win32Printout(utf16_data);
+		
+			free(utf16_data);
+			utf16_data = NULL;
+		}
+#else
+		unsigned char* utf8_data = Convert_multibyteUTF16_to_UTF8(unicode_string, (asset_length-13) * 6, asset_length-14);
+		fprintf(stdout, "%s", utf8_data);
+		
+		free(utf8_data);
+		utf8_data = NULL;
+#endif
+	
+	} else { //utf8
+		fprintf(stdout, " (utf8)] : ");
+		
+		APar_fprintf_UTF8_data(unicode_string);
+	
+	}
+	return;
+}
+
+//the difference between APar_PrintUnicodeAssest above and APar_SimplePrintUnicodeAssest below is:
+//APar_PrintUnicodeAssest contains the entire contents of the atom, NULL bytes and all
+//APar_SimplePrintUnicodeAssest contains a purely unicode string (either utf8 or utf16 with BOM)
+//and slight output formatting differences
+
+void APar_SimplePrintUnicodeAssest(char* unicode_string, int asset_length, bool print_encoding) { //3gp files
+	if (memcmp(unicode_string, "\xFE\xFF", 2) == 0 ) { //utf16
+		if (print_encoding) {
+			fprintf(stdout, " (utf16): ");
+		}
+
+#if defined (_MSC_VER)
+		if (GetVersion() & 0x80000000 || UnicodeOutputStatus == UNIVERSAL_UTF8) { //pre-NT or AP-utf8.exe (pish, thats my win98se, and without unicows support convert utf16toutf8 and output raw bytes)
+			unsigned char* utf8_data = Convert_multibyteUTF16_to_UTF8(unicode_string, asset_length * 6, asset_length-14);
+			fprintf(stdout, "%s", utf8_data);
+		
+			free(utf8_data);
+			utf8_data = NULL;
+		
+		} else {
+			wchar_t* utf16_data = Convert_multibyteUTF16_to_wchar(unicode_string, asset_length / 2, true);
+			//wchar_t* utf16_data = Convert_multibyteUTF16_to_wchar(unicode_string, (asset_length / 2) + 1, true);
+			APar_unicode_win32Printout(utf16_data);
+		
+			free(utf16_data);
+			utf16_data = NULL;
+		}
+#else
+		unsigned char* utf8_data = Convert_multibyteUTF16_to_UTF8(unicode_string, asset_length * 6, asset_length);
+		fprintf(stdout, "%s", utf8_data);
+		
+		free(utf8_data);
+		utf8_data = NULL;
+#endif
+	
+	} else { //utf8
+		if (print_encoding) {
+			fprintf(stdout, " (utf8): ");
+		}
+		
+		APar_fprintf_UTF8_data(unicode_string);
+	
+	}
+	return;
+}
+
+void APar_Mark_userdata_area(uint8_t track_num, short userdata_atom, bool quantum_listing) {
+	if (quantum_listing && track_num > 0) {
+		fprintf(stdout, "User data; level: track=%u; atom \"%s\" ", track_num, parsedAtoms[userdata_atom].AtomicName);
+	} else if (quantum_listing && track_num == 0) {
+		fprintf(stdout, "User data; level: movie; atom \"%s\" ", parsedAtoms[userdata_atom].AtomicName);
+	} else {
+		fprintf(stdout, "User data \"%s\" ", parsedAtoms[userdata_atom].AtomicName);
+	}
+	return;
+}
+
+void APar_Print_single_userdata_atomcontents(uint8_t track_num, short userdata_atom, bool quantum_listing) {
+	uint32_t box = UInt32FromBigEndian(parsedAtoms[userdata_atom].AtomicName);
+	
+	char bitpacked_lang[3];
+	memset(bitpacked_lang, 0, 3);
+	unsigned char unpacked_lang[3];
+	
+	uint32_t box_length = parsedAtoms[userdata_atom].AtomicLength;
+	char* box_data = (char*)malloc(sizeof(char)*box_length);
+	memset(box_data, 0, sizeof(char)*box_length);
+	
+	switch (box) {
+		case 0x7469746C : //'titl'
+		case 0x64736370 : //'dscp'
+		case 0x63707274 : //'cprt'
+		case 0x70657266 : //'perf'
+		case 0x61757468 : //'auth'
+		case 0x676E7265 : //'gnre'
+		case 0x616C626D : //'albm'
+		{
+			APar_Mark_userdata_area(track_num, userdata_atom, quantum_listing);
+			
+			uint16_t packed_lang = APar_read16(bitpacked_lang, source_file, parsedAtoms[userdata_atom].AtomicStart + 12);
+			APar_UnpackLanguage(unpacked_lang, packed_lang);
+			
+			APar_readX(box_data, source_file, parsedAtoms[userdata_atom].AtomicStart + 14, box_length-14); //4bytes length, 4 bytes name, 4 bytes flags, 2 bytes lang
+			
+			//get tracknumber *after* we read the whole tag; if we have a utf16 tag, it will have a BOM, indicating if we have to search for 2 NULLs or a utf8 single NULL, then the ****optional**** tracknumber
+			uint16_t track_num = 1000; //tracknum is a uint8_t, so setting it > 256 means a number wasn't found
+			if (box == 0x616C626D) { //'albm' has an *optional* uint8_t at the end for tracknumber; if the last byte in the tag is not 0, then it must be the optional tracknum (or a non-compliant, non-NULL-terminated string). This byte is the length - (14 bytes +1tracknum) or -15
+				if (box_data[box_length - 15] != 0) {
+					track_num = (uint16_t)box_data[box_length - 15];
+					box_data[box_length - 15] = 0; //NULL out the last byte if found to be not 0 - it will impact unicode conversion if it remains
+				}
+			}
+			
+			fprintf(stdout, "[lang=%s", unpacked_lang);
+
+			APar_PrintUnicodeAssest(box_data, box_length);
+			
+			if (box == 0x616C626D && track_num != 1000) {
+				fprintf(stdout, "  |  Track: %u", track_num);
+			}
+			fprintf(stdout, "\n");
+			break;
+		}
+		
+		case 0x72746E67 : //'rtng'
+		{
+			APar_Mark_userdata_area(track_num, userdata_atom, quantum_listing);
+			
+			APar_readX(box_data, source_file, parsedAtoms[userdata_atom].AtomicStart + 12, 4);
+			
+			fprintf(stdout, "[Rating Entity=%s", box_data);
+			//fprintf(stdout, " Rating Criteria: %u%u%u%u", box_data[4], box_data[5], box_data[6], box_data[7]);
+			memset(box_data, 0, box_length);
+			APar_readX(box_data, source_file, parsedAtoms[userdata_atom].AtomicStart + 16, 4);
+			fprintf(stdout, " | Criteria=%s", box_data);
+			
+			uint16_t packed_lang = APar_read16(bitpacked_lang, source_file, parsedAtoms[userdata_atom].AtomicStart + 20);
+			APar_UnpackLanguage(unpacked_lang, packed_lang);
+			fprintf(stdout, " lang=%s", unpacked_lang);
+			
+			memset(box_data, 0, box_length);
+			APar_readX(box_data, source_file, parsedAtoms[userdata_atom].AtomicStart + 22, box_length-8);
+			
+			APar_PrintUnicodeAssest(box_data, box_length-8);
+			fprintf(stdout, "\n");
+			break;
+		}
+		
+		case 0x636C7366 : //'clsf'
+		{
+			APar_Mark_userdata_area(track_num, userdata_atom, quantum_listing);
+			
+			APar_readX(box_data, source_file, parsedAtoms[userdata_atom].AtomicStart + 12, box_length-12); //4bytes length, 4 bytes name, 4 bytes flags, 2 bytes lang
+			
+			fprintf(stdout, "[Classification Entity=%s", box_data);
+			fprintf(stdout, " | Index=%u", UInt16FromBigEndian(box_data + 4) );
+			
+			uint16_t packed_lang = APar_read16(bitpacked_lang, source_file, parsedAtoms[userdata_atom].AtomicStart + 18);
+			APar_UnpackLanguage(unpacked_lang, packed_lang);
+			fprintf(stdout, " lang=%s", unpacked_lang);
+				
+			APar_PrintUnicodeAssest(box_data +8, box_length-8);
+			fprintf(stdout, "\n");
+			break;
+		}
+
+		case 0x6B797764 : //'kywd'
+		{
+			APar_Mark_userdata_area(track_num, userdata_atom, quantum_listing);
+			
+			uint32_t box_offset = 12;
+			
+			uint16_t packed_lang = APar_read16(bitpacked_lang, source_file, parsedAtoms[userdata_atom].AtomicStart + box_offset);
+			box_offset+=2;
+			
+			APar_UnpackLanguage(unpacked_lang, packed_lang);
+			
+			uint8_t keyword_count = APar_read8(source_file, parsedAtoms[userdata_atom].AtomicStart + box_offset);
+			box_offset++;
+			fprintf(stdout, "[Keyword count=%u", keyword_count);
+			fprintf(stdout, " lang=%s]", unpacked_lang);
+			
+			char* keyword_data = (char*)malloc(sizeof(char)* box_length * 2);
+			
+			for(uint8_t x = 1; x <= keyword_count; x++) {
+				memset(keyword_data, 0, box_length * 2);
+				uint8_t keyword_length = APar_read8(source_file, parsedAtoms[userdata_atom].AtomicStart + box_offset);
+				box_offset++;
+				
+				APar_readX(keyword_data, source_file, parsedAtoms[userdata_atom].AtomicStart + box_offset, (uint32_t)keyword_length);
+				box_offset+=keyword_length;
+				APar_SimplePrintUnicodeAssest(keyword_data, keyword_length, true);
+			}
+			free(keyword_data);
+			keyword_data = NULL;
+			
+			fprintf(stdout, "\n");
+			break;
+		}
+			
+		case 0x6C6F6369 : //'loci' aka The Most Heinous Metadata Atom Every Invented - decimal meters? fictional location? Astromical Body? Say I shoot it on the International Space Station? That isn't a Astronimical Body. And 16.16 alt only goes up to 20.3 miles (because of negatives, its really 15.15) & the ISS is at 230 miles. Oh, pish.... what ever shall I do? I fear I am on the horns of a dilema.
+		{
+			APar_Mark_userdata_area(track_num, userdata_atom, quantum_listing);
+			
+			uint32_t box_offset = 12;
+			uint16_t packed_lang = APar_read16(bitpacked_lang, source_file, parsedAtoms[userdata_atom].AtomicStart + box_offset);
+			box_offset+=2;
+			
+			APar_UnpackLanguage(unpacked_lang, packed_lang);
+			
+			APar_readX(box_data, source_file, parsedAtoms[userdata_atom].AtomicStart + box_offset, box_length);
+			fprintf(stdout, "[lang=%s] ", unpacked_lang);
+			
+			//the length of the location string is unknown (max is box lenth), but the long/lat/alt/body/notes needs to be retrieved.
+			//test if the location string is utf16; if so search for 0x0000 (or if utf8, find the first NULL).
+			if ( memcmp(box_data, "\xFE\xFF", 2) == 0 ) {
+				uint32_t new_tally = widechar_len(box_data, box_length);
+				box_offset+= 2 * widechar_len(box_data, box_length) + 2; //*2 for utf16 (double-byte); +2 for the terminating NULL
+				fprintf(stdout, "(utf16) ");
+			} else {
+				fprintf(stdout, "(utf8) ");
+				box_offset+= strlen(box_data) + 1; //+1 for the terminating NULL
+			}
+			fprintf(stdout, "Location: ");
+			APar_SimplePrintUnicodeAssest(box_data, box_length, false);
+			
+			uint8_t location_role = APar_read8(source_file, parsedAtoms[userdata_atom].AtomicStart + box_offset);
+			box_offset++;
+			switch(location_role) {
+				case 0 : {
+					fprintf(stdout, " (Role: shooting location) ");
+					break;
+				}
+				case 1 : {
+					fprintf(stdout, " (Role: real location) ");
+					break;
+				}
+				case 2 : {
+					fprintf(stdout, " (Role: fictional location) ");
+					break;
+				}
+				default : {
+					fprintf(stdout, " (Role: [reserved]) ");
+					break;
+				}
+			}
+			
+			char* float_buffer = (char*)malloc(sizeof(char)* 5);
+			memset(float_buffer, 0, 5);
+			
+			fprintf(stdout, "[Long %lf", fixed_point_16x16bit_to_double( APar_read32(float_buffer, source_file, parsedAtoms[userdata_atom].AtomicStart + box_offset) ) );
+			box_offset+=4;
+			fprintf(stdout, " Lat %lf", fixed_point_16x16bit_to_double( APar_read32(float_buffer, source_file, parsedAtoms[userdata_atom].AtomicStart + box_offset) ) );
+			box_offset+=4;
+			fprintf(stdout, " Alt %lf ", fixed_point_16x16bit_to_double( APar_read32(float_buffer, source_file, parsedAtoms[userdata_atom].AtomicStart + box_offset) ) );
+			box_offset+=4;
+			free(float_buffer);
+			float_buffer = NULL;
+			
+			if (box_offset < box_length) {
+				fprintf(stdout, " Body: ");
+				APar_SimplePrintUnicodeAssest(box_data+box_offset-14, box_length-box_offset, false);
+				if ( memcmp(box_data+box_offset-14, "\xFE\xFF", 2) == 0 ) {
+					uint32_t new_tally = widechar_len(box_data+box_offset-14, box_length-box_offset);
+					box_offset+= 2 * widechar_len(box_data+box_offset-14, box_length-box_offset) + 2; //*2 for utf16 (double-byte); +2 for the terminating NULL
+				} else {
+					box_offset+= strlen(box_data+box_offset-14) + 1; //+1 for the terminating NULL
+				}
+			}
+			fprintf(stdout, "]");
+			
+			if (box_offset < box_length) {
+				fprintf(stdout, " Notes: ");
+				APar_SimplePrintUnicodeAssest(box_data+box_offset-14, box_length-box_offset, false);
+			}
+			
+			fprintf(stdout, "\n");
+			break;
+		}
+			
+		case 0x79727263 : //'yrrc'
+		{
+			APar_Mark_userdata_area(track_num, userdata_atom, quantum_listing);
+			
+			uint16_t recording_year = APar_read16(bitpacked_lang, source_file, parsedAtoms[userdata_atom].AtomicStart + 12);
+			fprintf(stdout, ": %u\n", recording_year);
+			break;
+		}
+		
+		default : 
+		{
+			break;
+		}
+	}
+	return;
+}
+
+void APar_PrintUserDataAssests(bool quantum_listing) {
+
+#if defined (UTF8_ENABLED)
+	fprintf(stdout, "\xEF\xBB\xBF"); //Default to output of a UTF-8 BOM (except under win32's WriteConsoleW where it gets transparently eliminated)
+#elif defined (_MSC_VER)
+	if (UnicodeOutputStatus == WIN32_UTF16) {
+		APar_unicode_win32Printout(L"\xEF\xBB\xBF"); //TODO: is this necessary? was it ever???
+	}
+#endif
+	
+	AtomicInfo* udtaAtom = APar_FindAtom("moov.udta", false, SIMPLE_ATOM, 0);
+	
+	if (udtaAtom == NULL) return;
+
+	for (int i=udtaAtom->NextAtomNumber; i < atom_number; i++) {
+		if ( parsedAtoms[i].AtomicLevel <= udtaAtom->AtomicLevel ) break; //we've gone too far
+
+		if (parsedAtoms[i].AtomicLevel == udtaAtom->AtomicLevel + 1) APar_Print_single_userdata_atomcontents(0, i, quantum_listing);
+
+	}
+	return;
+}
+
+/*----------------------
+APar_print_ISO_UserData_per_track
+
+    This will only show what is under moov.trak.udta atoms (not moov.udta). Get the total number of tracks; construct the moov.trak[index].udta path to find,
+		then if the atom after udta is of a greater level, read in from the file & print out what it contains.
+----------------------*/
+void APar_print_ISO_UserData_per_track() {
+	uint8_t total_tracks = 0;
+	uint8_t a_track = 0;//unused
+	short an_atom = 0;//unused
+	short a_trak_atom = 0;
+	char iso_atom_path[400];
+	AtomicInfo* trak_udtaAtom = NULL;
+
+	APar_TrackInfo(total_tracks, a_track, an_atom); //With track_num set to 0, it will return the total trak atom into total_tracks here.	
+	
+	for (uint8_t i = 1; i <= total_tracks; i++) {
+		memset(&iso_atom_path, 0, 400);
+		sprintf(iso_atom_path, "moov.trak[%u].udta", i);
+		
+		trak_udtaAtom = APar_FindAtom(iso_atom_path, false, SIMPLE_ATOM, 0);
+		
+		if (trak_udtaAtom != NULL && parsedAtoms[trak_udtaAtom->NextAtomNumber].AtomicLevel == trak_udtaAtom->AtomicLevel+1) {
+			a_trak_atom = trak_udtaAtom->NextAtomNumber;
+			while (parsedAtoms[a_trak_atom].AtomicLevel > trak_udtaAtom->AtomicLevel) { //only work on moov.trak[i].udta's child atoms
+				
+				if (parsedAtoms[a_trak_atom].AtomicLevel == trak_udtaAtom->AtomicLevel+1) APar_Print_single_userdata_atomcontents(i, a_trak_atom, true);
+				
+				a_trak_atom = parsedAtoms[a_trak_atom].NextAtomNumber;
+			}
+		}
+	}
+	APar_PrintUserDataAssests(true);
+	return;	
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////
@@ -2480,12 +2479,17 @@ void APar_ScanAtoms(const char *path, bool scan_for_tree_ONLY) {
 					corrupted_data_atom = false;
 					
 					//read in the name of an iTunes-style internal reverseDNS directly into parsedAtoms
+					if (memcmp(atom, "mean", 4) == 0 && memcmp(parsedAtoms[atom_number-2].AtomicName, "----", 4) == 0) {
+							parsedAtoms[atom_number-1].ReverseDNSdomain = (char *)calloc(1, sizeof(char) * dataSize);
+							
+							fseeko(file, jump + 12, SEEK_SET); //'name' atom is the 2nd child
+							fread(parsedAtoms[atom_number-1].ReverseDNSdomain, 1, dataSize - 12, file);
+					}
 					if (memcmp(atom, "name", 4) == 0 && 
 					    memcmp(parsedAtoms[atom_number-2].AtomicName, "mean", 4) == 0 &&
 							memcmp(parsedAtoms[atom_number-3].AtomicName, "----", 4) == 0) {
 							
-							parsedAtoms[atom_number-1].ReverseDNSname = (char *)malloc(sizeof(char) * dataSize);
-							memset(parsedAtoms[atom_number-1].ReverseDNSname, 0, sizeof(char) * dataSize);
+							parsedAtoms[atom_number-1].ReverseDNSname = (char *)calloc(1, sizeof(char) * dataSize);
 							
 							fseeko(file, jump + 12, SEEK_SET); //'name' atom is the 2nd child
 							fread(parsedAtoms[atom_number-1].ReverseDNSname, 1, dataSize - 12, file);
@@ -2655,13 +2659,14 @@ APar_RemoveAtom
   atom_path - the "peri.od_d.elim.inat.ed__.atom.path" string that represents the target atom
 	atom_type - the type of atom to be eliminated (packed language, extended...) of the target atom
 	UD_lang - the language code for a packed language atom (ignored for non-packed language atoms)
+	rDNS_domain - the reverse DNS domain (com.foo.thing) of the atom (ignored for non reverse DNS '----' atoms)
 
     APar_RemoveAtom tries to find the atom in the string. If it exists, then depending on its atom_type, it or its last child will get passed along for elimination.
 		TODO: the last child part could use some more intelligence at some point; its relatively hardcoded.
 ----------------------*/
-void APar_RemoveAtom(const char* atom_path, uint8_t atom_type, uint16_t UD_lang) {
+void APar_RemoveAtom(const char* atom_path, uint8_t atom_type, uint16_t UD_lang, const char* rDNS_domain) {
 	
-	AtomicInfo* desiredAtom = APar_FindAtom(atom_path, false, atom_type, UD_lang, (atom_type == EXTENDED_ATOM ? true : false) );
+	AtomicInfo* desiredAtom = APar_FindAtom(atom_path, false, atom_type, UD_lang, (atom_type == EXTENDED_ATOM ? true : false), rDNS_domain );
 	
 	if (desiredAtom == NULL) return; //the atom didn't exist or wasn't found
 	if (desiredAtom->AtomicNumber == 0) return; //we got the default atom, ftyp - and since that can't be removed, it must not exist (or it was missed)
@@ -2875,8 +2880,7 @@ short APar_InterjectNewAtom(char* atom_name, uint8_t cntr_state, uint8_t atom_cl
 	new_atom->AtomicLength = atom_length;
 	new_atom->AtomicLanguage = packed_lang;
 	
-	new_atom->AtomicData = (char*)malloc(sizeof(char)* atom_length ); //puts a hard limit on the length of strings (the spec doesn't)
-	memset(new_atom->AtomicData, 0, sizeof(char)* atom_length );
+	new_atom->AtomicData = (char*)calloc(1, sizeof(char)* (atom_length > 16 ? atom_length : 16) ); //puts a hard limit on the length of strings (the spec doesn't)
 
 	new_atom->NextAtomNumber = parsedAtoms[ preceding_atom ].NextAtomNumber;
 	parsedAtoms[ preceding_atom ].NextAtomNumber = atom_number;
@@ -3566,6 +3570,77 @@ void APar_StandardTime(char* &formed_time) {
 	strftime(formed_time ,100 , "%Y-%m-%dT%H:%M:%SZ", timeinfo); //that hanging Z is there; denotes the UTC
 	
 	return;
+}
+
+/*----------------------
+APar_reverseDNS_atom_Init
+	rDNS_atom_name - the name of the descriptor for the reverseDNS atom form (like iTunNORM)
+	rDNS_payload - the information to be carried (also used as a test if NULL to remove the atom)
+	atomFlags - text, integer, binary flag of the data payload
+	rDNS_domain - the reverse domain itself (like net.sourceforge.atomicparsley or com.apple.iTunes)
+	rDNS_dataindex - index; unused
+
+    FILL IN
+----------------------*/
+short APar_reverseDNS_atom_Init(const char* rDNS_atom_name, const char* rDNS_payload, const uint32_t* atomFlags, const char* rDNS_domain, uint16_t* rDNS_dataindex) {
+	AtomicInfo* desiredAtom = NULL;
+	char* reverseDNS_atompath = (char*)calloc(1, sizeof(char)*2001);
+	
+	if (metadata_style != ITUNES_STYLE) {
+		free(reverseDNS_atompath); reverseDNS_atompath = NULL;
+		return -1;
+	}
+	
+	sprintf(reverseDNS_atompath, "moov.udta.meta.ilst.----.name:[%s]", rDNS_atom_name); //moov.udta.meta.ilst.----.name:[iTunNORM]
+		
+	if ( rDNS_payload != NULL ) {
+		APar_Verify__udta_meta_hdlr__atom();
+	} else {
+		APar_RemoveAtom(reverseDNS_atompath, VERSIONED_ATOM, 0, rDNS_domain);
+		free(reverseDNS_atompath); reverseDNS_atompath = NULL;
+		return -1;
+	}
+	
+	modified_atoms = true;
+	desiredAtom = APar_FindAtom(reverseDNS_atompath, false, VERSIONED_ATOM, 0, false, rDNS_domain); //finds the atom; do NOT create it if not found - manually create the hierarchy
+	
+	if (desiredAtom == NULL) {
+		AtomicInfo* ilst_atom = APar_FindAtom("moov.udta.meta.ilst", true, SIMPLE_ATOM, 0);
+		short last_iTunes_list_descriptor = APar_FindLastChild_of_ParentAtom(ilst_atom->AtomicNumber); //the *last* atom contained by ilst - even if its the 4th 'data' atom
+
+		short rDNS_four_dash_parent = APar_InterjectNewAtom("----", PARENT_ATOM, SIMPLE_ATOM, 8, 0, 0, ilst_atom->AtomicLevel+1, last_iTunes_list_descriptor);
+		
+		short rDNS_mean_atom = APar_InterjectNewAtom("mean", CHILD_ATOM, VERSIONED_ATOM, 12, AtomFlags_Data_Binary, 0, ilst_atom->AtomicLevel+2, rDNS_four_dash_parent);
+		uint32_t domain_len = strlen(rDNS_domain);
+		parsedAtoms[rDNS_mean_atom].ReverseDNSdomain = (char*)calloc(1, sizeof(char)*101);
+		memcpy( parsedAtoms[rDNS_mean_atom].ReverseDNSdomain, rDNS_domain, domain_len );
+		APar_atom_Binary_Put(rDNS_mean_atom, rDNS_domain, domain_len, 0);
+		
+		short rDNS_name_atom = APar_InterjectNewAtom("name", CHILD_ATOM, VERSIONED_ATOM, 12, AtomFlags_Data_Binary, 0, ilst_atom->AtomicLevel+2, rDNS_mean_atom);
+		uint32_t name_len = strlen(rDNS_atom_name);
+		parsedAtoms[rDNS_name_atom].ReverseDNSname = (char*)calloc(1, sizeof(char)*101);
+		memcpy( parsedAtoms[rDNS_name_atom].ReverseDNSname, rDNS_atom_name, name_len );
+		APar_atom_Binary_Put(rDNS_name_atom, rDNS_atom_name, name_len, 0);
+		
+		AtomicInfo proto_rDNS_data_atom = { 0 };
+		APar_CreateSurrogateAtom(&proto_rDNS_data_atom, "data", ilst_atom->AtomicLevel+2, VERSIONED_ATOM, 0, NULL, 0);
+		desiredAtom = APar_CreateSparseAtom(&proto_rDNS_data_atom, ilst_atom, rDNS_name_atom);
+		APar_MetaData_atom_QuickInit(desiredAtom->AtomicNumber, *atomFlags, 0, MAXDATA_PAYLOAD);
+	}	else {
+		//what was found was the ----.name atom - but we really want the 'data' atom that comes after this atom
+		if (*rDNS_dataindex == 1) {
+			APar_MetaData_atom_QuickInit(desiredAtom->NextAtomNumber, *atomFlags, 0, MAXDATA_PAYLOAD);
+			free(reverseDNS_atompath); reverseDNS_atompath = NULL;
+			return desiredAtom->NextAtomNumber;
+		} else {
+			free(reverseDNS_atompath); reverseDNS_atompath = NULL;
+			fprintf(stdout, "rdns incomplete form, no changes will be made.\n"); //TODO
+			return -1;
+		}
+	}
+
+	free(reverseDNS_atompath); reverseDNS_atompath = NULL;
+	return desiredAtom->AtomicNumber;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////
@@ -4328,8 +4403,14 @@ void APar_ValidateAtoms() {
 		}
 		
 		if (memcmp(parsedAtoms[iter].AtomicName, "trak", 4) == 0 && parsedAtoms[iter+1].NextAtomNumber != 0) { //prevent writing any malformed tracks
-			if (memcmp(parsedAtoms[ parsedAtoms[iter].NextAtomNumber ].AtomicName, "tkhd", 4) != 0) {
+			if (!(memcmp(parsedAtoms[ parsedAtoms[iter].NextAtomNumber ].AtomicName, "tkhd", 4) == 0 || 
+			    memcmp(parsedAtoms[ parsedAtoms[iter].NextAtomNumber ].AtomicName, "tref", 4) == 0 ||
+					memcmp(parsedAtoms[ parsedAtoms[iter].NextAtomNumber ].AtomicName, "mdia", 4) == 0 ||
+					memcmp(parsedAtoms[ parsedAtoms[iter].NextAtomNumber ].AtomicName, "edts", 4) == 0 ||
+					memcmp(parsedAtoms[ parsedAtoms[iter].NextAtomNumber ].AtomicName, "meta", 4) == 0 ||
+					memcmp(parsedAtoms[ parsedAtoms[iter].NextAtomNumber ].AtomicName, "tapt", 4) == 0 )) {
 				fprintf(stderr, "AtomicParsley error: incorrect track structure. %c\n", '\a');
+				fprintf(stdout, "%s\n", parsedAtoms[ parsedAtoms[iter].NextAtomNumber ].AtomicName);
 				exit(1);
 			}
 		}

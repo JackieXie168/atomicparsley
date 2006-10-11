@@ -594,6 +594,23 @@ iso639_lang known_languages[] = {
 	{ "zxx",			NULL,			"No linguistic content" }
 };
 
+m_ratings known_ratings[] = {
+	{ "us-tv|TV-MA|600|",  "TV-MA" },
+	{ "us-tv|TV-14|500|",  "TV-13" },
+	{ "us-tv|TV-PG|400|",  "TV-PG" },
+	{ "us-tv|TV-G|300|",   "TV-G" },
+	{ "us-tv|TV-Y|200|",   "TV-Y" },
+	{ "us-tv|TV-Y7|100|",  "TV-Y7" },
+	//{ "us-tv||0|",         "not-applicable" }, //though its a valid flag & some files have this, AP won't be setting it.
+	{ "mpaa|UNRATED|600|",  "Unrated" },
+	{ "mpaa|NC-17|500|",    "NC-17" },
+	{ "mpaa|R|400|",        "R" },
+	{ "mpaa|PG-13|300|",    "PG-13" },
+	{ "mpaa|PG|200|",       "PG" },
+	{ "mpaa|G|100|",        "G" }
+	//{ "mpaa||0|",         "not-applicable" } //see above
+};
+
 char* GenreIntToString(int genre) {
 	char* return_string = NULL;
   if (genre > 0 &&  genre <= (int)(sizeof(ID3v1GenreList)/sizeof(*ID3v1GenreList))) {
@@ -709,4 +726,28 @@ void ListLanguageCodes() {
 		fprintf(stdout, " %s  ... %s\n", known_languages[i].iso639_2_code, known_languages[i].language_in_english);
 	}
 	return;
+}
+
+void ListMediaRatings() {
+	uint16_t total_known_ratings = (uint16_t)(sizeof(known_ratings)/sizeof(*known_ratings));
+	fprintf(stdout, "\tAvailable ratings for the U.S. rating system:\n");
+
+	for (uint16_t i = 0; i < total_known_ratings; i++) {
+		fprintf(stdout, " %s\n", known_ratings[i].media_rating_cli_str);
+	}
+	return;
+}
+
+char* Expand_cli_mediastring(char* cli_rating) {
+	char* media_rating = NULL;
+	uint16_t total_known_ratings = (uint16_t)(sizeof(known_ratings)/sizeof(*known_ratings));
+	uint8_t rating_len = strlen(cli_rating);
+	
+	for (uint16_t i = 0; i < total_known_ratings; i++) {
+		if ( strncasecmp(known_ratings[i].media_rating_cli_str, cli_rating, rating_len+1) == 0 ) {
+			media_rating = known_ratings[i].media_rating;
+			break;
+		}
+	}
+	return media_rating;
 }
