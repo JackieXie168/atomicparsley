@@ -31,3 +31,6 @@ sfIDs* MatchStoreFrontNumber(uint32_t storefrontnum);
 
 bool MatchLanguageCode(const char* in_code);
 void ListLanguageCodes();
+
+void ListMediaRatings();
+char* Expand_cli_mediastring(char* cli_rating);
