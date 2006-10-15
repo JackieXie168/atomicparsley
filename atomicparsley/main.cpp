@@ -181,6 +181,7 @@ static char* shortHelp_text =
 "  --purchaseDate (UTC)        Set time of purchase\n"
 "  --encodingTool (string)     Set the name of the encoder\n"
 "  --gapless      (boolean)    Set the gapless playback flag\n"
+"  --contentRating (string*)   Set tv/mpaa rating (see -rDNS-help)\n"
 "\n"
 "Deleting tags\n"
 "  Set the value to \"\":        --artist \"\" --stik \"\" --bpm \"\"\n"
@@ -749,7 +750,7 @@ int main( int argc, char *argv[]) {
 				wmemset(Lhelp_text, 0, help_len);
 				UTF8ToUTF16LE((unsigned char*)Lhelp_text, 2*help_len, (unsigned char*)longHelp_text, help_len);
 #if defined (_MSC_VER)
-				APar_unicode_win32Printout(Lhelp_text);
+				APar_unicode_win32Printout(Lhelp_text, longHelp_text);
 #endif
 				free(Lhelp_text);
 			} else {
@@ -943,8 +944,12 @@ int main( int argc, char *argv[]) {
 				} else {
 					fprintf(stdout, "---------------------------\n");
 					APar_print_ISO_UserData_per_track();
-					fprintf(stdout, "---------------------------\n  iTunes-style metadata tags:\n");
-					APar_PrintDataAtoms(m4afile, NULL, PRINT_FREE_SPACE + PRINT_PADDING_SPACE + PRINT_USER_DATA_SPACE + PRINT_MEDIA_SPACE, PRINT_DATA );
+					
+					AtomicInfo* iTuneslistAtom = APar_FindAtom("moov.udta.meta.ilst", false, SIMPLE_ATOM, 0);
+					if (iTuneslistAtom != NULL) {
+						fprintf(stdout, "---------------------------\n  iTunes-style metadata tags:\n");
+						APar_PrintDataAtoms(m4afile, NULL, PRINT_FREE_SPACE + PRINT_PADDING_SPACE + PRINT_USER_DATA_SPACE + PRINT_MEDIA_SPACE, PRINT_DATA, iTuneslistAtom );
+					}
 					fprintf(stdout, "---------------------------\n");
 				}
 				
@@ -957,6 +962,7 @@ int main( int argc, char *argv[]) {
 					APar_PrintUserDataAssests();
 				} else if (metadata_style == ITUNES_STYLE) {
 					APar_PrintDataAtoms(m4afile, NULL, 0, PRINT_DATA); //false, don't try to extractPix
+					APar_Print_APuuid_atoms(m4afile, NULL, PRINT_DATA);
 				}
 			}
 			openSomeFile(m4afile, false);
@@ -1608,7 +1614,7 @@ int main( int argc, char *argv[]) {
 			}
 
 			openSomeFile(m4afile, true);
-			APar_PrintDataAtoms(m4afile, output_path, 0, EXTRACT_ALL_UUID_BINARYS); //exportPix to stripped m4afile path
+			APar_Print_APuuid_atoms(m4afile, output_path, EXTRACT_ALL_UUID_BINARYS);
 			openSomeFile(m4afile, false);
 			
 			exit(0);//never gets here
@@ -1701,7 +1707,7 @@ int main( int argc, char *argv[]) {
 		*/
 		case _3GP_Title : {
 			APar_ScanAtoms(m4afile);
-			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER, 2, "title") ) {
+			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER && metadata_style < MOTIONJPEG2000, 2, "title") ) {
 				break;
 			}
 			bool set_UTF16_text = false;
@@ -1731,7 +1737,7 @@ int main( int argc, char *argv[]) {
 		
 		case _3GP_Author : {
 			APar_ScanAtoms(m4afile);
-			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER, 2, "author") ) {
+			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER && metadata_style < MOTIONJPEG2000, 2, "author") ) {
 				break;
 			}
 			bool set_UTF16_text = false;
@@ -1761,7 +1767,7 @@ int main( int argc, char *argv[]) {
 		
 		case _3GP_Performer : {
 			APar_ScanAtoms(m4afile);
-			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER, 2, "performer") ) {
+			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER && metadata_style < MOTIONJPEG2000, 2, "performer") ) {
 				break;
 			}
 			bool set_UTF16_text = false;
@@ -1791,7 +1797,7 @@ int main( int argc, char *argv[]) {
 		
 		case _3GP_Genre : {
 			APar_ScanAtoms(m4afile);
-			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER, 2, "genre") ) {
+			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER && metadata_style < MOTIONJPEG2000, 2, "genre") ) {
 				break;
 			}
 			bool set_UTF16_text = false;
@@ -1821,7 +1827,7 @@ int main( int argc, char *argv[]) {
 		
 		case _3GP_Description : {
 			APar_ScanAtoms(m4afile);
-			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER, 2, "description") ) {
+			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER && metadata_style < MOTIONJPEG2000, 2, "description") ) {
 				break;
 			}
 			bool set_UTF16_text = false;
@@ -1854,7 +1860,7 @@ int main( int argc, char *argv[]) {
 			APar_ScanAtoms(m4afile);
 			
 			if (c == _3GP_Copyright) {
-				if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER, 2, "copyright") ) {
+				if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER && metadata_style < MOTIONJPEG2000, 2, "copyright") ) {
 					break;
 				}
 			}
@@ -1886,7 +1892,7 @@ int main( int argc, char *argv[]) {
 		
 		case _3GP_Album : {
 			APar_ScanAtoms(m4afile);
-			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER_VER1_REL6, 3, NULL) ) {
+			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER_VER1_REL6 && metadata_style < MOTIONJPEG2000, 3, NULL) ) {
 				break;
 			}
 			bool set_UTF16_text = false;
@@ -1931,7 +1937,7 @@ int main( int argc, char *argv[]) {
 		
 		case _3GP_Year : {
 			APar_ScanAtoms(m4afile);
-			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER, 2, "year") ) {
+			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER && metadata_style < MOTIONJPEG2000, 2, "year") ) {
 				break;
 			}
 			uint8_t userdata_area = MOVIE_LEVEL_ATOM;
@@ -1972,7 +1978,7 @@ int main( int argc, char *argv[]) {
 		
 		case _3GP_Rating : {
 			APar_ScanAtoms(m4afile);
-			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER, 2, "rating") ) {
+			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER && metadata_style < MOTIONJPEG2000, 2, "rating") ) {
 				break;
 			}
 			char rating_entity[5] = { 'N', 'O', 'N', 'E', 0 }; //'NONE' - thats what it will be if not provided
@@ -2023,7 +2029,7 @@ int main( int argc, char *argv[]) {
 		
 		case _3GP_Classification : {
 			APar_ScanAtoms(m4afile);
-			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER, 2, "classification") ) {
+			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER && metadata_style < MOTIONJPEG2000, 2, "classification") ) {
 				break;
 			}
 			char classification_entity[5] = { 'N', 'O', 'N', 'E', 0 }; //'NONE' - thats what it will be if not provided
@@ -2074,7 +2080,7 @@ int main( int argc, char *argv[]) {
 		
 		case _3GP_Keyword : {
 			APar_ScanAtoms(m4afile);
-			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER, 2, "keyword") ) {
+			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER && metadata_style < MOTIONJPEG2000, 2, "keyword") ) {
 				break;
 			}
 			bool set_UTF16_text = false;
@@ -2146,7 +2152,7 @@ int main( int argc, char *argv[]) {
 		
 		case _3GP_Location : {
 			APar_ScanAtoms(m4afile);
-			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER, 2, "location") ) {
+			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER && metadata_style < MOTIONJPEG2000, 2, "location") ) {
 				break;
 			}
 			bool set_UTF16_text = false;

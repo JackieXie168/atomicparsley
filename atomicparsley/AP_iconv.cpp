@@ -715,3 +715,30 @@ int strip_bogusUTF16toRawUTF8 (unsigned char* out, int inlen, wchar_t* in, int o
     outlen = out - outstart;
     return(outlen);
 }
+
+/*----------------------
+test_conforming_alpha_string
+  in_string - pointer to location of a utf8 string
+
+    limit string to A-Z or a-z
+----------------------*/
+int test_conforming_alpha_string(char* in_string) {
+	int valid_bytes = 0;
+	int string_len = 0;
+	char* test_str = in_string;
+	if (in_string != NULL ) {
+		string_len = strlen(in_string);
+	} else {
+		return -1;
+	}
+	
+	while (valid_bytes < string_len) {
+		if ( (*test_str >= 65  && *test_str <= 90) || (*test_str >= 97 && *test_str <= 122) ) {
+			valid_bytes++;
+		} else {
+			break;
+		}
+		test_str++;
+	}
+	return valid_bytes;
+}
