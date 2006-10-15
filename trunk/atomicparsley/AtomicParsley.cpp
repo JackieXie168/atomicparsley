@@ -66,7 +66,7 @@ bool svn_build = true; //controls which type of versioning - svn build-time stam
 FILE* source_file = NULL;
 uint32_t file_size;
 
-struct AtomicInfo parsedAtoms[MAX_ATOMS]; //(most I've seen is 144 for an untagged mp4)
+struct AtomicInfo parsedAtoms[MAX_ATOMS];
 short atom_number = 0;
 uint8_t generalAtomicLevel = 1;
 
@@ -82,6 +82,7 @@ bool psp_brand = false;
 bool prevent_update_using_padding = false;
 int metadata_style = UNDEFINED_STYLE;
 bool tree_display_only = false;
+bool BOM_printed = false;
 
 uint32_t max_buffer = 4096*125; // increased to 512KB
 
@@ -171,6 +172,21 @@ bool IsUnicodeWinOS() {
 #else
 	return false;
 #endif
+}
+
+void printBOM() {
+	if (BOM_printed) return;
+	
+#if defined (_MSC_VER)
+	if (UnicodeOutputStatus == WIN32_UTF16) {
+		APar_unicode_win32Printout(L"\xEF\xBB\xBF", "\xEF\xBB\xBF");
+	}
+#else
+	fprintf(stdout, "\xEF\xBB\xBF"); //Default to output of a UTF-8 BOM
+#endif
+
+	BOM_printed = true;
+	return;
 }
 
 /*----------------------
@@ -965,18 +981,21 @@ AtomicInfo* APar_FindAtom(const char* atom_name, bool createMissing, uint8_t ato
 			iter = parsedAtoms[iter].NextAtomNumber;
 		}
 		
-		if (iter == 0 && search_atom_name == NULL) {
+		if (iter == 0 && (search_atom_name == NULL || search_atom_type == EXTENDED_ATOM) ) {
 			break;
 		} else {
+			uint8_t periodicity = 0; //allow atoms with periods in their names
 			while (true) { // search_atom_name = strsep(&atom_name,".") equivalent
 				if (search_atom_name[0] == 0) {
 					search_atom_name = NULL;
 					break;
-				} else if (memcmp(search_atom_name, ".", 1) == 0 ) {
+				} else if (memcmp(search_atom_name, ".", 1) == 0 && periodicity > 3) {
 					search_atom_name++;
+					periodicity++;
 					break;
 				} else {
 					search_atom_name++;
+					periodicity++;
 				}
 			}
 			present_atomic_level++;
@@ -1002,7 +1021,7 @@ void APar_AtomicRead(short this_atom_number) {
 }
 
 #if defined (_MSC_VER)
-void APar_unicode_win32Printout(wchar_t* unicode_out) { //based on http://blogs.msdn.com/junfeng/archive/2004/02/25/79621.aspx
+void APar_unicode_win32Printout(wchar_t* unicode_out, char* utf8_out) { //based on http://blogs.msdn.com/junfeng/archive/2004/02/25/79621.aspx
 	//its possible that this isn't even available on windows95
 	DWORD dwBytesWritten;
 	DWORD fdwMode;
@@ -1013,18 +1032,8 @@ void APar_unicode_win32Printout(wchar_t* unicode_out) { //based on http://blogs.
 			WriteConsoleW( outHandle, unicode_out, wcslen(unicode_out), &dwBytesWritten, 0);
 		}
 	} else {
-		//http://www.ansi.edu.pk/library/WSLP/book4/html/ch08e.htm
-		//WriteConsoleW above works best, but doesn't redirect well out to a file (AP.exe foo.mp4 -t > E:\tags.txt); here is where any redirection gets shunted
-		//any utf8 that gets redirected here first gets read from the mpeg-4 file, converted to utf16 (carried on unsigned chars), put into wchar_t, and soon be converted back into utf8 for output to file - some round trip!
-		
-		int found_codepage = GetConsoleOutputCP();
-		int set_codepage = SetConsoleCP(CP_UTF8);
-		int charCount = WideCharToMultiByte(CP_UTF8, 0, unicode_out, -1, 0, 0, 0, 0);
-		char* szaStr = (char*) malloc(charCount);
-		WideCharToMultiByte( CP_UTF8, 0, unicode_out, -1, szaStr, charCount, 0, 0);
-		WriteFile(outHandle, szaStr, charCount-1, &dwBytesWritten, 0);
-		set_codepage = SetConsoleCP(found_codepage); //restore it back to what it was
-		free(szaStr);
+		//writing out to a file. Everything will be written out in utf8 to the file (although utf16 would be possible as well)
+		fprintf(stdout, "%s", utf8_out);
 	}
 	return;
 }
@@ -1038,7 +1047,7 @@ void APar_fprintf_UTF8_data(char* utf8_encoded_data) {
 		wchar_t* utf16_data = Convert_multibyteUTF8_to_wchar(utf8_encoded_data);
 		fflush(stdout);
 		
-		APar_unicode_win32Printout(utf16_data);
+		APar_unicode_win32Printout(utf16_data, utf8_encoded_data);
 		
 		fflush(stdout);
 		free(utf16_data);
@@ -1330,19 +1339,17 @@ void APar_ExtractDataAtom(int this_atom_number) {
 	return;
 }
 
-void APar_PrintDataAtoms(const char *path, char* output_path, uint8_t supplemental_info, uint8_t target_information) {
-
-#if defined (UTF8_ENABLED)
-	fprintf(stdout, "\xEF\xBB\xBF"); //Default to output of a UTF-8 BOM (except under win32's WriteConsoleW where it gets transparently eliminated)
-#elif defined (_MSC_VER)
-	if (UnicodeOutputStatus == WIN32_UTF16) {
-		APar_unicode_win32Printout(L"\xEF\xBB\xBF"); //TODO: is this necessary? was it ever???
-	}
-#endif
+void APar_PrintDataAtoms(const char *path, char* output_path, uint8_t supplemental_info, uint8_t target_information, AtomicInfo* ilstAtom) {
+	printBOM();
 
 	short artwork_count=0;
+	
+	if (ilstAtom == NULL) {
+		ilstAtom = APar_FindAtom("moov.udta.meta.ilst", false, SIMPLE_ATOM, 0);
+		if (ilstAtom == NULL) return;
+	}
 
-	for (int i=0; i < atom_number; i++) { 
+	for (int i=ilstAtom->AtomicNumber; i < atom_number; i++) { 
 		AtomicInfo* thisAtom = &parsedAtoms[i];
 		
 		if ( strncmp(thisAtom->AtomicName, "data", 4) == 0) { //thisAtom->AtomicClassification == VERSIONED_ATOM) {
@@ -1386,42 +1393,6 @@ void APar_PrintDataAtoms(const char *path, char* output_path, uint8_t supplement
 			if ( thisAtom->AtomicLength <= 12 ) {
 				fprintf(stdout, "\n"); // (corrupted atom); libmp4v2 touching a file with copyright
 			}
-		} else if (thisAtom->AtomicClassification == EXTENDED_ATOM && thisAtom->uuid_style == UUID_DEPRECATED_FORM) {
-			memset(twenty_byte_buffer, 0, sizeof(char)*20);
-			//converts iso8859 © in '©foo' to a 2byte utf8 © glyph; replaces libiconv conversion
-			isolat1ToUTF8((unsigned char*)twenty_byte_buffer, 10, (unsigned char*)thisAtom->AtomicName, 4);
-
-			if ( thisAtom->AtomicVerFlags == (uint32_t)AtomFlags_Data_Text && target_information == PRINT_DATA) {
-				
-				if (UnicodeOutputStatus == WIN32_UTF16) {
-					fprintf(stdout, "Atom uuid=\"");
-					APar_fprintf_UTF8_data(twenty_byte_buffer);
-					fprintf(stdout, "\" contains: ");
-				} else {
-					fprintf(stdout, "Atom uuid=\"%s\" contains: ", twenty_byte_buffer);
-				}
-
-				APar_ExtractDataAtom(i);
-			}
-		} else if(thisAtom->AtomicClassification == EXTENDED_ATOM ) {
-			if (thisAtom->uuid_style == UUID_AP_SHA1_NAMESPACE) {
-				memset(twenty_byte_buffer, 0, sizeof(char)*20);
-				if (target_information == PRINT_DATA) {
-					isolat1ToUTF8((unsigned char*)twenty_byte_buffer, 10, (unsigned char*)thisAtom->uuid_ap_atomname, 4);
-					
-					fprintf(stdout, "Atom uuid=");
-					APar_print_uuid((ap_uuid_t*) thisAtom->AtomicName, false);
-					fprintf(stdout, " (AP uuid for \"");
-					APar_fprintf_UTF8_data(twenty_byte_buffer);
-					fprintf(stdout, "\") contains: ");
-				
-					APar_ExtractDataAtom(i);
-				} else {
-					if (target_information == EXTRACT_ALL_UUID_BINARYS && thisAtom->AtomicVerFlags == AtomFlags_Data_uuid_binary) {
-						APar_Extract_uuid_binary_file(thisAtom, path, output_path);
-					}
-				}
-			}
 		}
 	}
 	
@@ -1460,9 +1431,66 @@ void APar_PrintDataAtoms(const char *path, char* output_path, uint8_t supplement
 	return;
 }
 
+void APar_Print_APuuidv5_contents(AtomicInfo* thisAtom) {
+	memset(twenty_byte_buffer, 0, sizeof(char)*20);
+	isolat1ToUTF8((unsigned char*)twenty_byte_buffer, 10, (unsigned char*)thisAtom->uuid_ap_atomname, 4);
+	
+	fprintf(stdout, "Atom uuid=");
+	APar_print_uuid((ap_uuid_t*) thisAtom->AtomicName, false);
+	fprintf(stdout, " (AP uuid for \"");
+	APar_fprintf_UTF8_data(twenty_byte_buffer);
+	fprintf(stdout, "\") contains: ");
+
+	APar_ExtractDataAtom(thisAtom->AtomicNumber);
+	return;
+}
+
+void APar_Print_APuuid_deprecated_contents(AtomicInfo* thisAtom) {
+	memset(twenty_byte_buffer, 0, sizeof(char)*20);
+	isolat1ToUTF8((unsigned char*)twenty_byte_buffer, 10, (unsigned char*)thisAtom->AtomicName, 4);
+	
+	if (UnicodeOutputStatus == WIN32_UTF16) {
+		fprintf(stdout, "Atom uuid=\"");
+		APar_fprintf_UTF8_data(twenty_byte_buffer);
+		fprintf(stdout, "\" contains: ");
+	} else {
+		fprintf(stdout, "Atom uuid=\"%s\" contains: ", twenty_byte_buffer);
+	}
+
+	APar_ExtractDataAtom(thisAtom->AtomicNumber);
+	return;
+}
+
+void APar_Print_APuuid_atoms(const char *path, char* output_path, uint8_t target_information) {
+	AtomicInfo* thisAtom = NULL;
+
+	printBOM();
+	
+	AtomicInfo* metaAtom = APar_FindAtom("moov.udta.meta", false, VERSIONED_ATOM, 0);
+	
+	if (metaAtom == NULL) return;
+
+	for (int i=metaAtom->NextAtomNumber; i < atom_number; i++) {
+		thisAtom = &parsedAtoms[i];
+		if ( thisAtom->AtomicLevel <= metaAtom->AtomicLevel ) break; //we've gone too far
+		if (thisAtom->AtomicClassification == EXTENDED_ATOM) {
+			if ( thisAtom->uuid_style == UUID_AP_SHA1_NAMESPACE ) {
+				if (target_information == PRINT_DATA) APar_Print_APuuidv5_contents(thisAtom);
+				if (target_information == EXTRACT_ALL_UUID_BINARYS && thisAtom->AtomicVerFlags == AtomFlags_Data_uuid_binary) {
+					APar_Extract_uuid_binary_file(thisAtom, path, output_path);
+				}
+			}
+			if ( thisAtom->uuid_style == UUID_DEPRECATED_FORM && target_information == PRINT_DATA) APar_Print_APuuid_deprecated_contents(thisAtom);
+		}
+	}
+	return;
+}
+
 void APar_PrintUnicodeAssest(char* unicode_string, int asset_length) { //3gp files
 	if (memcmp(unicode_string, "\xFE\xFF", 2) == 0 ) { //utf16
 		fprintf(stdout, " (utf16)] : ");
+		
+		unsigned char* utf8_data = Convert_multibyteUTF16_to_UTF8(unicode_string, (asset_length-13) * 6, asset_length-14);
 
 #if defined (_MSC_VER)
 		if (GetVersion() & 0x80000000 || UnicodeOutputStatus == UNIVERSAL_UTF8) { //pre-NT or AP-utf8.exe (pish, thats my win98se, and without unicows support convert utf16toutf8 and output raw bytes)
@@ -1474,19 +1502,17 @@ void APar_PrintUnicodeAssest(char* unicode_string, int asset_length) { //3gp fil
 		
 		} else {
 			wchar_t* utf16_data = Convert_multibyteUTF16_to_wchar(unicode_string, (asset_length - 16) / 2, true);
-			//wchar_t* utf16_data = Convert_multibyteUTF16_to_wchar(unicode_string, ((asset_length - 16) / 2) + 1, true);
-			APar_unicode_win32Printout(utf16_data);
+			APar_unicode_win32Printout(utf16_data, (char*)utf8_data);
 		
 			free(utf16_data);
 			utf16_data = NULL;
 		}
 #else
-		unsigned char* utf8_data = Convert_multibyteUTF16_to_UTF8(unicode_string, (asset_length-13) * 6, asset_length-14);
 		fprintf(stdout, "%s", utf8_data);
+#endif
 		
 		free(utf8_data);
 		utf8_data = NULL;
-#endif
 	
 	} else { //utf8
 		fprintf(stdout, " (utf8)] : ");
@@ -1507,6 +1533,7 @@ void APar_SimplePrintUnicodeAssest(char* unicode_string, int asset_length, bool 
 		if (print_encoding) {
 			fprintf(stdout, " (utf16): ");
 		}
+		unsigned char* utf8_data = Convert_multibyteUTF16_to_UTF8(unicode_string, asset_length * 6, asset_length);
 
 #if defined (_MSC_VER)
 		if (GetVersion() & 0x80000000 || UnicodeOutputStatus == UNIVERSAL_UTF8) { //pre-NT or AP-utf8.exe (pish, thats my win98se, and without unicows support convert utf16toutf8 and output raw bytes)
@@ -1519,18 +1546,17 @@ void APar_SimplePrintUnicodeAssest(char* unicode_string, int asset_length, bool 
 		} else {
 			wchar_t* utf16_data = Convert_multibyteUTF16_to_wchar(unicode_string, asset_length / 2, true);
 			//wchar_t* utf16_data = Convert_multibyteUTF16_to_wchar(unicode_string, (asset_length / 2) + 1, true);
-			APar_unicode_win32Printout(utf16_data);
+			APar_unicode_win32Printout(utf16_data, (char*)utf8_data);
 		
 			free(utf16_data);
 			utf16_data = NULL;
 		}
 #else
-		unsigned char* utf8_data = Convert_multibyteUTF16_to_UTF8(unicode_string, asset_length * 6, asset_length);
 		fprintf(stdout, "%s", utf8_data);
+#endif
 		
 		free(utf8_data);
 		utf8_data = NULL;
-#endif
 	
 	} else { //utf8
 		if (print_encoding) {
@@ -1775,14 +1801,7 @@ void APar_Print_single_userdata_atomcontents(uint8_t track_num, short userdata_a
 }
 
 void APar_PrintUserDataAssests(bool quantum_listing) {
-
-#if defined (UTF8_ENABLED)
-	fprintf(stdout, "\xEF\xBB\xBF"); //Default to output of a UTF-8 BOM (except under win32's WriteConsoleW where it gets transparently eliminated)
-#elif defined (_MSC_VER)
-	if (UnicodeOutputStatus == WIN32_UTF16) {
-		APar_unicode_win32Printout(L"\xEF\xBB\xBF"); //TODO: is this necessary? was it ever???
-	}
-#endif
+	printBOM();
 	
 	AtomicInfo* udtaAtom = APar_FindAtom("moov.udta", false, SIMPLE_ATOM, 0);
 	
@@ -1790,10 +1809,10 @@ void APar_PrintUserDataAssests(bool quantum_listing) {
 
 	for (int i=udtaAtom->NextAtomNumber; i < atom_number; i++) {
 		if ( parsedAtoms[i].AtomicLevel <= udtaAtom->AtomicLevel ) break; //we've gone too far
-
-		if (parsedAtoms[i].AtomicLevel == udtaAtom->AtomicLevel + 1) APar_Print_single_userdata_atomcontents(0, i, quantum_listing);
-
+		if ( parsedAtoms[i].AtomicLevel == udtaAtom->AtomicLevel + 1 ) APar_Print_single_userdata_atomcontents(0, i, quantum_listing);
+		//if ( parsedAtoms[i].uuid_style == UUID_AP_SHA1_NAMESPACE ) APar_Print_APuuidv5_contents(&parsedAtoms[i]);
 	}
+	APar_Print_APuuid_atoms(NULL, NULL, PRINT_DATA);
 	return;
 }
 
@@ -1825,6 +1844,8 @@ void APar_print_ISO_UserData_per_track() {
 				
 				if (parsedAtoms[a_trak_atom].AtomicLevel == trak_udtaAtom->AtomicLevel+1) APar_Print_single_userdata_atomcontents(i, a_trak_atom, true);
 				
+				//if (parsedAtoms[a_trak_atom].uuid_style == UUID_AP_SHA1_NAMESPACE ) APar_Print_APuuidv5_contents(&parsedAtoms[a_trak_atom]);
+				
 				a_trak_atom = parsedAtoms[a_trak_atom].NextAtomNumber;
 			}
 		}
@@ -1840,18 +1861,11 @@ void APar_print_ISO_UserData_per_track() {
 //this function reflects the atom tree as it stands in memory accurately (so I hope).
 void APar_PrintAtomicTree() {
 	bool unknown_atom = false;
-
-#if defined (UTF8_ENABLED)
-	fprintf(stdout, "\xEF\xBB\xBF"); //Default to output of a UTF-8 BOM (except under win32's WriteConsoleW where it gets transparently eliminated)
-#elif defined (_MSC_VER)
-	if (UnicodeOutputStatus == WIN32_UTF16) {
-		APar_unicode_win32Printout(L"\xEF\xBB\xBF"); //TODO: is this necessary? was it ever???
-	}
-#endif
-
 	char* tree_padding = (char*)malloc(sizeof(char)*126); //for a 25-deep atom tree (4 spaces per atom)+single space+term.
 	uint32_t freeSpace = 0;
 	short thisAtomNumber = 0;
+
+	printBOM();
 		
 	//loop through each atom in the struct array (which holds the offset info/data)
  	while (true) {
@@ -1990,14 +2004,7 @@ void APar_PrintAtomicTree() {
 }
 
 void APar_SimpleAtomPrintout() { //loop through each atom in the struct array (which holds the offset info/data)
-
-#if defined (UTF8_ENABLED)
-	fprintf(stdout, "\xEF\xBB\xBF"); //Default to output of a UTF-8 BOM (except under win32's WriteConsoleW where it gets transparently eliminated)
-#elif defined (_MSC_VER)
-	if (UnicodeOutputStatus == WIN32_UTF16) {
-		APar_unicode_win32Printout(L"\xEF\xBB\xBF"); //TODO: is this necessary? was it ever???
-	}
-#endif
+	printBOM();
 
  	for (int i=0; i < atom_number; i++) { 
 		AtomicInfo* thisAtom = &parsedAtoms[i]; 
@@ -2133,6 +2140,10 @@ void APar_IdentifyBrand(char* file_brand ) {
 			break;
 		
 		//other lesser unsupported brands; http://www.mp4ra.org/filetype.html like dv, mjpeg200, mp21 & ... whatever mpeg7 brand is
+		case 0x6D6A7032 : //mjp2
+			metadata_style = MOTIONJPEG2000;
+			break;
+			
 		default :
 			fprintf(stdout, "AtomicParsley error: unsupported MPEG-4 file brand found '%s'\n", file_brand);
 			exit(2);
@@ -2331,6 +2342,7 @@ void APar_ScanAtoms(const char *path, bool scan_for_tree_ONLY) {
 			memset(container, 0, 20);
 			memcpy(container, "FILE_LEVEL", 10);
 			bool corrupted_data_atom = false;
+			bool jpeg2000signature = false;
 			
 			uuid_vitals uuid_info = {0};
 			uuid_info.binary_uuid=(char*)malloc(sizeof(char)*16 + 1);  //this will hold any potential 16byte uuids
@@ -2342,10 +2354,14 @@ void APar_ScanAtoms(const char *path, bool scan_for_tree_ONLY) {
 			
 			fread(data, 1, 12, file);
 			char *atom = extractAtomName(data, 1);
+			
+			if ( memcmp(data, "\x00\x00\x00\x0C\x6A\x50\x20\x20\x0D\x0A\x87\x0A ", 12) == 0 ) {
+				jpeg2000signature = true;
+			}
 
-			if ( memcmp(atom, "ftyp", 4) == 0) { //jpeg2000 files will have a beginning 'jp  ' atom that won't get through here
+			if ( memcmp(atom, "ftyp", 4) == 0 || jpeg2000signature) {
 				
-				APar_IdentifyBrand( data + 8 );
+				if (!jpeg2000signature) APar_IdentifyBrand( data + 8 );
 			
 				dataSize = UInt32FromBigEndian(data);
 				jump = dataSize;
@@ -2355,11 +2371,21 @@ void APar_ScanAtoms(const char *path, bool scan_for_tree_ONLY) {
 				fseek(file, jump, SEEK_SET);
 				
 				while (jump < (uint32_t)file_size) {
+					
 					uuid_info.uuid_form = UUID_DEPRECATED_FORM; //start with the assumption that any found atom is in the depracted uuid form
 					
 					fread(data, 1, 12, file);
 					char *atom = extractAtomName(data , 1);
 					dataSize = UInt32FromBigEndian(data);
+					
+					if (jpeg2000signature) {
+						if (memcmp(atom, "ftyp", 4) == 0) {
+							APar_IdentifyBrand( data + 8 );
+						} else {
+							exit(0); //the atom right after the jpeg2000/mjpeg2000 signature is *supposed* to be 'ftyp'
+						}
+						jpeg2000signature = false;
+					}
 					
 					if ( dataSize > (uint64_t)file_size) {
 						dataSize = (uint32_t)(file_size - jump);
@@ -2569,6 +2595,7 @@ void APar_ScanAtoms(const char *path, bool scan_for_tree_ONLY) {
 										jump+= 46;
 										break;
 									}
+									case 0x6D6A7032 :		//mjp2
 									case 0x6D703476 :		//mp4v
 									case 0x61766331 :		//avc1
 									case 0x6A706567 :		//jpeg
@@ -4364,6 +4391,7 @@ void APar_ValidateAtoms() {
 	bool atom_name_with_4_characters = true;
 	short iter = 0;
 	uint64_t simple_tally = 0;
+	uint8_t atom_ftyp_count = 0;
 	
 	if (atom_number > MAX_ATOMS) {
 		fprintf(stderr, "AtomicParsley error: amount of atoms exceeds internal limit. Aborting.\n");
@@ -4372,7 +4400,7 @@ void APar_ValidateAtoms() {
 	
 	while (true) {
 		// there are valid atom names that are 0x00000001 - but I haven't seen them in MPEG-4 files, but they could show up, so this isn't a hard error
-		if ( strlen(parsedAtoms[iter].AtomicName) < 4) {
+		if ( strlen(parsedAtoms[iter].AtomicName) < 4 && parsedAtoms[iter].AtomicClassification != EXTENDED_ATOM) {
 			atom_name_with_4_characters = false;
 		}
 		
@@ -4415,6 +4443,8 @@ void APar_ValidateAtoms() {
 			}
 		}
 		
+		if (memcmp(parsedAtoms[iter].AtomicName, "ftyp", 4) == 0) atom_ftyp_count++;
+		
 		iter=parsedAtoms[iter].NextAtomNumber;
 		if (iter == 0) {
 			break;
@@ -4428,6 +4458,11 @@ void APar_ValidateAtoms() {
 		fprintf(stderr, "AtomicParsley error: total existing atoms present as larger than filesize. Aborting. %c\n", '\a');
 		//APar_PrintAtomicTree();
 		fprintf(stdout, "%i %llu\n", percentage_difference, simple_tally);
+		exit(1);
+	}
+	
+	if (atom_ftyp_count != 1) {
+		fprintf(stdout, "AtomicParsley error: unresolved looping of atoms. Aborting. %c\n", 'a');
 		exit(1);
 	}
 	
@@ -4826,6 +4861,12 @@ APar_copy_gapless_padding
 		regardless of whether this NULL space was present or not, 'pgap' seemed to work. But, since Apple put it in for some reason, it will be left there unless explicity
 		directed not to (via AP_PADDING). Although tying ordinary padding to this gapless padding may reduce flexibility - the assumption is that someone interested in
 		squeezing out wasted space would want to eliminate this wasted space too (and so far, it does seem wasted).
+		
+		NOTE: Apple seems not to have seen this portion of the ISO 14496-12 Annex A, section A.2, para 6:		
+		"All the data within a conforming file is encapsulated in boxes (called atoms in predecessors of this file format). There is no data outside the box structure."
+		And yet, Apple (donators of the file format) has caused iTunes to create non-conforming files with iTunes 7.x because of this NULL data outside of any box/atom
+		structure.
+		
 ----------------------*/
 void APar_copy_gapless_padding(FILE* mp4file, uint32_t last_atom_pos, char* buffer) {
 	uint32_t gapless_padding_bytes_written = 0;

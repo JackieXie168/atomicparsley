@@ -596,7 +596,7 @@ iso639_lang known_languages[] = {
 
 m_ratings known_ratings[] = {
 	{ "us-tv|TV-MA|600|",  "TV-MA" },
-	{ "us-tv|TV-14|500|",  "TV-13" },
+	{ "us-tv|TV-14|500|",  "TV-14" },
 	{ "us-tv|TV-PG|400|",  "TV-PG" },
 	{ "us-tv|TV-G|300|",   "TV-G" },
 	{ "us-tv|TV-Y|200|",   "TV-Y" },

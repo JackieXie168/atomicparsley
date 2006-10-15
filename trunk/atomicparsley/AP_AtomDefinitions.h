@@ -201,6 +201,7 @@ atomDefinition KnownAtoms[] = {
 	{"sqcp",	{"stsd"},						DUAL_STATE_ATOM,	REQ_FAMILIAL_ONE,			VERSIONED_ATOM },
 	{"ssmv",	{"stsd"},						DUAL_STATE_ATOM,	REQ_FAMILIAL_ONE,			VERSIONED_ATOM },
 	{"tmcd",	{"stsd"},						DUAL_STATE_ATOM,	REQ_FAMILIAL_ONE,			VERSIONED_ATOM },
+	{"mjp2",	{"stsd"},						DUAL_STATE_ATOM,	REQ_FAMILIAL_ONE,			VERSIONED_ATOM },     //mjpeg2000
 
 	{"alac",	{"alac"},						CHILD_ATOM,				REQUIRED_ONE,					SIMPLE_ATOM },
 	{"avcC",	{"avc1", "drmi"},		CHILD_ATOM,				REQUIRED_ONE,					SIMPLE_ATOM },
@@ -214,6 +215,14 @@ atomDefinition KnownAtoms[] = {
 	{"btrt",	{"avc1"},						CHILD_ATOM,				OPTIONAL_ONE,					SIMPLE_ATOM },        //found in NeroAVC
 	{"m4ds",	{"avc1"},						CHILD_ATOM,				OPTIONAL_ONE,					SIMPLE_ATOM },        //?possible versioned?
 	{"ftab",	{"tx3g"},						CHILD_ATOM,				OPTIONAL_ONE,					SIMPLE_ATOM },
+	{"jp2h",	{"mjp2"},						PARENT_ATOM,			OPTIONAL_ONE,					SIMPLE_ATOM },        //mjpeg2000
+	
+	{"ihdr",	{"jp2h"},						CHILD_ATOM,				OPTIONAL_ONE,					SIMPLE_ATOM },        //mjpeg2000
+	{"colr",	{"jp2h"},						CHILD_ATOM,				OPTIONAL_ONE,					VERSIONED_ATOM },     //mjpeg2000
+	{"fiel",	{"mjp2"},						CHILD_ATOM,				OPTIONAL_ONE,					SIMPLE_ATOM },        //mjpeg2000
+	{"jp2p",	{"mjp2"},						CHILD_ATOM,				OPTIONAL_ONE,					VERSIONED_ATOM },     //mjpeg2000
+	{"jsub",	{"mjp2"},						CHILD_ATOM,				OPTIONAL_ONE,					SIMPLE_ATOM },        //mjpeg2000
+	{"orfo",	{"mjp2"},						CHILD_ATOM,				OPTIONAL_ONE,					SIMPLE_ATOM },        //mjpeg2000
 
 	{"cprt",	{"udta"},						CHILD_ATOM,				OPTIONAL_MANY,				PACKED_LANG_ATOM },     //the only ISO defined metadata tag; also a 3gp asset
 	{"titl",	{"udta"},						CHILD_ATOM,				OPTIONAL_MANY,				PACKED_LANG_ATOM },     //3gp assets

@@ -1242,6 +1242,7 @@ void APar_ExtractBrands(char* filepath) {
 	if (memcmp(buffer, "ftyp", 4) == 0) {
 		atom_length = APar_read32(buffer, _file, 0);
 		APar_readX(buffer, _file, 8, 4);
+		printBOM();
 		fprintf(stdout, " Major Brand: %s", buffer);
 		APar_IdentifyBrand(buffer);
 		
