@@ -36,6 +36,7 @@
 #include "AtomicParsley.h"
 
 
+
 #if defined (_MSC_VER)
 
 ///////////////////////////////////////////////////////////////////////////////////////
@@ -143,13 +144,13 @@ uint16_t PackLanguage(const char* language_code, uint8_t lang_offset) { //?? is 
 //                                platform specifics                                 //
 ///////////////////////////////////////////////////////////////////////////////////////
 
-#if defined (_MSC_VER)
+#if (!defined HAVE_LROUNDF) && (!defined (__GLIBC__))
 int lroundf(float a) {
 	return a/1;
 }
 #endif
 
-#if ( defined (WIN32) && !defined (__CYGWIN__) && !defined (_LIBC) ) || defined (_MSC_VER)
+#ifndef HAVE_STRSEP
 // use glibc's strsep only on windows when cygwin & libc are undefined; otherwise the internal strsep will be used
 // This marks the point where a ./configure & makefile combo would make this easier
 
@@ -240,6 +241,71 @@ wchar_t* Convert_multibyteUTF8_to_wchar(const char* input_utf8) { //TODO: is thi
 	return Convert_multibyteUTF16_to_wchar((char*)utf16_conversion, (size_t)utf_16_glyphs, false );
 }
 
+//these flags from id3v2 2.4
+//0x00 = ISO-8859-1 & terminate with 0x00.
+//0x01 = UTF-16 with BOM. All frames have same encoding & terminate with 0x0000. 
+//0x02 = UTF-16BE without BOM & terminate with 0x0000.
+//0x03 = UTF-8 & terminated with 0x00.
+//buffer can hold either ut8 or utf16 carried on 8-bit char which requires a cast	
+/*----------------------
+findstringNULLterm
+  in_string - pointer to location of a string (can be either 8859-1, utf8 or utf16be/utf16be needing a cast to wchar)
+	encodingFlag - used to denote the encoding of instring (derived from id3v2 2.4 encoding flags)
+	max_len - the length of given string - there may be no NULL terminaiton, in which case it will only count to max_len
+
+    Either find the NULL if it exists and return how many bytes into in_string that NULL exists, or it won't find a NULL and return max_len
+----------------------*/
+uint32_t findstringNULLterm (char* in_string, uint8_t encodingFlag, uint32_t max_len) {
+	uint32_t byte_count = 0;
+	
+	if (encodingFlag == 0x00 || encodingFlag == 0x03) {
+		char* bufptr = in_string;
+		while (bufptr <= in_string+max_len) {
+			if (*bufptr == 0x00) {
+				break;
+			}
+			bufptr++;
+			byte_count++;
+		}		
+	} else if ((encodingFlag == 0x01 || encodingFlag == 0x02) && max_len >= 2) {
+		short wbufptr;
+		while (byte_count <= max_len) {
+			wbufptr = (*(in_string+byte_count) << 8) | *(in_string+byte_count+1);
+			if (wbufptr == 0x0000) {
+				break;
+			}
+			byte_count+=2;
+		}	
+	}
+	if (byte_count > max_len) return max_len;
+	return byte_count;
+}
+
+uint32_t skipNULLterm (char* in_string, uint8_t encodingFlag, uint32_t max_len) {
+	uint32_t byte_count = 0;
+	
+	if (encodingFlag == 0x00 || encodingFlag == 0x03) {
+		char* bufptr = in_string;
+		while (bufptr <= in_string+max_len) {
+			if (*bufptr == 0x00) {
+				byte_count++;
+				break;
+			}
+			bufptr++;
+		}		
+	} else if ((encodingFlag == 0x01 || encodingFlag == 0x02) && max_len >= 2) {
+		short wbufptr;
+		while (byte_count <= max_len) {
+			wbufptr = (*(in_string+byte_count) << 8) | *(in_string+byte_count+1);
+			if (wbufptr == 0x0000) {
+				byte_count+=2;
+				break;
+			}
+		}	
+	}
+	return byte_count;
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////
 //                                     generics                                      //
 ///////////////////////////////////////////////////////////////////////////////////////
@@ -275,7 +341,13 @@ uint64_t UInt64FromBigEndian(const char *string) {
 #endif
 }
 
-void char4TOuint32(uint32_t lnum, char* data) {
+void UInt16_TO_String2(uint16_t snum, char* data) {
+	data[0] = (snum >>  8) & 0xff;
+	data[1] = (snum >>  0) & 0xff;
+	return;
+}
+
+void UInt32_TO_String4(uint32_t lnum, char* data) {
 	data[0] = (lnum >> 24) & 0xff;
 	data[1] = (lnum >> 16) & 0xff;
 	data[2] = (lnum >>  8) & 0xff;
@@ -283,7 +355,7 @@ void char4TOuint32(uint32_t lnum, char* data) {
 	return;
 }
 
-void char8TOuint64(uint64_t ullnum, char* data) {
+void UInt64_TO_String8(uint64_t ullnum, char* data) {
 	data[0] = (ullnum >> 56) & 0xff;
 	data[1] = (ullnum >> 48) & 0xff;
 	data[2] = (ullnum >> 40) & 0xff;
@@ -341,7 +413,7 @@ bool APar_assert(bool expression, int error_msg, char* supplemental_info) {
 		force_break = false;
 		switch (error_msg) {
 			case 1 : { //trying to set an iTunes-style metadata tag on an 3GP/MobileMPEG-4
-				fprintf(stdout, "AP warning:\n\tSetting the %s tag is for ordinary MPEG-4 files.\n\tIt is not supported on 3GP files.\nSkipping\n", supplemental_info);
+				fprintf(stdout, "AP warning:\n\tSetting the %s tag is for ordinary MPEG-4 files.\n\tIt is not supported on 3gp/amc files.\nSkipping\n", supplemental_info);
 				break;
 			}
 			
@@ -360,6 +432,30 @@ bool APar_assert(bool expression, int error_msg, char* supplemental_info) {
 			}
 			case 5 : { //trying to set metadata on track 33 when there are only 3 tracks
 				fprintf(stdout, "AP warning: skipping non-existing track number setting user data atom: %s.\n", supplemental_info);
+				break;
+			}
+			case 6 : { //trying to set id3 metadata on track 33 when there are only 3 tracks
+				fprintf(stdout, "AP warning: skipping non-existing track number setting id3 tag: %s.\n", supplemental_info);
+				break;
+			}
+			case 7 : { //trying to set id3 metadata on track 33 when there are only 3 tracks
+				fprintf(stdout, "AP warning: the 'meta' atom is being hangled by a %s handler.\n  Remove the 'meta' atom and its contents and try again.\n", supplemental_info);
+				break;
+			}
+			case 8 : { //trying to create an ID32 atom when there is a primary item atom present signaling referenced data (local or external)
+				fprintf(stdout, "AP warning: unsupported external or referenced items were detected. Skipping this frame: %s\n", supplemental_info);
+				break;
+			}
+			case 9 : { //trying to eliminate an id3 frame that doesn't exist
+				fprintf(stdout, "AP warning: id3 frame %s cannot be deleted because it does not exist.\n", supplemental_info);
+				break;
+			}
+			case 10 : { //trying to eliminate an id3 frame that doesn't exist
+				fprintf(stdout, "AP warning: skipping setting unknown %s frame\n", supplemental_info);
+				break;
+			}
+			case 11 : { //insuffient memory to malloc an id3 field (probably picture or encapuslated object)
+				fprintf(stdout, "AP error: memory was not alloctated for frame %s. Exiting.\n", supplemental_info);
 				break;
 			}
 		}

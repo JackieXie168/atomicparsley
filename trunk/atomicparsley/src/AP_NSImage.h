@@ -19,6 +19,20 @@
                                                                    */
 //==================================================================//
 
+struct PicPrefs  {
+	int max_dimension;
+	int dpi;
+	int max_Kbytes;
+	bool squareUp;
+	bool allJPEG;
+	bool allPNG;
+	bool addBOTHpix;
+	bool removeTempPix;
+	bool force_dimensions;
+	int force_height;
+	int force_width;
+};
+
 #if defined (DARWIN_PLATFORM)
 bool ResizeGivenImage(const char* filePath, PicPrefs myPicPrefs, char* resized_path);
 #endif

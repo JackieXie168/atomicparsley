@@ -638,7 +638,7 @@ void APar_ShowObjectProfileInfo(uint8_t track_type, TrackInfo* track_info) {
 			} //end switch
 		} //end level if
 	} else if (track_type == S_AMR_TRACK) {
-		char* amr_modes = (char*)calloc(1, sizeof(char)*80);
+		char* amr_modes = (char*)calloc(1, sizeof(char)*500);
 		if (track_info->track_codec == 0x73616D72 || track_info->track_codec == 0x73617762) {
 			if (track_info->amr_modes & 0x0001) mem_append("0", amr_modes);
 			if (track_info->amr_modes & 0x0002) mem_append("1", amr_modes);
@@ -650,6 +650,16 @@ void APar_ShowObjectProfileInfo(uint8_t track_type, TrackInfo* track_info) {
 			if (track_info->amr_modes & 0x0080) mem_append("7", amr_modes);
 			if (track_info->amr_modes & 0x0100) mem_append("8", amr_modes);
 			if (strlen(amr_modes) == 0) memcpy(amr_modes, "none", 4);
+		} else if (track_info->track_codec == 0x73766D72) {
+			if (track_info->amr_modes & 0x0001) mem_append("VMR-WB Mode 0, ", amr_modes);
+			if (track_info->amr_modes & 0x0002) mem_append("VMR-WB Mode 1, ", amr_modes);
+			if (track_info->amr_modes & 0x0004) mem_append("VMR-WB Mode 2, ", amr_modes);
+			if (track_info->amr_modes & 0x0008) mem_append("VMR-WB Mode 3 (AMR-WB interoperable mode), ", amr_modes);
+			if (track_info->amr_modes & 0x0010) mem_append("VMR-WB Mode 4, ", amr_modes);
+			if (track_info->amr_modes & 0x0020) mem_append("VMR-WB Mode 2 with maximum half-rate, ", amr_modes);
+			if (track_info->amr_modes & 0x0040) mem_append("VMR-WB Mode 4 with maximum half-rate, ", amr_modes);
+			uint16_t amr_modes_len = strlen(amr_modes);
+			if (amr_modes_len > 0) memset(amr_modes+(amr_modes_len-1), 0, 2);
 		}
 
 		if (track_info->track_codec == 0x73616D72) { //samr
@@ -658,8 +668,16 @@ void APar_ShowObjectProfileInfo(uint8_t track_type, TrackInfo* track_info) {
 			fprintf(stdout, "  AMR Wide-Band. Modes: %s. Encoder vendor code: %s\n", amr_modes, track_info->encoder_name);
 		} else if (track_info->track_codec == 0x73617770) { //sawp
 			fprintf(stdout, "  AMR Wide-Band WB+. Encoder vendor code: %s\n", track_info->encoder_name);
+		} else if (track_info->track_codec == 0x73766D72) { //svmr
+			fprintf(stdout, "  AMR VBR Wide-Band. Encoder vendor code: %s\n", track_info->encoder_name);
 		}
 		free(amr_modes); amr_modes=NULL;
+		
+	} else if (track_type == EVRC_TRACK) {
+		fprintf(stdout, "  EVRC (Enhanced Variable Rate Coder). Encoder vendor code: %s\n", track_info->encoder_name);
+		
+	} else if (track_type == QCELP_TRACK) {
+		fprintf(stdout, "  QCELP (Qualcomm Code Excited Linear Prediction). Encoder vendor code: %s\n", track_info->encoder_name);
 	
 	} else if (track_type == S263_TRACK) {
 		if (track_info->profile == 0) {
@@ -807,7 +825,7 @@ APar_Extract_AMR_Info
 void APar_Extract_AMR_Info(char* uint32_buffer, FILE* isofile, short track_level_atom, TrackInfo* track_info) {
 	uint32_t amr_specific_offet = 8;
 	APar_readX(track_info->encoder_name, isofile, parsedAtoms[track_level_atom].AtomicStart + amr_specific_offet, 4);
-	if (track_info->track_codec == 0x73616D72 || track_info->track_codec == 0x73617762) { //samr or sawb contain modes only
+	if (track_info->track_codec == 0x73616D72 || track_info->track_codec == 0x73617762 || track_info->track_codec == 0x73766D72) { //samr,sawb & svmr contain modes only
 		track_info->amr_modes = APar_read16(uint32_buffer, isofile, parsedAtoms[track_level_atom].AtomicStart + amr_specific_offet + 4+1);
 	}
 	return;
@@ -828,6 +846,20 @@ void APar_Extract_d263_Info(char* uint32_buffer, FILE* isofile, short track_leve
 	track_info->level = APar_read8(isofile, parsedAtoms[track_level_atom].AtomicStart + offset_into_d263 + 4+1);
 	track_info->profile = APar_read8(isofile, parsedAtoms[track_level_atom].AtomicStart + offset_into_d263 + 4+2);
 	//possible 'bitr' bitrate box afterwards
+	return;
+}
+
+/*----------------------
+APar_Extract_devc_Info
+	isofile - the file to be scanned
+	track_level_atom - the number of the 'esds' atom in the linked list of parsed atoms
+	track_info - a pointer to the struct carrying track-level info to be filled with information
+
+    'devc' only holds 3 things: encoder vendor, decoder version & frames per sample; only encoder vendor is gathered
+----------------------*/
+void APar_Extract_devc_Info(FILE* isofile, short track_level_atom, TrackInfo* track_info) {
+	uint32_t offset_into_devc = 8;
+	APar_readX(track_info->encoder_name, isofile, parsedAtoms[track_level_atom].AtomicStart + offset_into_devc, 4);
 	return;
 }
 
@@ -1021,7 +1053,8 @@ void APar_ExtractTrackDetails(char* uint32_buffer, FILE* isofile, Trackage* trac
 				APar_Extract_esds_Info(uint32_buffer, isofile, track->track_atom-1, track_info); //right, backtrack to the atom before 'esds' so we can offset_into_stsd++
 			} else if (track_info->track_codec == 0x73323633) { //s263
 				track_info->type_of_track = VIDEO_TRACK;
-			} else if (track_info->track_codec == 0x73616D72 || track_info->track_codec == 0x73617762 || track_info->track_codec == 0x73617770) { //samr, sawb or sawp
+			} else if (track_info->track_codec == 0x73616D72 || track_info->track_codec == 0x73617762
+			           || track_info->track_codec == 0x73617770 || track_info->track_codec == 0x73766D72) { //samr, sawb, sawp & svmr
 				track_info->type_of_track = AUDIO_TRACK;
 			} else {
 				track_info->type_of_track = OTHER_TRACK; //a 'jpeg' track will fall here
@@ -1029,8 +1062,28 @@ void APar_ExtractTrackDetails(char* uint32_buffer, FILE* isofile, Trackage* trac
 		}
 		
 	} else if ( track_info->type_of_track & AUDIO_TRACK) {
-		if (track_info->track_codec == 0x73616D72 || track_info->track_codec == 0x73617762 || track_info->track_codec == 0x73617770) { //samr or sawb (sawp doesn't contain modes)
+		if (track_info->track_codec == 0x73616D72 || track_info->track_codec == 0x73617762
+			  || track_info->track_codec == 0x73617770 || track_info->track_codec == 0x73766D72) { //samr,sawb, svmr (sawp doesn't contain modes)
 			APar_Extract_AMR_Info(uint32_buffer, isofile, track->track_atom+2, track_info);
+		
+		} else if (track_info->track_codec == 0x73657663) { //sevc
+			APar_TrackLevelInfo(track, "devc");
+			if ( memcmp(parsedAtoms[track->track_atom].AtomicName, "devc", 4) == 0) {
+				APar_Extract_devc_Info(isofile, track->track_atom, track_info);
+			}
+			
+		} else if (track_info->track_codec == 0x73716370) { //sqcp 
+			APar_TrackLevelInfo(track, "dqcp");
+			if ( memcmp(parsedAtoms[track->track_atom].AtomicName, "dqcp", 4) == 0) {
+				APar_Extract_devc_Info(isofile, track->track_atom, track_info); //its the same thing
+			}
+			
+		} else if (track_info->track_codec == 0x73736D76) { //ssmv 
+			APar_TrackLevelInfo(track, "dsmv");
+			if ( memcmp(parsedAtoms[track->track_atom].AtomicName, "dsmv", 4) == 0) {
+				APar_Extract_devc_Info(isofile, track->track_atom, track_info); //its the same thing
+			}
+		
 		} else {
 			APar_Extract_esds_Info(uint32_buffer, isofile, track->track_atom, track_info);
 		}
@@ -1142,8 +1195,19 @@ void APar_Print_TrackDetails(TrackInfo* track_info) {
 		}
 	} else if (track_info->track_codec == 0x73323633) { //s263 in 3gp
 		APar_ShowObjectProfileInfo(S263_TRACK, track_info);
-	} else if (track_info->track_codec == 0x73616D72 || track_info->track_codec == 0x73617762 || track_info->track_codec == 0x73617770) { //samr,sawb or sawp in 3gp
-		APar_ShowObjectProfileInfo(S_AMR_TRACK, track_info);
+	} else if (track_info->track_codec == 0x73616D72 || track_info->track_codec == 0x73617762
+	            || track_info->track_codec == 0x73617770 || track_info->track_codec == 0x73766D72) { //samr,sawb,sawp & svmr in 3gp
+		track_info->type_of_track = S_AMR_TRACK;
+		APar_ShowObjectProfileInfo(track_info->type_of_track, track_info);
+	} else if (track_info->track_codec == 0x73657663) { //evrc in 3gp
+		track_info->type_of_track = EVRC_TRACK;
+		APar_ShowObjectProfileInfo(track_info->type_of_track, track_info);
+	} else if (track_info->track_codec == 0x73716370) { //qcelp in 3gp
+		track_info->type_of_track = QCELP_TRACK;
+		APar_ShowObjectProfileInfo(track_info->type_of_track, track_info);
+	} else if (track_info->track_codec == 0x73736D76) { //smv in 3gp
+		track_info->type_of_track = SMV_TRACK;
+		APar_ShowObjectProfileInfo(track_info->type_of_track, track_info);
 	}  else { //unknown everything, 0 hardcoded bitrate
 		APar_ShowObjectProfileInfo(track_info->type_of_track, track_info);
 		fprintf(stdout, "\n");
@@ -1204,7 +1268,7 @@ void APar_ExtractDetails(FILE* isofile, uint8_t optional_output) {
 				//codec, language
 				fprintf(stdout, "  %s  %s   %llu", uint32tochar4(track_info.track_codec, uint32_buffer), track_info.unpacked_lang, track_info.sample_aggregate);
 				
-				if (track_info.encoder_name[0] != 0) {
+				if (track_info.encoder_name[0] != 0 && track_info.contains_esds) {
 					purge_extraneous_characters(track_info.encoder_name);
 					fprintf(stdout, "   Encoder: %s", track_info.encoder_name);
 				}
@@ -1232,32 +1296,55 @@ void APar_ExtractDetails(FILE* isofile, uint8_t optional_output) {
 
 //provided as a convenience function so that 3rd party utilities can know beforehand
 void APar_ExtractBrands(char* filepath) {
-	FILE* _file = openSomeFile(filepath, true);
-	char* buffer = (char *)malloc(sizeof(char)*5);;
-	memset(buffer, 0, 5);
+	FILE* a_file = openSomeFile(filepath, true);
+	char* buffer = (char *)calloc(1, sizeof(char)*16);
 	uint32_t atom_length = 0;
+	uint8_t file_type_offset = 0;
+	//bool scan_file = false;
 	
-	fseek(_file, 4, SEEK_SET); //this fseek will to.... the first 30 or so bytes; fseeko isn't required
-	fread(buffer, 1, 4, _file);
+	fseek(a_file, 4, SEEK_SET); //this fseek will to.... the first 30 or so bytes; fseeko isn't required
+	fread(buffer, 1, 4, a_file);
 	if (memcmp(buffer, "ftyp", 4) == 0) {
-		atom_length = APar_read32(buffer, _file, 0);
-		APar_readX(buffer, _file, 8, 4);
+		atom_length = APar_read32(buffer, a_file, 0);
+	} else {
+		APar_readX(buffer, a_file, 0, 12);
+		if (memcmp(buffer, "\x00\x00\x00\x0C\x6A\x50\x20\x20\x0D\x0A\x87\x0A", 12) == 0 ) {
+			APar_readX(buffer, a_file, 12, 12);
+			if (memcmp(buffer+4, "ftypmjp2", 8) == 0 || memcmp(buffer+4, "ftypmj2s", 8) == 0) {
+				atom_length = UInt32FromBigEndian(buffer);
+				file_type_offset = 12;
+			}
+		}
+	}
+	
+	if (atom_length > 0) {
+		memset(buffer, 0, 16);
+		APar_readX(buffer, a_file, 8+file_type_offset, 4);
 		printBOM();
 		fprintf(stdout, " Major Brand: %s", buffer);
 		APar_IdentifyBrand(buffer);
 		
-		uint32_t minor_version = APar_read32(buffer, _file, 12);
+		if (memcmp(buffer, "isom", 4) == 0) {
+			APar_ScanAtoms(filepath); //scan_file = true;
+		}
+		
+		uint32_t minor_version = APar_read32(buffer, a_file, 12+file_type_offset);
 		fprintf(stdout, "  -  version %u\n", minor_version);
 		
 		fprintf(stdout, " Compatible Brands:");
-		for (uint32_t i = 16; i < atom_length; i+=4) {
-			APar_readX(buffer, _file, i, 4);
+		for (uint32_t i = 16+file_type_offset; i < atom_length; i+=4) {
+			APar_readX(buffer, a_file, i, 4);
 			if (UInt32FromBigEndian(buffer) != 0) {
 				fprintf(stdout, " %s", buffer);
 			}
 		}
 		fprintf(stdout, "\n");
 	}
+	
+	openSomeFile(filepath, false);
+	//if (scan_file) {
+	//	APar_ScanAtoms(filepath);
+	//}
 	
 	fprintf(stdout, " Tagging schemes available:\n");
 	switch(metadata_style) {
@@ -1276,6 +1363,7 @@ void APar_ExtractBrands(char* filepath) {
 		}
 	}
 	fprintf(stdout, "   ISO-copyright notices @ movie and/or track level allowed.\n   uuid private user extension tags allowed.\n");
-	openSomeFile(filepath, false);
+	
+	free(buffer); buffer=NULL;
 	return;
 }

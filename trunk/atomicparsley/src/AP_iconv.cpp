@@ -20,6 +20,7 @@
 //==================================================================//
 
 #include <string.h>
+#include <stdlib.h>
 
 //==================================================================//
 // utf conversion functions from libxml2
@@ -742,3 +743,5 @@ int test_conforming_alpha_string(char* in_string) {
 	}
 	return valid_bytes;
 }
+
+
