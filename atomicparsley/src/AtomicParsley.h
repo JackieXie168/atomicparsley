@@ -34,6 +34,7 @@
 #endif
 
 #include "AP_commons.h"
+#include "AP_ID3v2_Definitions.h"
 
 const uint32_t AtomFlags_Data_Binary = 0;           // Atom version 1byte/ Atom flags 3 bytes; 0x00 00 00 00
 const uint32_t AtomFlags_Data_Text = 1;             // UTF-8, no termination
@@ -74,23 +75,10 @@ struct AtomicInfo  {
 	uint8_t   AtomicLevel;
 	char*     AtomicData;
 	int       NextAtomNumber;					//our first atom is numbered 0; the last points back to it - so watch it!
-	uint32_t  stsd_codec;
+	uint32_t  ancillary_data;         //just contains a simple number for atoms that contains some interesting info (like stsd codec used)
 	uint8_t   uuid_style;
 	char*     uuid_ap_atomname;
-};
-
-struct PicPrefs  {
-	int max_dimension;
-	int dpi;
-	int max_Kbytes;
-	bool squareUp;
-	bool allJPEG;
-	bool allPNG;
-	bool addBOTHpix;
-	bool removeTempPix;
-	bool force_dimensions;
-	int force_height;
-	int force_width;
+	ID3v2Tag* ID32_TagInfo;
 };
 
 //currently this is only used on Mac OS X to set type/creator for generic '.mp4' file extension files. The Finder 4 character code TYPE is what determines whether a file appears as a video or an audio file in a broad sense.
@@ -212,6 +200,7 @@ enum {
 };
 
 enum {
+	FILE_LEVEL_ATOM,
 	MOVIE_LEVEL_ATOM,
 	ALL_TRACKS_ATOM,
 	SINGLE_TRACK_ATOM
@@ -314,6 +303,9 @@ short APar_uuid_atom_Init(const char* atom_path, char* uuidName, const uint32_t 
 uint32_t APar_3GP_Keyword_atom_Format(char* keywords_globbed, uint8_t keyword_count, bool set_UTF16_text, char* &formed_keyword_struct);
 short APar_UserData_atom_Init(char* userdata_atom_name, const char* atom_payload, uint8_t udta_container, uint8_t track_idx, uint16_t userdata_lang);
 
+/* ID3v2 (2.4) style metadata, non-external form */
+short APar_ID32_atom_Init(char* frameID_str, char meta_area, char* lang_str, uint16_t id32_lang);
+
 void APar_RemoveAtom(const char* atom_path, uint8_t atom_type, uint16_t UD_lang, const char* rDNS_domain = NULL);
 void APar_freefree(int purge_level);
 
@@ -347,5 +339,5 @@ v0.8    01/14/2006 switched over to uint8_t for former ADC_CPIL_TMPO & former AD
 v0.8.4  02/25/2006 fixed an imaging bug from preferences; fixed metaEnema screwing up the meta atom (APar_RemoveAtom bugfix to remove a direct_find atom); added --output, --overWrite; added --metaDump to dump ONLY metadata tags to a file; versioning for cvs builds; limited support for 64-bit mdat atoms (limited to a little less than a 32-bit atom; > 4GB); bugfixes to APar_RemoveAtom for removing uuid atoms or non-existing atoms & to delete all artwork, then add in 1 command ("--artwork REMOVE_ALL --artwork /path --artwork /path"); support 64-bit co64 atom; support MacOSX-style type/creator codes for tempfiles that end in ".mp4" (no need to change extn to ".m4v"/".m4a" anymore); moved purl/egid onto AtomicDataClass_UInteger (0x00 instead of 0x15) to mirror Apple's change on these tags; start incorporating Brian's Win32 fixes (if you malloc, memset is sure to follow; fopen); give the 'name' atom for '---' iTunes-internal tags for metadata printouts; allow --freefree remove 'free's up to a certain level (preserves iTunes padding); squash some memory leaks; change how CreateSparseAtom was matching atoms to accommodate EliminateAtom-ed atoms (facilitates the previous artwork amendments); exit on unsupported 'ftyp' file brands; anonymous 3rd party native win32 contributions; reworked APar_DetermineAtomLengths to accommodate proper tag setting with --mdatLock; parsing atoms under 'stsd' is no longer internally used - only for tree printing; reworked Mac OS X TYPE determination based on new stsd_codec structure member; revisit co64 offset calculations; start extracting track-level details (dates, language, encoder, channels); changed stco/co64 calculations to support non-muxed files; anonymous "Everyday is NOT like Sunday" contribution; changed unknown 0x15 flagged metadata atoms to hex printouts; move mdat only when moov precedes mdat; new flexible esds parsing
 v0.8.8  05/21/2006 prevent libmp4v2 artwork from a hexdump; changed how short strings were set; win32 change for uuid atoms to avoid sprintf; skip parsing 'free' atoms; work around foobar2000 0.9 non-compliant tagging scheme & added cli switch to give 'tags' the GoLytely - aka '--foobar2000Enema'; ability to read/set completely separate 3gp tags subset (3GPP TS 26.444 version 6.4.0 Release 6 compliant & more like QuickTime-style tags); added libxml's utf8 & utf16 conversion functions; new windows (windows2000 & later) unicode (utf16) console output (literal utf8 bytes in win98 & earlier; memset standard means of initializing; simplified setting of arbitrary info uniformly onto parsedAtoms.AtomicData; win32 switch to CP_UTF8 codepage on redirected console output for better unicode output support; eliminate need for libiconv - use xml's utf8<->latin1 functions to supplant libiconv; properly display atoms like '©nam' under Windows for trees & atom printouts; support setting unicode on Windows CP_UTF8; added 3GP keyword; fixed bug removing last 3GP asset to reset the length of 'udta'; added 'manualAtomRemove' for manually removing iTunes-style atoms; improved tracking of filesize/percentage when large free atoms impinge on % of new filesize; added 3GP location 'loci' (El Loco) atom - all known 3GP assets can now be set/viewed (except support for multiple same atoms of different languages); ->forced<- elimination of Nero tagging scheme (their foobar2000 inspired 'tags' atom) on 3GP files; prevent iTunes-style tags on 3GP files or 3GP assets on MPEG-4 files; fix offsets in fragmented files ("moof.traf.tfhd"); up MAX_ATOMS to 1024; Windows support for full utf16 (unicode) for cli args & filenames
 v0.9.0	09/15/2006 new file scanning method based on an array of known atoms/KnownAtoms struct added to list the gamut of known atoms & their basic properties; better atom versioning & flags support; allow negatives in 3gp asset coordinates (switch to high-bit ascii for getopt_long for assets); fixed minor bug that crept in on non-Win systems in removing files; switch from moving mdat(s) to moving moov to reorder atoms; mellow_flow's genre fix; SLarew's utf16 fix for printing 3gp assets on Win32; reorder moov's child atoms so that udta is last (as per ISO spec recommendations) in moov; enable use of 'free' atom padding for rapid updating, pad with a (user-defined) default amount of padding with a complete file rewrite; switch remaining AtomicInfo variables over to pointers; add support for multiple same atoms with differing languages (like 3gp assets); more flexible 'stik' setting/retrieving & added Audiobook; genre bugfix (again!!); added ability to list std genres & stik strings; switch output for rtng's "Lyrics" to "Content"; list file brands; bugfix for removing some cli metadata; prevent optimizing on PSP mpeg-4 files (but allow dynamic updating, and don't add padding to psp files); new APar_FindAtom routine eliminating some loops; updated routine to find 'moov.udta.meta.hdlr' or iTunes-style tagging; simplified APar_RemoveAtom; 3gp assets differing in language are grouped now instead of being fifo; simplified printing of non-string iTunes-style tags; work around 3rd party bug affecting 'cprt' corruption; switch to fseeko to support files between 2.5GB & 4GB (and ancillary routines off of filesize like progress bar); fix co64 reduction offsets; prevent optimizing when just getting a tree or tags (screwed up track level details); bashfulbladder's booklet stik, only allow dynamic updating with --overWrite & new "AP -t +" routine to show padding & supplemental info; changing win32 filename to '-utf8.exe' forces raw utf8 input/output; win32 longhelp is converted to utf16 (for atom names); new shorthelp added as default help page; bugfix removing non-existing atoms; an actual change (removal/addition/change) of an atom is now required for any type of write action; fix channel listing for 'esds' without sec5 info; added ability to force image dimensions on MacOSX; revamped track level details; 255 byte limit for strings changed to 255 utf8 *character* limit; --stik Audiobook now changes file extension to '.m4b' (for Mac OS X, finder Type code is changed to 'M4B ' too); fix --3gp-year "" in APar_RemoveAtom; bugfix setting string lengths in 3gp keyword; added ability to add ISO 'cprt' copyright at movie or track level; implemented v5 sha1 namepsace/name uuids; fixed crash on finding any atom with full uuids (like psp files); more extensive type/profiles/levels in track level details; add support for embedding files on uuid atoms; switch to reading artwork directly into memory (as opposed to copying from a->b) when setting artwork; modified ExtractPixPrefs for leaks - defaults now to deleting temp pic files; skip sprintf for uuid binary strings ('qlts' is why) & switch to (less flexible) memcpy; accommodate iTunes 7.0 adding aprox. 2k of NULL bytes outside of any atom structure; add 'pgap' atom; defaults to duplicating the gapless padding at the end of file now (but can be optionally skipped); fixed clipping when setting unicode characters
-v0.9.X  ??/??/2006 now checks/lists 3 letter language codes; allow setting 3gp assets at track level; fix double fclose & relative paths with --overWrite; coalesce iso copyright notices into the new APar_UserData_atom_Init; initial support for setting iTunes reverseDNS atoms; fix validation test for 'trak' child atoms for atypical order; add mjpeg2000 (mjp2) major brand support (for copyright notices & uuid atoms); restyled listings of all text metadata tags (-t 1); fix multiple BOM prints on printouts
+v0.9.X  ??/??/2006 now checks/lists 3 letter language codes; allow setting 3gp assets at track level; fix double fclose & relative paths with --overWrite; coalesce iso copyright notices into the new APar_UserData_atom_Init; initial support for setting iTunes reverseDNS atoms; fix validation test for 'trak' child atoms for atypical order; add mjpeg2000 (mjp2) major brand support (for copyright notices & uuid atoms); restyled listings of all text metadata tags (-t 1); fix multiple BOM prints on printouts; limit offset adjustments to local (non-external) data; added support for adjusting item location offsets; switch to a makefile/configure/config.h build system; start of ID3v2 2.4 implementation to go into ID32 atoms;
 */

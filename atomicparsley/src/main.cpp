@@ -31,10 +31,14 @@
 #include <signal.h>
 #include <wchar.h>
 
-#if defined (_MSC_VER)
-#include "getopt.h"
-#else
+#if defined HAVE_CONFIG_H
+#include "config.h"
+#endif
+
+#if defined HAVE_GETOPT_H
 #include <getopt.h>
+#else
+#include "./extras/getopt.h"
 #endif
 
 #include "AP_commons.h"
@@ -43,6 +47,7 @@
 #include "AP_iconv.h"                 /* for xmlInitEndianDetection used in endian utf16 conversion */
 #include "AtomicParsley_genres.h"
 #include "APar_uuid.h"
+#include "AP_ID3v2_tags.h"
 
 // define one-letter cli options for
 #define OPT_HELP                 'h'
@@ -117,6 +122,8 @@
 #define _3GP_Classification      0xB4
 #define _3GP_Keyword             0xB5
 #define _3GP_Location            0xB6
+
+#define Meta_ID3v2Tag            0xBC
 
 char *output_file;
 
@@ -194,6 +201,7 @@ static char* shortHelp_text =
 "Setting copyright notices for all files: see --ISO-help\n"
 "For file-level options & padding info: see --file-help\n"
 "Setting custom private tag extensions: see --uuid-help\n"
+"Setting ID3 tags onto mpeg-4 files: see --ID3-help\n"
 "----------------------------------------------------------------------"
 ;
 
@@ -621,6 +629,64 @@ static char* rDNSHelp_text =
 "----------------------------------------------------------------------------------------------------\n"
 ;
 
+static char* ID3Help_text =
+"AtomicParsley help page for ID32 atoms with ID3 tags.\n"
+"----------------------------------------------------------------------------------------------------\n"
+"      **  Please note: ID3 tag support is not feature complete & is in an alpha state.  **\n"
+"----------------------------------------------------------------------------------------------------\n"
+" ID3 tags are the tagging scheme used by mp3 files. In mpeg-4 files, support for this legacy tagging\n"
+" scheme was added around early 2006, but the last update to the ID3 version 2 \"informal standard\" was\n"
+" in 2000. With few exceptions, these tags in mpeg-4 files exist identically to their mp3 counterparts.\n"
+" See available frames with \"AtomicParsley --ID3frames-list\"\n"
+" See avilable imagetypes with \"AtomicParsley --imagetype-list\"\n"
+"\n"
+" AtomicParsley writes ID3 version 2.4.0 tags. Defaults are:\n"
+"   utf8 encoding where encoding is optional; options are [ LATIN1, UTF16BE, UTF16LE ]\n"
+"   frames that require descriptions have a default of \"\"\n"
+"   image type defaults to 0x00 or Other; for image type 0x01, 32x32 png is enforced (switching to 0x02)\n"
+"   setting the image mimetype is generally not required as the file is tested, but can be overridden\n"
+"   for frames requiring a language setting, the ID32 language is used (currently defaulting to 'eng')\n"
+"   zlib compression off\n"
+"\n"
+"  Notes:\n"
+"     The ID3 'informal standard' allows multiple languages in for example COMM comments & USLT lyrics,\n"
+"     however the way that mpeg-4 allows the ID3 tags, this *multiple* language support is removed from\n"
+"     ID3 and is placed in the mpeg-4 domain. This means multiple ID32 atoms differing in language are\n"
+"     created, not a single ID32 atom with multiple COMMs of differing languages. In the example below,\n"
+"     2 ID32 atoms are created, each carrying a single ID3 COMM frame:\n"
+"       --ID3Tag COMM \"Primary\" --desc=AAA --ID3Tag COMM \"El Segundo\" UTF16LE lang=spa --desc=AAA\n"
+"----------------------------------------------------------------------------------------------------\n"
+"   Current limitations:\n"
+"   - ID3 version 2.4 only with no up-converting from older versions.\n"
+"   - syncsafe integers are used as indicated by the id3 \"informal standard\". usage/reading of\n"
+"     nonstandard ordinary unsigned integers (uint32_t) is not/will not be implemented.\n"
+"   - zlib compression currently only available on *nixen platforms.\n"
+"   - externally referenced images (using mimetype '-->') are prohibited by the ID32 specification.\n"
+"   - presets for text frames (like TCON/genre) are not yet implemented. The only preset is for imagetype.\n"
+"   - ID32 atoms only work on 3gp branded files.\n"
+"   - the ID32 atom is only supported in a non-referenced context\n"
+"   - only tested at movie level; listings at non-movie levels is not yet implemented\n"
+"   - probably a raft of other limitations that my brain lost along the way...\n"
+"----------------------------------------------------------------------------------------------------\n"
+" Usage:\n"
+"  --ID3Tag (frameID or alias) (str) [desc=(str)] [mimetype=(str)] [imagetype=(str or hex)] [...]\n"
+"\n"
+"  ... represents other arguments:\n"
+"   [compressed] zlib compress the frame\n"
+"   [UTF16BE, UTF16LE, LATIN1] alternative text encodings for frames that support different encodings\n"
+"\n"
+"Note: (foo) denotes required arguments; [foo] denotes optional parameters\n"
+"\n"
+" Examples:\n"
+" --ID3Tag APIC /path/to/img.ext\n"
+" --ID3Tag APIC /path/to/img.ext desc=\"something to say\" imagetype=0x08 UTF16LE compressed\n"
+" --ID3Tag composer \"I, Claudius\" --ID3Tag TPUB \"Seneca the Roman\" --ID3Tag TMOO Imperial\n"
+"\n"
+" Extracting embedded images in APIC frames:\n"
+" --ID3Tag APIC extract\n"
+"       images are extracted into the same directory as the source mpeg-4 file\n"
+;
+
 void ExtractPaddingPrefs(char* env_padding_prefs) {
 	pad_prefs.default_padding_size = DEFAULT_PADDING_LENGTH;
 	pad_prefs.minimum_required_padding_size = MINIMUM_REQUIRED_PADDING_LENGTH;
@@ -701,6 +767,62 @@ void find_optional_args(char *argv[], int start_optindargs, uint16_t &packed_lan
 	return;
 }
 
+void scan_ID3_optargs(char *argv[], int start_optargs, char* &target_lang, uint16_t &packed_lang, uint8_t &char_encoding, char meta_container, bool &multistring) {
+	packed_lang = 5575; //default ID32 lang is 'eng'
+	uint16_t i = 0;
+	
+	while (argv[start_optargs + i] != NULL) {
+		if ( argv[start_optargs + i] && start_optargs + i <= total_args ) {
+			
+			if ( memcmp(argv[start_optargs + i], "lang=", 5) == 0 ) {
+				if (!MatchLanguageCode(argv[start_optargs +i]+5) ) {
+					packed_lang = PackLanguage("und", 0);
+					target_lang = "und";
+				} else {
+					packed_lang = PackLanguage(argv[start_optargs +i], 5);
+					target_lang = argv[start_optargs + i] + 5;
+				}
+			
+			} else if ( memcmp(argv[start_optargs + i], "UTF16LE", 8) == 0 ) {
+				char_encoding = TE_UTF16LE_WITH_BOM;
+			} else if ( memcmp(argv[start_optargs + i], "UTF16BE", 8) == 0 ) {
+				char_encoding = TE_UTF16BE_NO_BOM;
+			} else if ( memcmp(argv[start_optargs + i], "LATIN1", 7) == 0 ) {
+				char_encoding = TE_LATIN1;
+			}
+		}
+		
+		if (memcmp(argv[start_optargs + i], "-", 1) == 0) {
+			break; //we've hit another cli argument or deleting some frame
+		}
+		i++;
+	}
+	return;
+}
+
+char* find_ID3_optarg(char *argv[], int start_optargs, char* arg_string) {
+	char* ret_val = "";
+	uint16_t i = 0;
+	uint8_t arg_prefix_len = strlen(arg_string);
+	
+	while (argv[start_optargs + i] != NULL) {
+		if ( argv[start_optargs + i] && start_optargs + i <= total_args ) {
+			if (memcmp(arg_string, "compressed", 11) == 0 && memcmp(argv[start_optargs + i], "compressed", 11) == 0) {
+				return "1";
+			}
+			if (memcmp(argv[start_optargs + i], arg_string, arg_prefix_len) == 0) {
+				ret_val = argv[start_optargs + i] + arg_prefix_len;
+				break;
+			}
+		}
+		if (memcmp(argv[start_optargs + i], "-", 1) == 0) {
+			break; //we've hit another cli argument or deleting some frame
+		}
+		i++;
+	}
+	return ret_val;
+}
+
 //***********************************************
 
 #if defined (_MSC_VER)
@@ -773,6 +895,9 @@ int main( int argc, char *argv[]) {
 		} else if ( (strncmp(argv[1],"--reverseDNS-help", 18) == 0) || (strncmp(argv[1],"-rDNS-help", 10) == 0) || (strncmp(argv[1],"-rh", 3) == 0) ) {
 			fprintf(stdout, "%s\n", rDNSHelp_text); exit(0);
 			
+		} else if ( (strncmp(argv[1],"--ID3-help", 10) == 0) || (strncmp(argv[1],"-ID3-help", 9) == 0) || (strncmp(argv[1],"-ID3h", 4) == 0) ) {
+			fprintf(stdout, "%s\n", ID3Help_text); exit(0);
+			
 		} else if ( memcmp(argv[1], "--genre-list", 12) == 0 ) {
 			ListGenresValues(); exit(0);
 			
@@ -786,9 +911,14 @@ int main( int argc, char *argv[]) {
 								memcmp(argv[1], "-ll", 3) == 0) {
 			ListLanguageCodes(); exit(0);
 
-		} else if (memcmp(argv[1], "--ratings-list", 3) == 0) {
+		} else if (memcmp(argv[1], "--ratings-list", 14) == 0) {
 			ListMediaRatings(); exit(0);
+			
+		} else if (memcmp(argv[1], "--ID3frames-list", 17) == 0) {
+			ListID3FrameIDstrings(); exit(0);
 		
+		} else if (memcmp(argv[1], "--imagetype-list", 17) == 0) {
+			List_imagtype_strings(); exit(0);
 		}
 	}
 	
@@ -800,7 +930,7 @@ int main( int argc, char *argv[]) {
 	char *m4afile = argv[1];
 	
 	TestFileExistence(m4afile, true);
-	xmlInitEndianDetection();
+	xmlInitEndianDetection(); 
 	
 	char* padding_options = getenv("AP_PADDING");
 	ExtractPaddingPrefs(padding_options);
@@ -886,6 +1016,8 @@ int main( int argc, char *argv[]) {
 		{ "3gp-keyword",      required_argument,  NULL,           _3GP_Keyword },
 		{ "3gp-location",     required_argument,  NULL,           _3GP_Location },
 		
+		{ "ID3Tag",           required_argument,  NULL,           Meta_ID3v2Tag },
+		
 		{ 0, 0, 0, 0 }
 	};
 		
@@ -966,6 +1098,7 @@ int main( int argc, char *argv[]) {
 				}
 			}
 			openSomeFile(m4afile, false);
+			APar_FreeMemory();
 			break;
 		}
 					
@@ -996,7 +1129,7 @@ int main( int argc, char *argv[]) {
 			APar_ScanAtoms(m4afile);
 			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "artist") ) {
 				char major_brand[4];
-				char4TOuint32(brand, &*major_brand);
+				UInt32_TO_String4(brand, &*major_brand);
 				APar_assert(false, 4, &*major_brand);
 				break;
 			}
@@ -1529,6 +1662,10 @@ int main( int argc, char *argv[]) {
 //#endif
 //						uuid_file_filename = strrchr(uuid_file_path, path_delim)+1; //includes whatever extensions
 					}
+					if (uuid_file_extn == NULL) {
+						fprintf(stdout, "AP warning: embedding a file onto a uuid atom requires a file extension. Skipping.\n");
+						continue;
+					}
 					//copy a pointer to description
 					int more_optional_args = 2;
 					while (optind + more_optional_args < argc) {
@@ -1547,7 +1684,7 @@ int main( int argc, char *argv[]) {
 					}
 				}
 			}
-								
+			
 			short genericUUID = APar_uuid_atom_Init("moov.udta.meta.uuid=%s", optarg, uuid_dataType, argv[optind +1], true);
 			
 			if (uuid_dataType == AtomFlags_Data_uuid_binary && genericUUID > 0) {
@@ -2319,6 +2456,69 @@ int main( int argc, char *argv[]) {
 			break;
 		}
 		
+		case Meta_ID3v2Tag : {
+			char* target_frame_ID = NULL;
+			uint16_t packed_lang = 0;
+			uint8_t char_encoding = TE_UTF8; //utf8 is the default encoding
+			char meta_container = MOVIE_LEVEL_ATOM;
+			bool multistring = false;
+			APar_ScanAtoms(m4afile);
+			AdjunctArgs* id3args = (AdjunctArgs*)malloc(sizeof(AdjunctArgs));
+			
+			id3args->targetLang = NULL; //it will default later to "eng"
+			id3args->descripArg = NULL;
+			id3args->mimeArg = NULL;
+			id3args->pictypeArg = NULL;
+			id3args->pictype_uint8 = 0;
+			id3args->groupSymbol = 0;
+			id3args->zlibCompressed = false;
+			id3args->multistringtext = false;
+
+			target_frame_ID = ConvertCLIFrameStr_TO_frameID(optarg);
+			if (target_frame_ID == NULL) {
+				target_frame_ID = optarg;
+			}
+			
+			//0 = description
+			//1 = mimetype
+			//2 = imagetype
+			int frameType = FrameStr_TO_FrameType(target_frame_ID);
+			if (frameType > 0) {
+				if (TestCLI_for_FrameParams(frameType, 0)) {
+					id3args->descripArg = find_ID3_optarg(argv, optind, "desc=");
+				}
+				if (TestCLI_for_FrameParams(frameType, 1)) {
+					id3args->mimeArg = find_ID3_optarg(argv, optind, "mimetype=");
+				}
+				if (TestCLI_for_FrameParams(frameType, 2)) {
+					id3args->pictypeArg = find_ID3_optarg(argv, optind, "imagetype=");
+				}
+				if (memcmp("1", find_ID3_optarg(argv, optind, "compressed"), 1) == 0) {
+					id3args->zlibCompressed = true;
+				}
+			}
+			
+			scan_ID3_optargs(argv, optind, id3args->targetLang, packed_lang, char_encoding, meta_container, multistring);
+			if (id3args->targetLang == NULL) id3args->targetLang = "eng";
+			
+			openSomeFile(m4afile, true);
+			short id3_atom = APar_ID32_atom_Init(target_frame_ID, -1, id3args->targetLang, packed_lang);
+			
+			if (memcmp(argv[optind + 0], "extract", 7) == 0 && (memcmp(target_frame_ID, "APIC", 4) == 0 || memcmp(target_frame_ID, "GEOB", 4) == 0)) {
+				APar_ID3ExtractFile(id3_atom, target_frame_ID, m4afile, NULL, id3args);
+				openSomeFile(m4afile, false);
+				exit(0);
+			} 
+			
+			openSomeFile(m4afile, false);
+			APar_ID3FrameAmmend(id3_atom, target_frame_ID, argv[optind + 0], id3args, char_encoding);
+			
+			free(id3args);
+			id3args = NULL;
+			
+			break;
+		}
+		
 		//utility functions
 		
 		case Metadata_Purge : {
@@ -2337,7 +2537,7 @@ int main( int argc, char *argv[]) {
 		
 		case foobar_purge : {
 			APar_ScanAtoms(m4afile);
-			APar_RemoveAtom("moov.udta.tags", SIMPLE_ATOM, 0);
+			APar_RemoveAtom("moov.udta.tags", UNKNOWN_ATOM, 0);
 			
 			break;
 		}

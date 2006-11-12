@@ -26,8 +26,8 @@
 #include <sys/time.h>
 #include <string.h>
 
-#include "AP_NSImage.h"
 #include "AtomicParsley.h"
+#include "AP_NSImage.h"
 
 bool isJPEG=false;
 bool isPNG=false;

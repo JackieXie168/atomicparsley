@@ -73,9 +73,12 @@ atomDefinition KnownAtoms[] = {
 
 	{"dinf",	{"minf", "meta"},		PARENT_ATOM,			OPTIONAL_ONE,					SIMPLE_ATOM },        //required in minf
 
-	{"url ",	{"dinf"},						CHILD_ATOM,				REQ_FAMILIAL_ONE,			VERSIONED_ATOM },
-	{"urn ",	{"dinf"},						CHILD_ATOM,				REQ_FAMILIAL_ONE,			VERSIONED_ATOM },
-	{"dref",	{"dinf"},						CHILD_ATOM,				REQ_FAMILIAL_ONE,			VERSIONED_ATOM },
+	{"dref",	{"dinf"},						DUAL_STATE_ATOM,	REQUIRED_ONE,					VERSIONED_ATOM },
+
+	{"url ",	{"dref"},						CHILD_ATOM,				OPTIONAL_MANY,			  VERSIONED_ATOM },
+	{"urn ",	{"dref"},						CHILD_ATOM,				OPTIONAL_MANY,		  	VERSIONED_ATOM },
+	{"alis",	{"dref"},						CHILD_ATOM,				OPTIONAL_MANY,		  	VERSIONED_ATOM },
+	{"cios",	{"dref"},						CHILD_ATOM,				OPTIONAL_MANY,		  	VERSIONED_ATOM },
 
 	{"stbl",	{"minf"},						PARENT_ATOM,			REQUIRED_ONE,					SIMPLE_ATOM },
 	{"stts",	{"stbl"},						CHILD_ATOM,				REQUIRED_ONE,					VERSIONED_ATOM },
@@ -118,8 +121,8 @@ atomDefinition KnownAtoms[] = {
 	{"iloc",	{"meta"},						CHILD_ATOM,				OPTIONAL_ONE,					VERSIONED_ATOM },
 	{"pitm",	{"meta"},						CHILD_ATOM,				OPTIONAL_ONE,					VERSIONED_ATOM },
 	{"ipro",	{"meta"},						PARENT_ATOM,			OPTIONAL_ONE,					VERSIONED_ATOM },
-	{"infe",	{"meta"},						CHILD_ATOM,				OPTIONAL_ONE,					VERSIONED_ATOM },
-	{"iinf",	{"meta"},						CHILD_ATOM,				OPTIONAL_ONE,					VERSIONED_ATOM },
+	{"iinf",	{"meta"},						DUAL_STATE_ATOM,	OPTIONAL_ONE,					VERSIONED_ATOM },
+	{"infe",	{"iinf"},						CHILD_ATOM,				OPTIONAL_ONE,					VERSIONED_ATOM },
 
 	{"sinf",	{"ipro", "drms", "drmi"}, PARENT_ATOM,			REQUIRED_ONE,					SIMPLE_ATOM },    //parent atom is also "Protected Sample Entry"
 	{"frma",	{"sinf"},						CHILD_ATOM,				REQUIRED_ONE,					SIMPLE_ATOM },

@@ -113,7 +113,7 @@ void APar_SupplySelectiveTypeCreatorCodes(const char *inputPath, const char *out
 	
 	uint32_t type_code = APar_4CC_CreatorCode(inputPath, 0);
 	
-	char4TOuint32(type_code, typecode);
+	UInt32_TO_String4(type_code, typecode);
 	
 	//fprintf(stdout, "%s - %s\n", typecode, input_suffix);
 	APar_TestTracksForKind();

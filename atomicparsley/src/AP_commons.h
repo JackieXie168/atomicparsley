@@ -22,6 +22,10 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
+#if defined HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #ifndef _UINT8_T
 #define _UINT8_T
 typedef unsigned char         uint8_t;
@@ -60,6 +64,13 @@ typedef short       int16_t;
 #define SWAP32(x) ((((x)&0xFF)<<24) | (((x)>>24)&0xFF) | (((x)&0x0000FF00)<<8) | (((x)&0x00FF0000)>>8) )
 #endif
 
+#if defined (_WIN32) && defined (_MSC_VER)
+#undef HAVE_GETOPT_H
+#undef HAVE_LROUNDF
+#undef HAVE_STRSEP
+#undef HAVE_ZLIB_H
+#endif
+
 #if defined (_MSC_VER)
 int fseeko(FILE *stream, uint64_t pos, int whence);
 #endif
@@ -73,23 +84,27 @@ uint32_t APar_FindValueInAtom(char* uint32_buffer, FILE* m4afile, short an_atom,
 void APar_UnpackLanguage(unsigned char lang_code[], uint16_t packed_language);
 uint16_t PackLanguage(const char* language_code, uint8_t lang_offset);
 
-#if defined (_MSC_VER)
+#if (!defined HAVE_LROUNDF) && (!defined (__GLIBC__))
 int lroundf(float a);
 #endif
 
-#if ( defined (WIN32) && !defined (__CYGWIN__) && !defined (_LIBC) ) || defined (_MSC_VER)
+#ifndef HAVE_STRSEP
 char *strsep (char **stringp, const char *delim);
 #endif
 
 wchar_t* Convert_multibyteUTF16_to_wchar(char* input_unicode, size_t glyph_length, bool skip_BOM);
 unsigned char* Convert_multibyteUTF16_to_UTF8(char* input_utf8, size_t glyph_length, size_t byte_count);
 wchar_t* Convert_multibyteUTF8_to_wchar(const char* input_utf8);
+uint32_t findstringNULLterm(char* in_string, uint8_t encodingFlag, uint32_t max_len);
+uint32_t skipNULLterm(char* in_string, uint8_t encodingFlag, uint32_t max_len);
+
 
 uint16_t UInt16FromBigEndian(const char *string);
 uint32_t UInt32FromBigEndian(const char *string);
 uint64_t UInt64FromBigEndian(const char *string);
-void char4TOuint32(uint32_t lnum, char* data);
-void char8TOuint64(uint64_t ullnum, char* data);
+void UInt16_TO_String2(uint16_t snum, char* data);
+void UInt32_TO_String4(uint32_t lnum, char* data);
+void UInt64_TO_String8(uint64_t ullnum, char* data);
 
 uint32_t float_to_16x16bit_fixed_point(double floating_val);
 double fixed_point_16x16bit_to_double(uint32_t fixed_point);
