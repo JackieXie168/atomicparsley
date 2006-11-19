@@ -30,11 +30,109 @@
 #include <stdlib.h>
 #include <time.h>
 #include <wchar.h>
+#include <errno.h>
 
 #include "AP_commons.h"
 #include "AP_iconv.h"
 #include "AtomicParsley.h"
 
+
+///////////////////////////////////////////////////////////////////////////////////////
+//                               Filesytem routines                                  //
+///////////////////////////////////////////////////////////////////////////////////////
+
+/*----------------------
+findFileSize
+  utf8_filepath - a pointer to a string (possibly utf8) of the full path to the file
+
+    take an ascii/utf8 filepath (which if under a unicode enabled Win32 OS was already converted from utf16le to utf8 at program start) and test if
+		AP is running on a unicode enabled Win32 OS. If it is and converted to utf8 (rather than just stripped), convert the utf8 filepath to a utf16 
+		(native-endian) filepath & pass that to a wide stat. Or stat it with a utf8 filepath on Unixen & win32 (stripped utf8).
+----------------------*/
+off_t findFileSize(const char *utf8_filepath) {
+	if ( IsUnicodeWinOS() && UnicodeOutputStatus == WIN32_UTF16) {
+#if defined (_MSC_VER)
+		wchar_t* utf16_filepath = Convert_multibyteUTF8_to_wchar(utf8_filepath);
+		
+		struct _stat fileStats;
+		_wstat(utf16_filepath, &fileStats);
+		
+		free(utf16_filepath);
+		utf16_filepath = NULL;
+		return fileStats.st_size;
+#endif
+	} else {
+		struct stat fileStats;
+		stat(utf8_filepath, &fileStats);
+		return fileStats.st_size;
+	}
+	return 0; //won't ever get here.... unless this is win32, set to utf8 and the folder/file had unicode.... TODO (? use isUTF8() for high ascii?)
+}
+
+/*----------------------
+APar_OpenFile
+  utf8_filepath - a pointer to a string (possibly utf8) of the full path to the file
+	file_flags - 3 bytes max for the flags to open the file with (read, write, binary mode....)
+
+    take an ascii/utf8 filepath (which if under a unicode enabled Win32 OS was already converted from utf16le to utf8 at program start) and test if
+		AP is running on a unicode enabled Win32 OS. If it is, convert the utf8 filepath to a utf16 (native-endian) filepath & pass that to a wide fopen
+		with the 8-bit file flags changed to 16-bit file flags. Or open a utf8 file with vanilla fopen on Unixen.
+----------------------*/
+FILE* APar_OpenFile(const char* utf8_filepath, const char* file_flags) {
+	FILE* aFile = NULL;
+	if ( IsUnicodeWinOS() && UnicodeOutputStatus == WIN32_UTF16) {
+#if defined (_MSC_VER)
+		wchar_t* Lfile_flags = (wchar_t *)malloc(sizeof(wchar_t)*4);
+		memset(Lfile_flags, 0, sizeof(wchar_t)*4);
+		mbstowcs(Lfile_flags, file_flags, strlen(file_flags) );
+		
+		wchar_t* utf16_filepath = Convert_multibyteUTF8_to_wchar(utf8_filepath);
+		
+		aFile = _wfopen(utf16_filepath, Lfile_flags);
+		
+		free(utf16_filepath);
+		utf16_filepath = NULL;
+#endif
+	} else {
+		aFile = fopen(utf8_filepath, file_flags);
+	}
+	
+	if (!aFile) {
+		fprintf(stdout, "AP error trying to fopen: %s\n", strerror(errno));
+	}
+	return aFile;
+}
+
+/*----------------------
+openSomeFile
+  utf8_filepath - a pointer to a string (possibly utf8) of the full path to the file
+	open - flag to either open or close (function does both)
+
+    take an ascii/utf8 filepath and either open or close it; used for the main ISO Base Media File; store the resulting FILE* in a global source_file
+----------------------*/
+FILE* APar_OpenISOBaseMediaFile(const char* utf8file, bool open) {
+	if ( open && !file_opened) {
+		source_file = APar_OpenFile(utf8file, "rb");
+		if (source_file != NULL) {
+			file_opened = true;
+		}
+	} else {
+		fclose(source_file);
+		file_opened = false;
+	}
+	return source_file;
+}
+
+void TestFileExistence(const char *filePath, bool errorOut) {
+	FILE *a_file = NULL;
+	a_file = APar_OpenFile(filePath, "rb");
+	if( (a_file == NULL) && errorOut ){
+		fprintf(stderr, "AtomicParsley error: can't open %s for reading: %s\n", filePath, strerror(errno));
+		exit(1);
+	} else {
+		fclose(a_file);
+	}
+}
 
 
 #if defined (_MSC_VER)
@@ -58,44 +156,54 @@ int fseeko(FILE *stream, uint64_t pos, int whence) { //only using SEEK_SET here
 //                             File reading routines                                 //
 ///////////////////////////////////////////////////////////////////////////////////////
 
-uint8_t APar_read8(FILE* m4afile, uint32_t pos) {
+uint8_t APar_read8(FILE* ISObasemediafile, uint32_t pos) {
 	uint8_t a_byte = 0;
-	fseeko(m4afile, pos, SEEK_SET);
-	fread(&a_byte, 1, 1, m4afile);
+	fseeko(ISObasemediafile, pos, SEEK_SET);
+	fread(&a_byte, 1, 1, ISObasemediafile);
 	return a_byte;
 }
 
-uint16_t APar_read16(char* buffer, FILE* m4afile, uint32_t pos) {
-	fseeko(m4afile, pos, SEEK_SET);
-	fread(buffer, 1, 2, m4afile);
+uint16_t APar_read16(char* buffer, FILE* ISObasemediafile, uint32_t pos) {
+	fseeko(ISObasemediafile, pos, SEEK_SET);
+	fread(buffer, 1, 2, ISObasemediafile);
 	return UInt16FromBigEndian(buffer);
 }
 
-uint32_t APar_read32(char* buffer, FILE* m4afile, uint32_t pos) {
-	fseeko(m4afile, pos, SEEK_SET);
-	fread(buffer, 1, 4, m4afile);
+uint32_t APar_read32(char* buffer, FILE* ISObasemediafile, uint32_t pos) {
+	fseeko(ISObasemediafile, pos, SEEK_SET);
+	fread(buffer, 1, 4, ISObasemediafile);
 	return UInt32FromBigEndian(buffer);
 }
 
-void APar_readX(char* buffer, FILE* m4afile, uint32_t pos, uint32_t length) {
-	fseeko(m4afile, pos, SEEK_SET);
-	fread(buffer, 1, length, m4afile);
+void APar_readX(char* buffer, FILE* ISObasemediafile, uint32_t pos, uint32_t length) {
+	fseeko(ISObasemediafile, pos, SEEK_SET);
+	fread(buffer, 1, length, ISObasemediafile);
 	return;
 }
 
-uint32_t APar_FindValueInAtom(char* uint32_buffer, FILE* m4afile, short an_atom, uint32_t start_position, uint32_t eval_number) {
+uint32_t APar_ReadFile(char* destination_buffer, FILE* a_file, uint32_t bytes_to_read) {
+	uint32_t bytes_read = 0;
+	if (destination_buffer != NULL) {
+		fseeko(a_file, 0, SEEK_SET); // not that 2gb support is required - malloc would probably have a few issues
+		bytes_read = (uint32_t)fread(destination_buffer, 1, (size_t)bytes_to_read, a_file);
+		file_size += bytes_read; //accommodate huge files embedded within small files for APar_Validate
+	}
+	return bytes_read;
+}
+
+uint32_t APar_FindValueInAtom(char* uint32_buffer, FILE* ISObasemediafile, short an_atom, uint32_t start_position, uint32_t eval_number) {
 	uint32_t current_pos = start_position;
 	memset(uint32_buffer, 0, 5);
 	while (current_pos <= parsedAtoms[an_atom].AtomicLength) {
 		current_pos ++;
 		if (eval_number > 65535) {
 			//current_pos +=4;
-			if (APar_read32(uint32_buffer, m4afile, parsedAtoms[an_atom].AtomicStart + current_pos) == eval_number) {
+			if (APar_read32(uint32_buffer, ISObasemediafile, parsedAtoms[an_atom].AtomicStart + current_pos) == eval_number) {
 				break;
 			}
 		} else {
 			//current_pos +=2;
-			if (APar_read16(uint32_buffer, m4afile, parsedAtoms[an_atom].AtomicStart + current_pos) == (uint16_t)eval_number) {
+			if (APar_read16(uint32_buffer, ISObasemediafile, parsedAtoms[an_atom].AtomicStart + current_pos) == (uint16_t)eval_number) {
 				break;
 			}
 		}
@@ -461,4 +569,106 @@ bool APar_assert(bool expression, int error_msg, char* supplemental_info) {
 		}
 	}
 	return force_break;
+}
+
+/* http://wwwmaths.anu.edu.au/~brent/random.html  */
+/* xorgens.c version 3.04, R. P. Brent, 20060628. */
+
+/* For type definitions see xorgens.h */
+
+unsigned long xor4096i() {
+  /* 32-bit or 64-bit integer random number generator 
+     with period at least 2**4096-1.
+     
+     It is assumed that "UINT" is a 32-bit or 64-bit integer 
+     (see typedef statements in xorgens.h).
+     
+     xor4096i should be called exactly once with nonzero seed, and
+     thereafter with zero seed.  
+     
+     One random number uniformly distributed in [0..2**wlen) is returned,
+     where wlen = 8*sizeof(UINT) = 32 or 64.
+
+     R. P. Brent, 20060628.
+  */
+
+  /* UINT64 is TRUE if 64-bit UINT,
+     UINT32 is TRUE otherwise (assumed to be 32-bit UINT). */
+     
+#define UINT64 (sizeof(UINT)>>3)
+#define UINT32 (1 - UINT64) 
+
+#define wlen (64*UINT64 +  32*UINT32)
+#define r    (64*UINT64 + 128*UINT32)
+#define s    (53*UINT64 +  95*UINT32)
+#define a    (33*UINT64 +  17*UINT32)
+#define b    (26*UINT64 +  12*UINT32)
+#define c    (27*UINT64 +  13*UINT32)
+#define d    (29*UINT64 +  15*UINT32)
+#define ws   (27*UINT64 +  16*UINT32) 
+
+	UINT seed = 0;
+	
+  static UINT w, weyl, zero = 0, x[r];
+  UINT t, v;
+  static int i = -1 ;              /* i < 0 indicates first call */
+  int k;
+	
+	if (i < 0) {
+#if defined HAVE_SRANDDEV
+		sranddev();
+#else
+		srand((int) time(NULL));
+#endif
+		double doubleseed = ( (double)rand() / ((double)(RAND_MAX)+(double)(1)) );
+		seed = (UINT)(doubleseed*rand());
+	}
+  
+  if ((i < 0) || (seed != zero)) { /* Initialisation necessary */
+  
+  /* weyl = odd approximation to 2**wlen*(sqrt(5)-1)/2. */
+
+    if (UINT32) 
+      weyl = 0x61c88647;
+    else 
+      weyl = ((((UINT)0x61c88646)<<16)<<16) + (UINT)0x80b583eb;
+                 
+    v = (seed!=zero)? seed:~seed;  /* v must be nonzero */
+
+    for (k = wlen; k > 0; k--) {   /* Avoid correlations for close seeds */
+      v ^= v<<10; v ^= v>>15;      /* Recurrence has period 2**wlen-1 */ 
+      v ^= v<<4;  v ^= v>>13;      /* for wlen = 32 or 64 */
+      }
+    for (w = v, k = 0; (UINT)k < r; k++) { /* Initialise circular array */
+      v ^= v<<10; v ^= v>>15; 
+      v ^= v<<4;  v ^= v>>13;
+      x[k] = v + (w+=weyl);                
+      }
+    for (i = r-1, k = 4*r; k > 0; k--) { /* Discard first 4*r results */ 
+      t = x[i = (i+1)&(r-1)];   t ^= t<<a;  t ^= t>>b; 
+      v = x[(i+(r-s))&(r-1)];   v ^= v<<c;  v ^= v>>d;          
+      x[i] = t^v;       
+      }
+    }
+    
+  /* Apart from initialisation (above), this is the generator */
+
+  t = x[i = (i+1)&(r-1)];            /* Assumes that r is a power of two */
+  v = x[(i+(r-s))&(r-1)];            /* Index is (i-s) mod r */
+  t ^= t<<a;  t ^= t>>b;             /* (I + L^a)(I + R^b) */
+  v ^= v<<c;  v ^= v>>d;             /* (I + L^c)(I + R^d) */
+  x[i] = (v ^= t);                   /* Update circular array */
+  w += weyl;                         /* Update Weyl generator */
+  return (v + (w^(w>>ws)));          /* Return combination */
+
+#undef UINT64
+#undef UINT32
+#undef wlen
+#undef r
+#undef s
+#undef a
+#undef b
+#undef c
+#undef d
+#undef ws 
 }

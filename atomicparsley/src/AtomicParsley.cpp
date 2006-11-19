@@ -81,6 +81,7 @@ AtomicInfo* udtaAtom = NULL;
 bool complete_free_space_erasure = false;
 bool initial_optimize_pass = true;
 bool psp_brand = false;
+bool force_existing_hierarchy = false;
 bool prevent_update_using_padding = false;
 int metadata_style = UNDEFINED_STYLE;
 bool tree_display_only = false;
@@ -191,109 +192,6 @@ void printBOM() {
 
 	BOM_printed = true;
 	return;
-}
-
-/*----------------------
-findFileSize
-  utf8_filepath - a pointer to a string (possibly utf8) of the full path to the file
-
-    take an ascii/utf8 filepath (which if under a unicode enabled Win32 OS was already converted from utf16le to utf8 at program start) and test if
-		AP is running on a unicode enabled Win32 OS. If it is and converted to utf8 (rather than just stripped), convert the utf8 filepath to a utf16 
-		(native-endian) filepath & pass that to a wide stat. Or stat it with a utf8 filepath on Unixen & win32 (stripped utf8).
-----------------------*/
-off_t findFileSize(const char *utf8_filepath) {
-	if ( IsUnicodeWinOS() && UnicodeOutputStatus == WIN32_UTF16) {
-#if defined (_MSC_VER)
-		wchar_t* utf16_filepath = Convert_multibyteUTF8_to_wchar(utf8_filepath);
-		
-		struct _stat fileStats;
-		_wstat(utf16_filepath, &fileStats);
-		
-		free(utf16_filepath);
-		utf16_filepath = NULL;
-		return fileStats.st_size;
-#endif
-	} else {
-		struct stat fileStats;
-		stat(utf8_filepath, &fileStats);
-		return fileStats.st_size;
-	}
-	return 0; //won't ever get here.... unless this is win32, set to utf8 and the folder/file had unicode.... TODO (? use isUTF8() for high ascii?)
-}
-
-/*----------------------
-APar_OpenFile
-  utf8_filepath - a pointer to a string (possibly utf8) of the full path to the file
-	file_flags - 3 bytes max for the flags to open the file with (read, write, binary mode....)
-
-    take an ascii/utf8 filepath (which if under a unicode enabled Win32 OS was already converted from utf16le to utf8 at program start) and test if
-		AP is running on a unicode enabled Win32 OS. If it is, convert the utf8 filepath to a utf16 (native-endian) filepath & pass that to a wide fopen
-		with the 8-bit file flags changed to 16-bit file flags. Or open a utf8 file with vanilla fopen on Unixen.
-----------------------*/
-FILE* APar_OpenFile(const char* utf8_filepath, const char* file_flags) {
-	FILE* aFile = NULL;
-	if ( IsUnicodeWinOS() && UnicodeOutputStatus == WIN32_UTF16) {
-#if defined (_MSC_VER)
-		wchar_t* Lfile_flags = (wchar_t *)malloc(sizeof(wchar_t)*4);
-		memset(Lfile_flags, 0, sizeof(wchar_t)*4);
-		mbstowcs(Lfile_flags, file_flags, strlen(file_flags) );
-		
-		wchar_t* utf16_filepath = Convert_multibyteUTF8_to_wchar(utf8_filepath);
-		
-		aFile = _wfopen(utf16_filepath, Lfile_flags);
-		
-		free(utf16_filepath);
-		utf16_filepath = NULL;
-#endif
-	} else {
-		aFile = fopen(utf8_filepath, file_flags);
-	}
-	
-	if (!aFile) {
-		fprintf(stdout, "AP error trying to fopen: %s\n", strerror(errno));
-	}
-	return aFile;
-}
-
-/*----------------------
-openSomeFile
-  utf8_filepath - a pointer to a string (possibly utf8) of the full path to the file
-	open - flag to either open or close (function does both)
-
-    take an ascii/utf8 filepath and either open or close it; used for the main ISO Base Media File; store the resulting FILE* in a global source_file
-----------------------*/
-FILE* openSomeFile(const char* utf8file, bool open) {
-	if ( open && !file_opened) {
-		source_file = APar_OpenFile(utf8file, "rb");
-		if (source_file != NULL) {
-			file_opened = true;
-		}
-	} else {
-		fclose(source_file);
-		file_opened = false;
-	}
-	return source_file;
-}
-
-void TestFileExistence(const char *filePath, bool errorOut) {
-	FILE *a_file = NULL;
-	a_file = APar_OpenFile(filePath, "rb");
-	if( (a_file == NULL) && errorOut ){
-		fprintf(stderr, "AtomicParsley error: can't open %s for reading: %s\n", filePath, strerror(errno));
-		exit(1);
-	} else {
-		fclose(a_file);
-	}
-}
-
-uint32_t APar_ReadFile(char* destination_buffer, FILE* a_file, uint32_t bytes_to_read) {
-	uint32_t bytes_read = 0;
-	if (destination_buffer != NULL) {
-		fseeko(a_file, 0, SEEK_SET); // not that 2gb support is required - malloc would probably have a few issues
-		bytes_read = (uint32_t)fread(destination_buffer, 1, (size_t)bytes_to_read, a_file);
-		file_size += bytes_read; //accommodate huge files embedded within small files for APar_Validate
-	}
-	return bytes_read;
 }
 
 int APar_TestArtworkBinaryData(const char* artworkPath) {
@@ -742,7 +640,7 @@ AtomicInfo* APar_FindChildAtom(short parent_atom, char* child_name, uint8_t chil
 	uint16_t current_count = 0;
 	
 	while (parsedAtoms[test_child_idx].AtomicLevel > parsedAtoms[parent_atom].AtomicLevel) {
-		if ( (memcmp(parsedAtoms[test_child_idx].AtomicName, child_name, child_name_len) == 0  || memcmp(child_name, "any", 3) == 0) &&
+		if ( (memcmp(parsedAtoms[test_child_idx].AtomicName, child_name, child_name_len) == 0  || memcmp(child_name, "any", 4) == 0) &&
 		    parsedAtoms[test_child_idx].AtomicLevel == parsedAtoms[parent_atom].AtomicLevel +1) {
 			current_count++;
 			if (desired_index == current_count) {
@@ -1048,16 +946,6 @@ AtomicInfo* APar_FindAtom(const char* atom_name, bool createMissing, uint8_t ato
 ///////////////////////////////////////////////////////////////////////////////////////
 //                   'data'/'stco'/3GP asset Atom extraction                         //
 ///////////////////////////////////////////////////////////////////////////////////////
-
-void APar_AtomicRead(short this_atom_number) {
-	//fprintf(stdout, "Reading %u bytes\n", parsedAtoms[this_atom_number].AtomicLength-12 );
-	parsedAtoms[this_atom_number].AtomicData = (char*)malloc(sizeof(char)* (size_t)(parsedAtoms[this_atom_number].AtomicLength) );
-	memset(parsedAtoms[this_atom_number].AtomicData, 0, sizeof(char)* (size_t)(parsedAtoms[this_atom_number].AtomicLength) );
-	
-	fseeko(source_file, parsedAtoms[this_atom_number].AtomicStart+12, SEEK_SET);
-	fread(parsedAtoms[this_atom_number].AtomicData, 1, parsedAtoms[this_atom_number].AtomicLength-12, source_file);
-	return;
-}
 
 #if defined (_MSC_VER)
 void APar_unicode_win32Printout(wchar_t* unicode_out, char* utf8_out) { //based on http://blogs.msdn.com/junfeng/archive/2004/02/25/79621.aspx
@@ -2253,6 +2141,32 @@ void APar_Extract_stsd_codec(FILE* file, uint32_t midJump) {
   return;
 }
 
+/*----------------------
+APar_MatchToKnownAtom
+  fill
+----------------------*/
+void APar_LocateDataReference(short chunk_offset_idx, FILE* file) {
+	uint32_t data_ref_idx = 0;
+	short sampletable_atom_idx = 0;
+	short minf_atom_idx = 0;
+	AtomicInfo *stsd_atom, *dinf_atom, *dref_atom, *target_reference_atom = NULL;
+	
+	sampletable_atom_idx = APar_FindParentAtom(chunk_offset_idx, parsedAtoms[chunk_offset_idx].AtomicLevel);
+	stsd_atom = APar_FindChildAtom(sampletable_atom_idx, "stsd");
+	data_ref_idx = APar_read32(twenty_byte_buffer, file, stsd_atom->AtomicStart+28);
+	
+	minf_atom_idx = APar_FindParentAtom(sampletable_atom_idx, parsedAtoms[sampletable_atom_idx].AtomicLevel);
+	dinf_atom = APar_FindChildAtom(minf_atom_idx, "dinf");
+	dref_atom = APar_FindChildAtom(dinf_atom->AtomicNumber, "dref");
+	
+	target_reference_atom = APar_FindChildAtom(dref_atom->AtomicNumber, "any", 4, (uint16_t)data_ref_idx);
+	
+	if (target_reference_atom != NULL) {
+		parsedAtoms[chunk_offset_idx].ancillary_data = target_reference_atom->AtomicVerFlags;
+	}
+	return;
+}
+
 uint64_t APar_64bitAtomRead(FILE *file, uint32_t jump_point) {
 	uint64_t extended_dataSize = 0;
 	char *sixtyfour_bit_data = (char *) malloc(8 + 1);
@@ -2361,6 +2275,10 @@ int APar_MatchToKnownAtom(const char* atom_name, const char* atom_container, boo
 	}
 	if ( return_known_atom > total_known_atoms ) {
 		return_known_atom = 0;
+	}
+	//accommodate any future child to dref; force to being versioned
+	if (return_known_atom == 0 && memcmp(atom_container, "dref", 4) == 0) {
+		return_known_atom = total_known_atoms-4; //return a generic *VERSIONED* child atom; otherwise an atom without flags will be present & chunk offsets will not update
 	}
 	return return_known_atom;
 }
@@ -2629,6 +2547,8 @@ void APar_ScanAtoms(const char *path, bool scan_for_tree_ONLY) {
 								APar_readX(handler_type, file, jump+20, 4);
 								parsedAtoms[atom_number-1].ancillary_data = UInt32FromBigEndian(handler_type);
 								free(handler_type);
+							} else if (memcmp(atom, "stco", 4) == 0 || memcmp(atom, "co64", 4) == 0) {
+								APar_LocateDataReference(atom_number-1, file);
 							}
 
 							if ((generalAtomicLevel == 1) && (dataSize == 1)) { //mdat.length =1 64-bit length that is more of a cludge.
@@ -3340,7 +3260,7 @@ void APar_MetaData_atomArtwork_Init(short atom_num, const char* artworkPath) {
 	
 	if (picture_size > 0) {
 		APar_MetaData_atom_QuickInit(atom_num, APar_TestArtworkBinaryData(artworkPath), 0, (uint32_t)picture_size );
-		FILE* artfile = APar_OpenFile(artworkPath, "rb"); //openSomeFile(artworkPath, true);
+		FILE* artfile = APar_OpenFile(artworkPath, "rb");
 		uint32_t bytes_read = APar_ReadFile(parsedAtoms[atom_num].AtomicData + 4, artfile, (uint32_t)picture_size); //+4 for the 4 null bytes
 		if (bytes_read > 0) parsedAtoms[atom_num].AtomicLength += bytes_read;
 		fclose(artfile);
@@ -4108,7 +4028,9 @@ APar_Readjust_iloc_atom
 bool APar_Readjust_iloc_atom(short iloc_number) {
 	bool iloc_changed = false;
 	
-	APar_AtomicRead(iloc_number);
+	parsedAtoms[iloc_number].AtomicData = (char*)calloc(1, sizeof(char)* (size_t)(parsedAtoms[iloc_number].AtomicLength) );
+	APar_readX(parsedAtoms[iloc_number].AtomicData, source_file, parsedAtoms[iloc_number].AtomicStart+12, parsedAtoms[iloc_number].AtomicLength-12);
+
 	uint8_t offset_size = ( *parsedAtoms[iloc_number].AtomicData >> 4) & 0x0F;
 	uint8_t length_size = *parsedAtoms[iloc_number].AtomicData & 0x0F;
 	uint8_t base_offset_size = ( *(parsedAtoms[iloc_number].AtomicData+1) >> 4) & 0x0F;
@@ -4207,7 +4129,9 @@ bool APar_Readjust_CO64_atom(uint32_t mdat_position, short co64_number) {
 		return co64_changed;
 	}
 	
-	APar_AtomicRead(co64_number);
+	parsedAtoms[co64_number].AtomicData = (char*)calloc(1, sizeof(char)* (size_t)(parsedAtoms[co64_number].AtomicLength) );
+	APar_readX(parsedAtoms[co64_number].AtomicData, source_file, parsedAtoms[co64_number].AtomicStart+12, parsedAtoms[co64_number].AtomicLength-12);
+
 	parsedAtoms[co64_number].AtomicVerFlags = 0;
 	bool deduct = false;
 	//readjust
@@ -4274,7 +4198,9 @@ bool APar_Readjust_TFHD_fragment_atom(uint32_t mdat_position, short tfhd_number)
 	static bool determined_offset = false;
 	static uint64_t base_offset = 0;
 	
-	APar_AtomicRead(tfhd_number);
+	parsedAtoms[tfhd_number].AtomicData = (char*)calloc(1, sizeof(char)* (size_t)(parsedAtoms[tfhd_number].AtomicLength) );
+	APar_readX(parsedAtoms[tfhd_number].AtomicData, source_file, parsedAtoms[tfhd_number].AtomicStart+12, parsedAtoms[tfhd_number].AtomicLength-12);
+	
 	char* tfhd_atomFlags_scrap = (char *)malloc(sizeof(char)*10);
 	memset(tfhd_atomFlags_scrap, 0, 10);
 	//parsedAtoms[tfhd_number].AtomicVerFlags = APar_read32(tfhd_atomFlags_scrap, source_file, parsedAtoms[tfhd_number].AtomicStart+8);
@@ -4307,7 +4233,9 @@ bool APar_Readjust_STCO_atom(uint32_t mdat_position, short stco_number) {
 		return stco_changed;
 	}
 
-	APar_AtomicRead(stco_number);
+	parsedAtoms[stco_number].AtomicData = (char*)calloc(1, sizeof(char)* (size_t)(parsedAtoms[stco_number].AtomicLength) );
+	APar_readX(parsedAtoms[stco_number].AtomicData, source_file, parsedAtoms[stco_number].AtomicStart+12, parsedAtoms[stco_number].AtomicLength-12);
+	
 	parsedAtoms[stco_number].AtomicVerFlags = 0;
 	//readjust
 	
@@ -4510,7 +4438,7 @@ void APar_DetermineDynamicUpdate(bool initial_pass) {
 	bool transited_udta_metadata = false;
 	short iter = udtaAtom->NextAtomNumber;
 	
-	if (!initial_pass && !psp_brand) {
+	if (!initial_pass && (!psp_brand || !force_existing_hierarchy) ) {
 		if (udta_dynamics.free_atom_repository == 0) {
 			//find or create a 'top level 'free' atom after 'udta'
 			udta_dynamics.free_atom_repository = APar_InterjectNewAtom("free", CHILD_ATOM, SIMPLE_ATOM, 
@@ -4620,7 +4548,7 @@ void APar_DetermineDynamicUpdate(bool initial_pass) {
 		} else {
 			//if the file has no functional padding, add a default amount of padding when the file needs to be completely rewritten
 			if (udta_dynamics.max_usable_free_space <= pad_prefs.minimum_required_padding_size) {
-				if (psp_brand) {
+				if (psp_brand || force_existing_hierarchy) {
 					udta_dynamics.dynamic_updating = true;
 				} else if (pad_prefs.default_padding_size >= 8) {
 					APar_InterjectNewAtom("free", CHILD_ATOM, SIMPLE_ATOM, pad_prefs.default_padding_size, 0, 0, 1, APar_FindLastChild_of_ParentAtom(udta_dynamics.moov_atom) );
@@ -4770,7 +4698,7 @@ void APar_DetermineNewFileLength() {
 void APar_DetermineAtomLengths() {
 	APar_RenderAllID32Atoms();
 	
-	if (!udta_dynamics.dynamic_updating && !psp_brand && initial_optimize_pass) {
+	if (!udta_dynamics.dynamic_updating && (!psp_brand || !force_existing_hierarchy) && initial_optimize_pass) {
 		APar_Optimize(false);
 	} else {
 		//'moov' & the last child of 'udta' are discovered in APar_Optimize and must be known to do dynamic updating (for PSP files)
@@ -4865,55 +4793,6 @@ void APar_DetermineAtomLengths() {
 ///////////////////////////////////////////////////////////////////////////////////////
 //                          Atom Writing Functions                                   //
 ///////////////////////////////////////////////////////////////////////////////////////
-
-/*----------------------
-APar_LocateDataReferences
-
-    fill.
-----------------------*/
-void APar_LocateDataReferences() {
-	uint8_t total_tracks = 0;
-	uint8_t a_track = 0;//unused
-	short an_atom = 0;//unused
-	short dref_child = 0;
-	char atom_path_location[400];
-	AtomicInfo* data_refr;
-	AtomicInfo* chunk_offset_atom;
-
-	APar_TrackInfo(total_tracks, a_track, an_atom);
-	
-	for (uint8_t i = 1; i <= total_tracks; i++) {
-		memset(&atom_path_location, 0, 400);
-		sprintf(atom_path_location, "moov.trak[%u].mdia.minf.dinf.dref", i);
-		data_refr = NULL;
-		
-		data_refr = APar_FindAtom(atom_path_location, false, VERSIONED_ATOM, 0);
-		
-		if (data_refr != NULL) {
-			dref_child = data_refr->NextAtomNumber;
-			while (parsedAtoms[dref_child].AtomicLevel == data_refr->AtomicLevel+1) {
-				
-				if (parsedAtoms[dref_child].AtomicVerFlags == 1) {
-					memset(&atom_path_location, 0, 400);
-					sprintf(atom_path_location, "moov.trak[%u].mdia.minf.stbl.stco", i);
-					chunk_offset_atom = NULL;
-					chunk_offset_atom = APar_FindAtom(atom_path_location, false, VERSIONED_ATOM, 0);
-					if (chunk_offset_atom == NULL) {
-						sprintf(atom_path_location, "moov.trak[%u].mdia.minf.stbl.co64", i);
-						chunk_offset_atom = APar_FindAtom(atom_path_location, false, VERSIONED_ATOM, 0);
-					}
-					if (chunk_offset_atom != NULL) {
-						chunk_offset_atom->ancillary_data = 1;
-					}
-				}
-				
-				dref_child = parsedAtoms[dref_child].NextAtomNumber;
-			}
-		}
-	}
-	
-	return;	
-}
 
 /*----------------------
 APar_ValidateAtoms
@@ -5156,9 +5035,9 @@ void APar_DeriveNewPath(const char *filePath, char* temp_path, int output_type, 
 	return;
 }
 
-void APar_MetadataFileDump(const char* m4aFile) {
-	char* dump_file_name=(char*)malloc( sizeof(char)* (strlen(m4aFile) +12 +1) );
-	memset(dump_file_name, 0, sizeof(char)* (strlen(m4aFile) +12 +1) );
+void APar_MetadataFileDump(const char* ISObasemediafile) {
+	char* dump_file_name=(char*)malloc( sizeof(char)* (strlen(ISObasemediafile) +12 +1) );
+	memset(dump_file_name, 0, sizeof(char)* (strlen(ISObasemediafile) +12 +1) );
 	
 	FILE* dump_file;
 	AtomicInfo* userdata_atom = APar_FindAtom("moov.udta", false, SIMPLE_ATOM, 0);
@@ -5168,7 +5047,7 @@ void APar_MetadataFileDump(const char* m4aFile) {
 		char* dump_buffer=(char*)malloc( sizeof(char)* userdata_atom->AtomicLength +1 );
 		memset(dump_buffer, 0, sizeof(char)* userdata_atom->AtomicLength +1 );
 	
-		APar_DeriveNewPath(m4aFile, dump_file_name, 1, "-dump-", ".raw");
+		APar_DeriveNewPath(ISObasemediafile, dump_file_name, 1, "-dump-", ".raw");
 		dump_file = APar_OpenFile(dump_file_name, "wb");
 		if (dump_file != NULL) {
 			//body of atom writing here
@@ -5448,7 +5327,7 @@ void APar_copy_gapless_padding(FILE* mp4file, uint32_t last_atom_pos, char* buff
 	return;
 }
 
-void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_original) {
+void APar_WriteFile(const char* ISObasemediafile, const char* outfile, bool rewrite_original) {
 	char* temp_file_name=(char*)malloc( sizeof(char)* 3500 );
 	char* file_buffer=(char*)malloc( sizeof(char)* max_buffer + 1 );
 	char* data = (char*)malloc(sizeof(char)*4 + 1);
@@ -5471,14 +5350,13 @@ void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_origi
 		udta_dynamics.dynamic_updating = false;
 	}
 	
-	APar_LocateDataReferences();
 	APar_ValidateAtoms();
 	
 	//whatever atoms/space comes before mdat has to be added/removed before this point, or chunk offsets (in stco, co64, tfhd) won't be properly determined
 	uint32_t mdat_position = APar_DetermineMediaData_AtomPosition(); 
 	
 	if (udta_dynamics.dynamic_updating) {
-		APar_DeriveNewPath(m4aFile, temp_file_name, -1, "-data-", NULL);
+		APar_DeriveNewPath(ISObasemediafile, temp_file_name, -1, "-data-", NULL);
 		temp_file = APar_OpenFile(temp_file_name, "wb");
 #if defined (_MSC_VER)
 		char* invisi_command=(char*)malloc(sizeof(char)*2*MAXPATHLEN);
@@ -5502,30 +5380,30 @@ void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_origi
 		APar_DetermineDynamicUpdate(false); //consolidate 'free' atom space; redetermine atom sizes again
 	
 	} else if (!outfile) {
-		APar_DeriveNewPath(m4aFile, temp_file_name, 0, "-temp-", NULL);
+		APar_DeriveNewPath(ISObasemediafile, temp_file_name, 0, "-temp-", NULL);
 		temp_file = APar_OpenFile(temp_file_name, "wb");
 		
 #if defined (DARWIN_PLATFORM)
-		APar_SupplySelectiveTypeCreatorCodes(m4aFile, temp_file_name, forced_suffix_type); //provide type/creator codes for ".mp4" for randomly named temp files
+		APar_SupplySelectiveTypeCreatorCodes(ISObasemediafile, temp_file_name, forced_suffix_type); //provide type/creator codes for ".mp4" for randomly named temp files
 #endif
 		
 	} else {
 		//case-sensitive compare means "The.m4a" is different from "THe.m4a"; on certiain Mac OS X filesystems a case-preservative but case-insensitive FS exists &
 		//AP probably will have a problem there. Output to a uniquely named file as I'm not going to poll the OS for the type of FS employed on the target drive.
-		if (strncmp(m4aFile,outfile,strlen(outfile)) == 0 && (strlen(outfile) == strlen(m4aFile)) ) {
+		if (strncmp(ISObasemediafile,outfile,strlen(outfile)) == 0 && (strlen(outfile) == strlen(ISObasemediafile)) ) {
 			//er, nice try but you were trying to ouput to the exactly named file of the original. Y'all ain't so slick
-			APar_DeriveNewPath(m4aFile, temp_file_name, 0, "-temp-", NULL);
+			APar_DeriveNewPath(ISObasemediafile, temp_file_name, 0, "-temp-", NULL);
 			temp_file = APar_OpenFile(temp_file_name, "wb");
 			
 #if defined (DARWIN_PLATFORM)
-			APar_SupplySelectiveTypeCreatorCodes(m4aFile, temp_file_name, forced_suffix_type); //provide type/creator codes for ".mp4" for a fall-through randomly named temp files
+			APar_SupplySelectiveTypeCreatorCodes(ISObasemediafile, temp_file_name, forced_suffix_type); //provide type/creator codes for ".mp4" for a fall-through randomly named temp files
 #endif
 		
 		} else {
 			temp_file = APar_OpenFile(outfile, "wb");
 			
 #if defined (DARWIN_PLATFORM)
-			APar_SupplySelectiveTypeCreatorCodes(m4aFile, outfile, forced_suffix_type); //provide type/creator codes for ".mp4" for a user-defined output file
+			APar_SupplySelectiveTypeCreatorCodes(ISObasemediafile, outfile, forced_suffix_type); //provide type/creator codes for ".mp4" for a user-defined output file
 #endif
 			
 			}
@@ -5612,7 +5490,7 @@ void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_origi
 		fclose(temp_file);
 		temp_file = APar_OpenFile(temp_file_name, "rb");
 		fclose(source_file);
-		source_file = APar_OpenFile(m4aFile, "r+b"); //source_file = APar_OpenFile(m4aFile, "r+");
+		source_file = APar_OpenFile(ISObasemediafile, "r+b"); //source_file = APar_OpenFile(ISObasemediafile, "r+");
 		if (source_file == NULL) {
 			fclose(temp_file);
 			remove(temp_file_name);
@@ -5625,14 +5503,14 @@ void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_origi
 		fwrite(twenty_byte_buffer, 4, 1, source_file);
 		
 		//pesky (psp only) files that don't even have 'udta' in them, force appending after file length
-		if ( parsedAtoms[udta_dynamics.udta_atom].AtomicStart == 0 && psp_brand ) {
+		if ( parsedAtoms[udta_dynamics.udta_atom].AtomicStart == 0 && (psp_brand || force_existing_hierarchy) ) {
 			parsedAtoms[udta_dynamics.udta_atom].AtomicStart = file_size;
 		}
 		
 		APar_MergeTempFile(source_file, temp_file, temp_file_bytes_written, parsedAtoms[udta_dynamics.udta_atom].AtomicStart, file_buffer);
 		//fprintf(stdout, "%i + %i\n", parsedAtoms[udta_dynamics.udta_atom].AtomicStart, temp_file_bytes_written);
 		
-		if (!psp_brand) {
+		if ( !(psp_brand || force_existing_hierarchy) ) {
 			//psp files with no 'udta' atom will have whacked free_padding_size - which isn't required at EOF in any event
 			fseeko(source_file, parsedAtoms[udta_dynamics.udta_atom].AtomicStart + temp_file_bytes_written, SEEK_SET);
 		
@@ -5656,7 +5534,7 @@ void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_origi
 
 		if ( IsUnicodeWinOS() && UnicodeOutputStatus == WIN32_UTF16) {
 #if defined (_MSC_VER) /* native windows seems to require removing the file first; rename() on Mac OS X does the removing automatically as needed */
-			wchar_t* utf16_filepath = Convert_multibyteUTF8_to_wchar(m4aFile);
+			wchar_t* utf16_filepath = Convert_multibyteUTF8_to_wchar(ISObasemediafile);
 		
 			_wremove(utf16_filepath);
 		
@@ -5664,7 +5542,7 @@ void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_origi
 			utf16_filepath = NULL;
 #endif
 		} else {
-			remove(m4aFile);
+			remove(ISObasemediafile);
 		}
 		
 		int err = 0;
@@ -5673,13 +5551,13 @@ void APar_WriteFile(const char* m4aFile, const char* outfile, bool rewrite_origi
 			originating_file = (char*)calloc( 1, sizeof(char)* 3500 );
 			free_modified_name = true;
 			if (forced_suffix_type == FORCE_M4B_TYPE) { //using --stik Audiobook with --overWrite will change the original file's extension
-				uint16_t filename_len = strlen(m4aFile);
-				char* suffix = strrchr(m4aFile, '.');
-				memcpy(originating_file, m4aFile, filename_len+1 );
+				uint16_t filename_len = strlen(ISObasemediafile);
+				char* suffix = strrchr(ISObasemediafile, '.');
+				memcpy(originating_file, ISObasemediafile, filename_len+1 );
 				memcpy(originating_file + (filename_len - strlen(suffix) ), ".m4b", 5 );
 			}
 		} else {
-			originating_file = (char*)m4aFile;
+			originating_file = (char*)ISObasemediafile;
 		}
 		
 		if ( IsUnicodeWinOS() && UnicodeOutputStatus == WIN32_UTF16) {

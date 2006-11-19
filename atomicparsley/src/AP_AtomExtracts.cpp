@@ -1296,7 +1296,7 @@ void APar_ExtractDetails(FILE* isofile, uint8_t optional_output) {
 
 //provided as a convenience function so that 3rd party utilities can know beforehand
 void APar_ExtractBrands(char* filepath) {
-	FILE* a_file = openSomeFile(filepath, true);
+	FILE* a_file = APar_OpenISOBaseMediaFile(filepath, true);
 	char* buffer = (char *)calloc(1, sizeof(char)*16);
 	uint32_t atom_length = 0;
 	uint8_t file_type_offset = 0;
@@ -1341,10 +1341,7 @@ void APar_ExtractBrands(char* filepath) {
 		fprintf(stdout, "\n");
 	}
 	
-	openSomeFile(filepath, false);
-	//if (scan_file) {
-	//	APar_ScanAtoms(filepath);
-	//}
+	APar_OpenISOBaseMediaFile(filepath, false);
 	
 	fprintf(stdout, " Tagging schemes available:\n");
 	switch(metadata_style) {

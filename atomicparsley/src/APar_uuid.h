@@ -29,9 +29,11 @@ typedef struct {
 } ap_uuid_t;
 
 void APar_print_uuid(ap_uuid_t* uuid, bool new_line = true);
+void APar_sprintf_uuid(ap_uuid_t* uuid, char* destination);
 uint8_t APar_uuid_scanf(char* in_formed_uuid, char* raw_uuid);
 
 void APar_endian_uuid_bin_str_conversion(char* raw_uuid);
 
 uint8_t APar_extract_uuid_version(ap_uuid_t* uuid, char* binary_uuid_str);
 void APar_generate_uuid_from_atomname(char* atom_name, char* uuid_binary_str);
+void APar_generate_random_uuid(char* uuid_binary_str);

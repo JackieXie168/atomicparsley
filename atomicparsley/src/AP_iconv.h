@@ -67,3 +67,4 @@ unsigned int utf8_length(const char *in_string, unsigned int char_limit);
 int strip_bogusUTF16toRawUTF8 (unsigned char* out, int inlen, wchar_t* in, int outlen);
 
 int test_conforming_alpha_string(char* in_string);
+bool test_limited_ascii(char* in_string, unsigned int str_len);

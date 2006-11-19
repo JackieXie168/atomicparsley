@@ -15,8 +15,9 @@ If you are building from svn source you will need autoconf & automake (you will 
 
    4. Use the program in situ or place it somewhere in your $PATH
 
-Optional dependencies:
+Dependencies:
 zlib  - used to compress ID3 frames & expand already compressed frames
+        available from http://www.zlib.net
 
 --------
 Notes:

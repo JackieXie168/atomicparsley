@@ -9,7 +9,7 @@
     AtomicParsley is distributed under the GPL "AS IS", without
     any warranty; without the implied warranty of merchantability
     or fitness for either an expressed or implied particular purpose.
-
+		
     Please see the included GNU General Public License (GPL) for 
     your rights and further details; see the file COPYING. If you
     cannot, write to the Free Software Foundation, 59 Temple Place
@@ -105,6 +105,7 @@
 #define Manual_atom_removal      'R'
 #define Opt_FreeFree             'F'
 #define OPT_OutputFile           'o'
+#define OPT_NoOptimize           0xBD
 
 #define OPT_OverWrite            'W'
 
@@ -351,6 +352,14 @@ static char* fileLevelHelp_text =
 "                                              amount of padding (typically 2048 bytes) will be added. To\n"
 "                                              achieve absolutely 0 bytes 'free' space with --freefree, set\n"
 "                                              DEFAULT_PAD to 0 via the AP_PADDING mechanism (see below).\n"
+"\n"
+"  --preventOptimzing                  Prevents reorganizing the file to have file metadata before media data.\n"
+"                                      iTunes/Quicktime have so far *always* placed metadata first; many 3rd\n"
+"                                      party utilities do not (preventing streaming to the web, AirTunes, iTV).\n"
+"                                      Used in conjunction with --overWrite, files with metadata at the end\n"
+"                                      (most ffmpeg produced files) can have their tags rapidly updated without\n"
+"                                      requiring a full rewrite. Note: this does not un-optimize a file.\n"
+"\n"
 "  --metaDump                          Dumps out 'moov.udta' metadata out to a new file next to original\n"
 "                                          (for diagnostic purposes, please remove artwork before sending)\n"
 "  --output           ,  -o   (/path)  Specify the filename of tempfile (voids overWrite)\n"
@@ -681,6 +690,7 @@ static char* ID3Help_text =
 " --ID3Tag APIC /path/to/img.ext\n"
 " --ID3Tag APIC /path/to/img.ext desc=\"something to say\" imagetype=0x08 UTF16LE compressed\n"
 " --ID3Tag composer \"I, Claudius\" --ID3Tag TPUB \"Seneca the Roman\" --ID3Tag TMOO Imperial\n"
+" --ID3Tag UFID look@me.org uniqueID=randomUUIDstamp\n"
 "\n"
 " Extracting embedded images in APIC frames:\n"
 " --ID3Tag APIC extract\n"
@@ -858,7 +868,6 @@ int main( int argc, char *argv[]) {
 	} else if (argc == 2 && ((strncmp(argv[1],"-v",2) == 0) || (strncmp(argv[1],"-version",2) == 0)) ) {
 	
 		ShowVersionInfo();
-		
 		exit(0);
 		
 	} else if (argc == 2) {
@@ -923,20 +932,20 @@ int main( int argc, char *argv[]) {
 	}
 	
 	if ( argc == 3 && (memcmp(argv[2], "--brands", 8) == 0 || memcmp(argv[2], "-brands", 7) == 0) ) {
-			APar_ExtractBrands(argv[1]); exit(0);
-		}
+		APar_ExtractBrands(argv[1]); exit(0);
+	}
 	
 	total_args = argc;
-	char *m4afile = argv[1];
+	char *ISObasemediafile = argv[1];
 	
-	TestFileExistence(m4afile, true);
+	TestFileExistence(ISObasemediafile, true);
 	xmlInitEndianDetection(); 
 	
 	char* padding_options = getenv("AP_PADDING");
 	ExtractPaddingPrefs(padding_options);
 	
 	//it would probably be better to test output_file if provided & if --overWrite was provided.... probably only of use on Windows - and I'm not on it.
-	if (strlen(m4afile) + 11 > MAXPATHLEN) {
+	if (strlen(ISObasemediafile) + 11 > MAXPATHLEN) {
 		fprintf(stderr, "%c %s", '\a', "AtomicParsley error: filename/filepath was too long.\n");
 		exit(1);
 	}
@@ -998,6 +1007,7 @@ int main( int argc, char *argv[]) {
 		{ "foobar2000Enema",  0,                  NULL,           foobar_purge },
 		{ "metaDump",         0,                  NULL,						Meta_dump },
 		{ "output",           required_argument,  NULL,						OPT_OutputFile },
+		{ "preventOptimizing",0,                  NULL,						OPT_NoOptimize },
 		{ "overWrite",        0,                  NULL,						OPT_OverWrite },
 		
 		{ "ISO-copyright",    required_argument,  NULL,						ISO_Copyright },
@@ -1028,7 +1038,7 @@ int main( int argc, char *argv[]) {
 	
 	if (c == -1) {
 		if (argc < 3 && argc > 2) {
-			APar_ScanAtoms(m4afile, true);
+			APar_ScanAtoms(ISObasemediafile, true);
 			APar_PrintAtomicTree();
 		}
 		break;
@@ -1051,13 +1061,13 @@ int main( int argc, char *argv[]) {
 					
 		case OPT_TEST: {
 			tree_display_only = true;
-			APar_ScanAtoms(m4afile, true);
+			APar_ScanAtoms(ISObasemediafile, true);
 			APar_PrintAtomicTree();
 			if (argv[optind]) {
 				if (memcmp(argv[optind], "+dates", 6) == 0) {
-					APar_ExtractDetails( openSomeFile(m4afile, true), SHOW_TRACK_INFO + SHOW_DATE_INFO );
+					APar_ExtractDetails( APar_OpenISOBaseMediaFile(ISObasemediafile, true), SHOW_TRACK_INFO + SHOW_DATE_INFO );
 				} else {
-					APar_ExtractDetails( openSomeFile(m4afile, true), SHOW_TRACK_INFO);
+					APar_ExtractDetails( APar_OpenISOBaseMediaFile(ISObasemediafile, true), SHOW_TRACK_INFO);
 				}
 			}
 			break;
@@ -1065,14 +1075,14 @@ int main( int argc, char *argv[]) {
 		
 		case OPT_ShowTextData: {
 			if (argv[optind]) { //for utilities that write iTunes-style metadata into 3gp branded files
-				APar_ExtractBrands(m4afile);
+				APar_ExtractBrands(ISObasemediafile);
 				tree_display_only=true;
-				APar_ScanAtoms(m4afile);
+				APar_ScanAtoms(ISObasemediafile);
 				
-				openSomeFile(m4afile, true);
+				APar_OpenISOBaseMediaFile(ISObasemediafile, true);
 				
 				if (memcmp(argv[optind], "+", 1) == 0) {
-					APar_PrintDataAtoms(m4afile, NULL, PRINT_FREE_SPACE + PRINT_PADDING_SPACE + PRINT_USER_DATA_SPACE + PRINT_MEDIA_SPACE, PRINT_DATA );
+					APar_PrintDataAtoms(ISObasemediafile, NULL, PRINT_FREE_SPACE + PRINT_PADDING_SPACE + PRINT_USER_DATA_SPACE + PRINT_MEDIA_SPACE, PRINT_DATA );
 				} else {
 					fprintf(stdout, "---------------------------\n");
 					APar_print_ISO_UserData_per_track();
@@ -1080,24 +1090,24 @@ int main( int argc, char *argv[]) {
 					AtomicInfo* iTuneslistAtom = APar_FindAtom("moov.udta.meta.ilst", false, SIMPLE_ATOM, 0);
 					if (iTuneslistAtom != NULL) {
 						fprintf(stdout, "---------------------------\n  iTunes-style metadata tags:\n");
-						APar_PrintDataAtoms(m4afile, NULL, PRINT_FREE_SPACE + PRINT_PADDING_SPACE + PRINT_USER_DATA_SPACE + PRINT_MEDIA_SPACE, PRINT_DATA, iTuneslistAtom );
+						APar_PrintDataAtoms(ISObasemediafile, NULL, PRINT_FREE_SPACE + PRINT_PADDING_SPACE + PRINT_USER_DATA_SPACE + PRINT_MEDIA_SPACE, PRINT_DATA, iTuneslistAtom );
 					}
 					fprintf(stdout, "---------------------------\n");
 				}
 				
 			} else {
 				tree_display_only=true;
-				APar_ScanAtoms(m4afile);
-				openSomeFile(m4afile, true);
+				APar_ScanAtoms(ISObasemediafile);
+				APar_OpenISOBaseMediaFile(ISObasemediafile, true);
 				
 				if (metadata_style >= THIRD_GEN_PARTNER) {
 					APar_PrintUserDataAssests();
 				} else if (metadata_style == ITUNES_STYLE) {
-					APar_PrintDataAtoms(m4afile, NULL, 0, PRINT_DATA); //false, don't try to extractPix
-					APar_Print_APuuid_atoms(m4afile, NULL, PRINT_DATA);
+					APar_PrintDataAtoms(ISObasemediafile, NULL, 0, PRINT_DATA); //false, don't try to extractPix
+					APar_Print_APuuid_atoms(ISObasemediafile, NULL, PRINT_DATA);
 				}
 			}
-			openSomeFile(m4afile, false);
+			APar_OpenISOBaseMediaFile(ISObasemediafile, false);
 			APar_FreeMemory();
 			break;
 		}
@@ -1106,11 +1116,11 @@ int main( int argc, char *argv[]) {
 			char* base_path=(char*)malloc(sizeof(char)*MAXPATHLEN+1);
 			memset(base_path, 0, MAXPATHLEN +1);
 			
-			GetBasePath( m4afile, base_path );
-			APar_ScanAtoms(m4afile);
-			openSomeFile(m4afile, true);
-			APar_PrintDataAtoms(m4afile, base_path, 0, EXTRACT_ARTWORK); //exportPix to stripped m4afile path
-			openSomeFile(m4afile, false);
+			GetBasePath( ISObasemediafile, base_path );
+			APar_ScanAtoms(ISObasemediafile);
+			APar_OpenISOBaseMediaFile(ISObasemediafile, true);
+			APar_PrintDataAtoms(ISObasemediafile, base_path, 0, EXTRACT_ARTWORK); //exportPix to stripped ISObasemediafile path
+			APar_OpenISOBaseMediaFile(ISObasemediafile, false);
 			
 			free(base_path);
 			base_path = NULL;
@@ -1118,15 +1128,15 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case OPT_ExtractPixToPath: {
-			APar_ScanAtoms(m4afile);
-			openSomeFile(m4afile, true);
-			APar_PrintDataAtoms(m4afile, optarg, 0, EXTRACT_ARTWORK); //exportPix to a different path
-			openSomeFile(m4afile, false);
+			APar_ScanAtoms(ISObasemediafile);
+			APar_OpenISOBaseMediaFile(ISObasemediafile, true);
+			APar_PrintDataAtoms(ISObasemediafile, optarg, 0, EXTRACT_ARTWORK); //exportPix to a different path
+			APar_OpenISOBaseMediaFile(ISObasemediafile, false);
 			break;
 		}
 				
 		case Meta_artist : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "artist") ) {
 				char major_brand[4];
 				UInt32_TO_String4(brand, &*major_brand);
@@ -1139,7 +1149,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case Meta_songtitle : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "title") ) {
 				break;
 			}
@@ -1150,7 +1160,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case Meta_album : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "album") ) {
 				break;
 			}
@@ -1161,7 +1171,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case Meta_genre : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "genre") ) {
 				break;
 			}
@@ -1171,7 +1181,7 @@ int main( int argc, char *argv[]) {
 		}
 				
 		case Meta_tracknum : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "track number") ) {
 				break;
 			}
@@ -1199,7 +1209,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case Meta_disknum : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "disc number") ) {
 				break;
 			}
@@ -1227,7 +1237,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case Meta_comment : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "comment") ) {
 				break;
 			}
@@ -1238,7 +1248,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case Meta_year : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "year") ) {
 				break;
 			}
@@ -1249,7 +1259,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case Meta_lyrics : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "lyrics") ) {
 				break;
 			}
@@ -1260,7 +1270,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case Meta_composer : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "composer") ) {
 				break;
 			}
@@ -1271,7 +1281,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case Meta_copyright : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "copyright") ) {
 				break;
 			}
@@ -1282,7 +1292,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case Meta_grouping : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "grouping") ) {
 				break;
 			}
@@ -1293,7 +1303,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case Meta_compilation : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "compilation") ) {
 				break;
 			}
@@ -1309,7 +1319,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case Meta_BPM : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "BPM") ) {
 				break;
 			}
@@ -1327,7 +1337,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case Meta_advisory : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "content advisory") ) {
 				break;
 			}
@@ -1350,7 +1360,7 @@ int main( int argc, char *argv[]) {
 		
 		case Meta_artwork : { //handled differently: there can be multiple "moov.udta.meta.ilst.covr.data" atoms
 			char* env_PicOptions = getenv("PIC_OPTIONS");
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "coverart") ) {
 				break;
 			}
@@ -1360,7 +1370,7 @@ int main( int argc, char *argv[]) {
 		}
 				
 		case Meta_stik : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "'stik'") ) {
 				break;
 			}
@@ -1391,7 +1401,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case Meta_EncodingTool : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "encoding tool") ) {
 				break;
 			}
@@ -1402,7 +1412,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case Meta_description : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "description") ) {
 				break;
 			}
@@ -1413,7 +1423,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case Meta_TV_Network : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "TV Network") ) {
 				break;
 			}
@@ -1424,7 +1434,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case Meta_TV_ShowName : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "TV Show name") ) {
 				break;
 			}
@@ -1435,7 +1445,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case Meta_TV_Episode : { //if the show "ABC Lost 209", its "209"
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "TV Episode string") ) {
 				break;
 			}
@@ -1446,7 +1456,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case Meta_TV_SeasonNumber : { //if the show "ABC Lost 209", its 2; integer 2 not char "2"
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "TV Season") ) {
 				break;
 			}
@@ -1462,7 +1472,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case Meta_TV_EpisodeNumber : { //if the show "ABC Lost 209", its 9; integer 9 (0x09) not char "9"(0x39)
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "TV Episode number") ) {
 				break;
 			}
@@ -1478,7 +1488,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case Meta_album_artist : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "album artist") ) {
 				break;
 			}
@@ -1489,7 +1499,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case Meta_podcastFlag : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "podcast flag") ) {
 				break;
 			}
@@ -1506,7 +1516,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case Meta_keyword : {    //TODO to the end of iTunes-style metadata & uuid atoms
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "keyword") ) {
 				break;
 			}
@@ -1517,7 +1527,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case Meta_category : { // see http://www.apple.com/itunes/podcasts/techspecs.html for available categories
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "category") ) {
 				break;
 			}
@@ -1528,7 +1538,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case Meta_podcast_URL : { // usually a read-only value, but useful for getting videos into the 'podcast' menu
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "podcast URL") ) {
 				break;
 			}
@@ -1539,7 +1549,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case Meta_podcast_GUID : { // Global Unique IDentifier; it is *highly* doubtful that this would be useful...
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "podcast GUID") ) {
 				break;
 			}
@@ -1550,7 +1560,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case Meta_PurchaseDate : { // might be useful to *remove* this, but adding it... although it could function like id3v2 tdtg...
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "purchase date") ) {
 				break;
 			}
@@ -1578,7 +1588,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case Meta_PlayGapless : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "gapless playback") ) {
 				break;
 			}
@@ -1596,7 +1606,7 @@ int main( int argc, char *argv[]) {
 		//uuid atoms
 		
 		case Meta_StandardDate : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			char* formed_time = (char *)malloc(sizeof(char)*110);
 			if (argv[optind]) {
 				if (strlen(argv[optind]) > 0) {
@@ -1611,25 +1621,25 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case Meta_URL : {
-			APar_ScanAtoms(m4afile);
-			//APar_Add_uuid_atom(m4afile, "moov.udta.meta.ilst.uuid=%s", "©url", AtomFlags_Data_Text, optarg, false); //apple iTunes bug; not allowed
-			//APar_Add_uuid_atom(m4afile, "moov.udta.meta.uuid=%s", "©url", AtomFlags_Data_Text, optarg, false);
+			APar_ScanAtoms(ISObasemediafile);
+			//APar_Add_uuid_atom(ISObasemediafile, "moov.udta.meta.ilst.uuid=%s", "©url", AtomFlags_Data_Text, optarg, false); //apple iTunes bug; not allowed
+			//APar_Add_uuid_atom(ISObasemediafile, "moov.udta.meta.uuid=%s", "©url", AtomFlags_Data_Text, optarg, false);
 			short urlUUID = APar_uuid_atom_Init("moov.udta.meta.uuid=%s", "©url", AtomFlags_Data_Text, optarg, false);
 			APar_Unified_atom_Put(urlUUID, optarg, UTF8_iTunesStyle_Unlimited, 0, 0);
 			break;
 		}
 		
 		case Meta_Information : {
-			APar_ScanAtoms(m4afile);
-			//APar_Add_uuid_atom(m4afile, "moov.udta.meta.ilst.uuid=%s", "©inf", AtomFlags_Data_Text, optarg, false); //apple iTunes bug; not allowed
-			//APar_Add_uuid_atom(m4afile, "moov.udta.meta.uuid=%s", "©inf", AtomFlags_Data_Text, optarg, false);
+			APar_ScanAtoms(ISObasemediafile);
+			//APar_Add_uuid_atom(ISObasemediafile, "moov.udta.meta.ilst.uuid=%s", "©inf", AtomFlags_Data_Text, optarg, false); //apple iTunes bug; not allowed
+			//APar_Add_uuid_atom(ISObasemediafile, "moov.udta.meta.uuid=%s", "©inf", AtomFlags_Data_Text, optarg, false);
 			short infoUUID = APar_uuid_atom_Init("moov.udta.meta.uuid=%s", "©inf", AtomFlags_Data_Text, optarg, false);
 			APar_Unified_atom_Put(infoUUID, optarg, UTF8_iTunesStyle_Unlimited, 0, 0);
 			break;
 		}
 
 		case Meta_uuid : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			uint32_t uuid_dataType = 0;
 			uint32_t desc_len = 0;
 			uint8_t mime_len = 0;
@@ -1744,22 +1754,22 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case Opt_Extract_all_uuids : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			char* output_path = NULL;
 			if (optind + 1 == argc) {
 				output_path = argv[optind];
 			}
 
-			openSomeFile(m4afile, true);
-			APar_Print_APuuid_atoms(m4afile, output_path, EXTRACT_ALL_UUID_BINARYS);
-			openSomeFile(m4afile, false);
+			APar_OpenISOBaseMediaFile(ISObasemediafile, true);
+			APar_Print_APuuid_atoms(ISObasemediafile, output_path, EXTRACT_ALL_UUID_BINARYS);
+			APar_OpenISOBaseMediaFile(ISObasemediafile, false);
 			
 			exit(0);//never gets here
 			break;
 		}
 		
 		case Opt_Extract_a_uuid : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			
 			char* uuid_path = (char*)calloc(1, sizeof(char)*256+1);
 			char* uuid_binary_str = (char*)calloc(1, sizeof(char)*20+1);
@@ -1776,9 +1786,9 @@ int main( int argc, char *argv[]) {
 			
 			extractionAtom = APar_FindAtom(uuid_path, false, EXTENDED_ATOM, 0, true);
 			if (extractionAtom != NULL) {
-				openSomeFile(m4afile, true);
-				APar_Extract_uuid_binary_file(extractionAtom, m4afile, NULL);
-				openSomeFile(m4afile, false);
+				APar_OpenISOBaseMediaFile(ISObasemediafile, true);
+				APar_Extract_uuid_binary_file(extractionAtom, ISObasemediafile, NULL);
+				APar_OpenISOBaseMediaFile(ISObasemediafile, false);
 			}
 			
 			free(uuid_path); uuid_path = NULL;
@@ -1788,7 +1798,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case Manual_atom_removal : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			
 			char* compliant_name = (char*)malloc(sizeof(char)* strlen(optarg) +1);
 			memset(compliant_name, 0, strlen(optarg) +1);
@@ -1843,7 +1853,7 @@ int main( int argc, char *argv[]) {
 		many tracks there are for all tracks. Each pass through the loop, set the individual pieces of metadata.
 		*/
 		case _3GP_Title : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER && metadata_style < MOTIONJPEG2000, 2, "title") ) {
 				break;
 			}
@@ -1873,7 +1883,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case _3GP_Author : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER && metadata_style < MOTIONJPEG2000, 2, "author") ) {
 				break;
 			}
@@ -1903,7 +1913,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case _3GP_Performer : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER && metadata_style < MOTIONJPEG2000, 2, "performer") ) {
 				break;
 			}
@@ -1933,7 +1943,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case _3GP_Genre : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER && metadata_style < MOTIONJPEG2000, 2, "genre") ) {
 				break;
 			}
@@ -1963,7 +1973,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case _3GP_Description : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER && metadata_style < MOTIONJPEG2000, 2, "description") ) {
 				break;
 			}
@@ -1994,7 +2004,7 @@ int main( int argc, char *argv[]) {
 		
 		case ISO_Copyright:       //ISO copyright atom common to all files that are derivatives of the base media file format, identical to....
 		case _3GP_Copyright : {   //the 3gp copyright asset; this gets a test for major branding (but only with the cli arg --3gp-copyright).
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			
 			if (c == _3GP_Copyright) {
 				if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER && metadata_style < MOTIONJPEG2000, 2, "copyright") ) {
@@ -2028,7 +2038,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case _3GP_Album : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER_VER1_REL6 && metadata_style < MOTIONJPEG2000, 3, NULL) ) {
 				break;
 			}
@@ -2073,7 +2083,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case _3GP_Year : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER && metadata_style < MOTIONJPEG2000, 2, "year") ) {
 				break;
 			}
@@ -2114,7 +2124,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case _3GP_Rating : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER && metadata_style < MOTIONJPEG2000, 2, "rating") ) {
 				break;
 			}
@@ -2165,7 +2175,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case _3GP_Classification : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER && metadata_style < MOTIONJPEG2000, 2, "classification") ) {
 				break;
 			}
@@ -2216,7 +2226,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case _3GP_Keyword : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER && metadata_style < MOTIONJPEG2000, 2, "keyword") ) {
 				break;
 			}
@@ -2288,7 +2298,7 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case _3GP_Location : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER && metadata_style < MOTIONJPEG2000, 2, "location") ) {
 				break;
 			}
@@ -2393,7 +2403,7 @@ int main( int argc, char *argv[]) {
 			uint16_t reverseDNS_dataindex = 1;
 			uint32_t rdns_atom_flags = AtomFlags_Data_Text;
 			
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			
 			for (int i= 0; i <= 5-1; i++) {
 				if ( argv[optind + i] && optind + i <= argc ) {
@@ -2446,7 +2456,7 @@ int main( int argc, char *argv[]) {
 			uint32_t rDNS_data_flags = AtomFlags_Data_Text;
 			uint16_t rDNS_data_idx = 1;
 			
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			
 			if (media_rating != NULL || strlen(optarg) == 0) {
 				short rDNS_rating_data_atom = APar_reverseDNS_atom_Init("iTunEXTC", media_rating, &rDNS_data_flags, "com.apple.iTunes", &rDNS_data_idx);
@@ -2462,7 +2472,7 @@ int main( int argc, char *argv[]) {
 			uint8_t char_encoding = TE_UTF8; //utf8 is the default encoding
 			char meta_container = MOVIE_LEVEL_ATOM;
 			bool multistring = false;
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			AdjunctArgs* id3args = (AdjunctArgs*)malloc(sizeof(AdjunctArgs));
 			
 			id3args->targetLang = NULL; //it will default later to "eng"
@@ -2493,6 +2503,9 @@ int main( int argc, char *argv[]) {
 				if (TestCLI_for_FrameParams(frameType, 2)) {
 					id3args->pictypeArg = find_ID3_optarg(argv, optind, "imagetype=");
 				}
+				if (TestCLI_for_FrameParams(frameType, 3)) {
+					id3args->uniqIDArg = find_ID3_optarg(argv, optind, "uniqueID=");
+				}
 				if (memcmp("1", find_ID3_optarg(argv, optind, "compressed"), 1) == 0) {
 					id3args->zlibCompressed = true;
 				}
@@ -2501,16 +2514,16 @@ int main( int argc, char *argv[]) {
 			scan_ID3_optargs(argv, optind, id3args->targetLang, packed_lang, char_encoding, meta_container, multistring);
 			if (id3args->targetLang == NULL) id3args->targetLang = "eng";
 			
-			openSomeFile(m4afile, true);
+			APar_OpenISOBaseMediaFile(ISObasemediafile, true); //if not already scanned, the whole tag for *this* ID32 atom needs to be read from file
 			short id3_atom = APar_ID32_atom_Init(target_frame_ID, -1, id3args->targetLang, packed_lang);
 			
 			if (memcmp(argv[optind + 0], "extract", 7) == 0 && (memcmp(target_frame_ID, "APIC", 4) == 0 || memcmp(target_frame_ID, "GEOB", 4) == 0)) {
-				APar_ID3ExtractFile(id3_atom, target_frame_ID, m4afile, NULL, id3args);
-				openSomeFile(m4afile, false);
+				APar_ID3ExtractFile(id3_atom, target_frame_ID, ISObasemediafile, NULL, id3args);
+				APar_OpenISOBaseMediaFile(ISObasemediafile, false);
 				exit(0);
 			} 
 			
-			openSomeFile(m4afile, false);
+			APar_OpenISOBaseMediaFile(ISObasemediafile, false);
 			APar_ID3FrameAmmend(id3_atom, target_frame_ID, argv[optind + 0], id3args, char_encoding);
 			
 			free(id3args);
@@ -2522,28 +2535,28 @@ int main( int argc, char *argv[]) {
 		//utility functions
 		
 		case Metadata_Purge : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			APar_RemoveAtom("moov.udta.meta.ilst", SIMPLE_ATOM, 0);
 			
 			break;
 		}
 		
 		case UserData_Purge : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			APar_RemoveAtom("moov.udta", SIMPLE_ATOM, 0);
 			
 			break;
 		}
 		
 		case foobar_purge : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			APar_RemoveAtom("moov.udta.tags", UNKNOWN_ATOM, 0);
 			
 			break;
 		}
 		
 		case Opt_FreeFree : {
-			APar_ScanAtoms(m4afile);
+			APar_ScanAtoms(ISObasemediafile);
 			int free_level = -1;
 			if (argv[optind]) {
 				sscanf(argv[optind], "%i", &free_level);
@@ -2559,10 +2572,10 @@ int main( int argc, char *argv[]) {
 		}
 		
 		case Meta_dump : {
-			APar_ScanAtoms(m4afile);
-			openSomeFile(m4afile, true);
-			APar_MetadataFileDump(m4afile);
-			openSomeFile(m4afile, false);
+			APar_ScanAtoms(ISObasemediafile);
+			APar_OpenISOBaseMediaFile(ISObasemediafile, true);
+			APar_MetadataFileDump(ISObasemediafile);
+			APar_OpenISOBaseMediaFile(ISObasemediafile, false);
 			
 			APar_FreeMemory();
 			#if defined (_MSC_VER)
@@ -2576,6 +2589,11 @@ int main( int argc, char *argv[]) {
 			exit(0); //das right, this is a flag that doesn't get used with other flags.
 		}
 		
+		case OPT_NoOptimize : {
+			force_existing_hierarchy = true;
+			break;
+		}
+		
 		case OPT_OutputFile : {
 			output_file = optarg;
 			break;
@@ -2587,14 +2605,14 @@ int main( int argc, char *argv[]) {
 	//after all the modifications are enacted on the tree in memory, THEN write out the changes
 	if (modified_atoms) {
 		APar_DetermineAtomLengths();
-		openSomeFile(m4afile, true);
-		APar_WriteFile(m4afile, output_file, alter_original);
+		APar_OpenISOBaseMediaFile(ISObasemediafile, true);
+		APar_WriteFile(ISObasemediafile, output_file, alter_original);
 		if (!alter_original) {
 			//The file was opened orignally as read-only; when it came time to writeback into the original file, that FILE was closed, and a new one opened with write abilities, so to close a FILE that no longer exists would.... be retarded.
-			openSomeFile(m4afile, false);
+			APar_OpenISOBaseMediaFile(ISObasemediafile, false);
 		}
 	} else {
-		if (m4afile != NULL && argc > 3 && !tree_display_only) {
+		if (ISObasemediafile != NULL && argc > 3 && !tree_display_only) {
 			fprintf(stdout, "No changes.\n");
 		}
 	}

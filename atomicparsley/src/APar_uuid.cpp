@@ -128,6 +128,24 @@ void APar_print_uuid(ap_uuid_t* uuid, bool new_line) {
 }
 
 /*----------------------
+APar_sprintf_uuid
+  uuid - a uuid structure containing the uuid
+	destination - the end result uuid will be placed here
+
+		Put a binary representation of a uuid to a human-readable ordered uuid string
+----------------------*/
+void APar_sprintf_uuid(ap_uuid_t* uuid, char* destination) {
+	sprintf(destination, "%08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+									uuid->time_low,
+									uuid->time_mid,
+									uuid->time_hi_and_version,
+									uuid->clock_seq_hi_and_reserved,
+									uuid->clock_seq_low,
+									uuid->node[0], uuid->node[1], uuid->node[2], uuid->node[3], uuid->node[4], uuid->node[5]);
+	return;
+}
+
+/*----------------------
 APar_uuid_scanf
   in_formed_uuid - pointer to a string (or a place in a string) where to place a binary (hex representation) string uuid of 16 bytes
 	raw_uuid - the string that contains a string representation of a uuid (from cli input for example). This string isn't 16 bytes - its 36
@@ -292,6 +310,37 @@ void AP_Create_UUID_ver5_sha1_name(ap_uuid_t* out_uuid, ap_uuid_t desired_namesp
 }
 
 /*----------------------
+AP_Create_UUID_ver3_random
+  out_uuid - pointer to the final version 3 randomly generated uuid
+
+		Use a high quality random number generator (still requiring a seed) to generate a random uuid.
+		In 2.5 million creations, all have been unique (at least on Mac OS X with sranddev providing the initial seed).
+----------------------*/
+void AP_Create_UUID_ver3_random(ap_uuid_t* out_uuid) {
+	uint32_t rand1 = 0;
+
+	out_uuid->time_low = xor4096i();
+	rand1 = xor4096i();
+	out_uuid->time_mid = (rand1 >> 16) & 0xFFFF;
+	out_uuid->node[0] = (rand1 >> 8) & 0xFF;
+	out_uuid->node[1] = (rand1 >> 0) & 0xFF;
+	rand1 = xor4096i();
+	out_uuid->node[2] = (rand1 >> 24) & 0xFF;
+	out_uuid->node[3] = (rand1 >> 16) & 0xFF;
+	out_uuid->node[4] = (rand1 >> 8) & 0xFF;
+	out_uuid->node[5] = (rand1 >> 0) & 0xFF;
+	rand1 = xor4096i();
+	out_uuid->time_hi_and_version = (rand1 >> 16) & 0xFFFF;
+	out_uuid->clock_seq_low = (rand1 >> 8) & 0xFF;
+	out_uuid->clock_seq_hi_and_reserved = (rand1 >> 0) & 0x3F;
+	out_uuid->clock_seq_hi_and_reserved |= 0x40; //bits 6 & 7 must be 0 & 1 respectively
+
+	out_uuid->time_hi_and_version &= 0x0FFF;
+	out_uuid->time_hi_and_version |= (3 << 12);  //set bits 12-15 to the version (3 for peusdo-random/random)
+	return;
+}
+
+/*----------------------
 APar_generate_uuid_from_atomname
   atom_name - the 4 character atom name to create a uuid for
 	uuid_binary_str - the destination for the created uuid (as a hex string)
@@ -315,6 +364,14 @@ void APar_generate_uuid_from_atomname(char* atom_name, char* uuid_binary_str) {
 	memset(uuid_binary_str, 0, 20);
 	memcpy(uuid_binary_str, &AP_atom_uuid, sizeof(AP_atom_uuid) );
 		
+	return;
+}
+
+void APar_generate_random_uuid(char* uuid_binary_str) {
+	ap_uuid_t rand_uuid = { 0x00000000, 0x0000, 0x0000,
+                              0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+	AP_Create_UUID_ver3_random(&rand_uuid);
+	memcpy(uuid_binary_str, &rand_uuid, sizeof(rand_uuid) );
 	return;
 }
 
