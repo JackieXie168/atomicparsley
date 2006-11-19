@@ -42,21 +42,18 @@
 static bool zlibdll_loaded = 0;
 static HINSTANCE zlib_library;
 
-//http://www.winradio.com/home/g303_sdk-exa-c.htm
-typedef int (__stdcall *inflate)(z_streamp strm, int flush);
-typedef int (__stdcall *inflateInit)(z_streamp strm, int level);
-typedef int (__stdcall *inflateEnd)(z_streamp strm);
-typedef int (__stdcall *deflate)(z_streamp strm, int flush);
-typedef int (__stdcall *deflateInit)(z_streamp strm, int level);
-typedef int (__stdcall *deflateEnd)(z_streamp strm);
+#define GETPROC(result, name, args)\
+	    typedef result (__cdecl *__PROC__##name) args;\
+		    __PROC__##name name = (__PROC__##name)GetProcAddress (zlib_library, #name);
 
-// or 
-static int (*inflate)(z_streamp strm, int flush);
-static int (*inflateInit)(z_streamp strm, int level);
-static int (*inflateEnd)(z_streamp strm);
-static int (*deflate)(z_streamp strm, int flush);
-static int (*deflateInit)(z_streamp strm, int level);
-static int (*deflateEnd)(z_streamp strm);
+int (*inflateInit);
+int inflate OF((z_streamp strm, int flush));
+int inflateEnd OF((z_streamp strm));
+int (*deflateInit);
+int deflate OF((z_streamp strm, int flush));
+int deflateEnd(z_streamp strm);
+
+//end global variables
 
 bool APar_win32_zlib_LoadLibrary() {
 	HINSTANCE zlib_lib;
@@ -67,23 +64,15 @@ bool APar_win32_zlib_LoadLibrary() {
 		fprintf(stdout,"AtomicParsley warning: zlib library missing. Compression is disabled.\n");
 		return false;
 	}
-	
-	inflateInit=GetProcAddress(zlib_lib,"inflateInit");
-	inflate=GetProcAddress(zlib_lib,"inflate");
-	inflateEnd=GetProcAddress(zlib_lib,"inflateEnd");
-	deflateInit=GetProcAddress(zlib_lib,"deflateInit");
-	deflate=GetProcAddress(zlib_lib,"deflate");
-	deflateEnd=GetProcAddress(zlib_lib,"deflateEnd");
-	
-	//or
-	(int (*)(z_streamp strm, int level))inflateInit=GetProcAddress(zlib_lib,"inflateInit");
-	(int (*)(z_streamp strm, int flush))inflate=GetProcAddress(zlib_lib,"inflate");
-	(int (*)(z_streamp strm))inflateEnd=GetProcAddress(zlib_lib,"inflateEnd");
-	(int (*)(z_streamp strm, int level))deflateInit=GetProcAddress(zlib_lib,"deflateInit");
-	(int (*)(z_streamp strm, int flush))deflate=GetProcAddress(zlib_lib,"deflate");
-	(int (*)(z_streamp strm))deflateEnd=GetProcAddress(zlib_lib,"deflateEnd");
-	
-	if (inflateInit && inflate && inflateEnd && deflateInit && deflate && deflateEnd)
+
+	GETPROC(int, inflateInit, (z_streamp, int));
+	GETPROC(int, inflate, (z_streamp, int));
+	GETPROC(int, inflateEnd, (z_streamp));
+	GETPROC(int, deflateInit, (z_streamp, int));
+	GETPROC(int, deflate, (z_streamp, int));
+	GETPROC(int, deflateEnd, (z_streamp));
+
+	if (inflateInit && inflate && inflateEnd && deflateInit && deflate && deflateEnd) {
 		zlibdll_loaded = true;
 		zlib_library = zlib_lib;
 	} else {
@@ -94,9 +83,10 @@ bool APar_win32_zlib_LoadLibrary() {
 }
 
 void APar_win32_zlib_FreeLibrary() {
-   if (!zlibdll_loaded) return;
-   FreeLibrary(zlib_library);
-   zlibdll_loaded = false;
+	if (!zlibdll_loaded) return;
+	FreeLibrary(zlib_library);
+	zlibdll_loaded = false;
+	return;
 }
 
 #endif
@@ -111,7 +101,6 @@ static void zfree(void *opaque, void *ptr) {
 	free(ptr);
 }
 
-// char* out_buffer = (char*)calloc(1, expanded_size+1);
 /*----------------------
 APar_zlib_inflate
   in_buffer - pointer to already compressed data

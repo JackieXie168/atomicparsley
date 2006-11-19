@@ -744,4 +744,13 @@ int test_conforming_alpha_string(char* in_string) {
 	return valid_bytes;
 }
 
-
+bool test_limited_ascii(char* in_string, unsigned int str_len) {
+	char* test_str = in_string;
+	while (test_str < in_string+str_len) {
+		if ( *test_str < 32 || *test_str > 126) {
+			return false;
+		}
+		test_str++;
+	}
+	return true;
+}

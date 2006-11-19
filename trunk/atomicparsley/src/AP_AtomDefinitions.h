@@ -258,6 +258,8 @@ atomDefinition KnownAtoms[] = {
 	{"----",	{"ilst"},						PARENT_ATOM,			OPTIONAL_MANY,				SIMPLE_ATOM },        //reverse dns metadata
 	{"mean",	{"----"},						CHILD_ATOM,				REQUIRED_ONE,					VERSIONED_ATOM },
 	{"name",	{"----"},						CHILD_ATOM,				REQUIRED_ONE,					VERSIONED_ATOM },
+	
+	{".><.",	{"dref"},						CHILD_ATOM,				OPTIONAL_MANY,		  	VERSIONED_ATOM },      //support any future named child to dref; keep 4th from end; manual return
 
 	{"esds",	{"SAMPLE_DESC"},		CHILD_ATOM,				REQUIRED_ONE,					SIMPLE_ATOM },         //multiple parents; keep 3rd from end; manual return
 

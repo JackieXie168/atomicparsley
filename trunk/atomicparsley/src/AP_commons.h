@@ -56,6 +56,11 @@ typedef unsigned long long   uint64_t;
 typedef short       int16_t;
 #endif /* _INT16_T */
 
+//part of xorgens rand
+typedef unsigned long UINT; /* Type for random 32 or 64-bit integer, 
+                               e.g. unsigned long, unsigned long long,
+                               uint64_t, unsigned int or uint32_t */
+
 #if defined (__ppc__) || defined (__ppc64__)
 #define SWAP16(x) (x)
 #define SWAP32(x) (x)
@@ -68,18 +73,27 @@ typedef short       int16_t;
 #undef HAVE_GETOPT_H
 #undef HAVE_LROUNDF
 #undef HAVE_STRSEP
-#undef HAVE_ZLIB_H
+//#undef HAVE_ZLIB_H //comment this IN when compiling on win32 withOUT zlib present
+#define HAVE_ZLIB_H 1 //and comment this OUT
+#undef HAVE_SRANDDEV
 #endif
+
+
+off_t findFileSize(const char *utf8_filepath);
+FILE* APar_OpenFile(const char* utf8_filepath, const char* file_flags);
+FILE* APar_OpenISOBaseMediaFile(const char* file, bool open); //openSomeFile
+void TestFileExistence(const char *filePath, bool errorOut);
 
 #if defined (_MSC_VER)
 int fseeko(FILE *stream, uint64_t pos, int whence);
 #endif
 
-uint8_t APar_read8(FILE* m4afile, uint32_t pos);
-uint16_t APar_read16(char* buffer, FILE* m4afile, uint32_t pos);
-uint32_t APar_read32(char* buffer, FILE* m4afile, uint32_t pos);
-void APar_readX(char* buffer, FILE* m4afile, uint32_t pos, uint32_t length);
-uint32_t APar_FindValueInAtom(char* uint32_buffer, FILE* m4afile, short an_atom, uint32_t start_position, uint32_t eval_number);
+uint8_t APar_read8(FILE* ISObasemediafile, uint32_t pos);
+uint16_t APar_read16(char* buffer, FILE* ISObasemediafile, uint32_t pos);
+uint32_t APar_read32(char* buffer, FILE* ISObasemediafile, uint32_t pos);
+void APar_readX(char* buffer, FILE* ISObasemediafile, uint32_t pos, uint32_t length);
+uint32_t APar_ReadFile(char* destination_buffer, FILE* a_file, uint32_t bytes_to_read);
+uint32_t APar_FindValueInAtom(char* uint32_buffer, FILE* ISObasemediafile, short an_atom, uint32_t start_position, uint32_t eval_number);
 
 void APar_UnpackLanguage(unsigned char lang_code[], uint16_t packed_language);
 uint16_t PackLanguage(const char* language_code, uint8_t lang_offset);
@@ -112,3 +126,5 @@ double fixed_point_16x16bit_to_double(uint32_t fixed_point);
 uint32_t widechar_len(char* instring, uint32_t _bytes_);
 
 bool APar_assert(bool expression, int error_msg, char* supplemental_info);
+
+unsigned long xor4096i();

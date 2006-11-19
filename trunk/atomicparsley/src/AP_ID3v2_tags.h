@@ -24,6 +24,7 @@ struct AdjunctArgs  {
 	char*     descripArg;
 	char*     mimeArg;
 	char*     pictypeArg;
+	char*     uniqIDArg;
 	uint8_t   pictype_uint8;
 	uint8_t   groupSymbol;
 	bool      zlibCompressed;
