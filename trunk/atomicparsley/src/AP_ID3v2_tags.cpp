@@ -29,6 +29,7 @@
 #include "APar_zlib.h"
 #include "AP_iconv.h"
 #include "APar_uuid.h"
+#include "AP_CDTOC.h"
 
 #include "AP_ID3v2_FrameDefinitions.h"
 
@@ -814,6 +815,29 @@ void APar_ID32_ScanID3Tag(FILE* source_file, AtomicInfo* id32_atom) {
 //                         id3 rendering functions                                   //
 ///////////////////////////////////////////////////////////////////////////////////////
 
+void APar_FrameFilter(AtomicInfo* id32_atom) {
+	ID3v2Frame* MCDI_frame = NULL;
+	ID3v2Frame* TRCK_frame = NULL;
+	ID3v2Frame* thisFrame = id32_atom->ID32_TagInfo->ID3v2_FirstFrame;
+	while (thisFrame != NULL) {
+		if (!thisFrame->eliminate_frame) {
+			if (thisFrame->ID3v2_FrameType == ID3_CD_ID_FRAME) {
+				MCDI_frame = thisFrame;
+			}
+			if (thisFrame->ID3v2_Frame_ID == ID3v2_FRAME_TRACKNUM) {
+				TRCK_frame = thisFrame;
+			}
+		}
+		thisFrame = thisFrame->ID3v2_NextFrame;
+	}
+	
+	if (MCDI_frame != NULL && TRCK_frame == NULL) {
+		fprintf(stderr, "AP warning: the MCDI frame was skipped due to a missing TRCK frame\n");
+		MCDI_frame->eliminate_frame = true;
+	}
+	return;
+}
+
 uint32_t APar_GetTagSize(AtomicInfo* id32_atom) { // a rough approximation of how much to malloc; this will be larger than will be ultimately required
 	uint32_t tag_len = 0;
 	uint16_t surviving_frame_count = 0;
@@ -938,6 +962,9 @@ void APar_RenderFields(char* dest_buffer, uint32_t max_alloc, ID3v2Tag* id3_tag,
 }
 
 uint32_t APar_Render_ID32_Tag(AtomicInfo* id32_atom, uint32_t max_alloc) {
+	bool contains_rendered_frames = false;
+	APar_FrameFilter(id32_atom);
+	
 	UInt16_TO_String2(id32_atom->AtomicLanguage, id32_atom->AtomicData); //parsedAtoms[atom_idx].AtomicLanguage
 	uint32_t tag_offset = 2; //those first 2 bytes will hold the language
 	uint32_t frame_length, frame_header_len; //the length in bytes this frame consumes in AtomicData as rendered
@@ -974,6 +1001,7 @@ uint32_t APar_Render_ID32_Tag(AtomicInfo* id32_atom, uint32_t max_alloc) {
 			continue;
 		}
 		
+		contains_rendered_frames = true;
 		//this won't be able to convert from 1 tag version to another because it doesn't look up the frame id strings for the change
 		if (id32_atom->ID32_TagInfo->ID3v2Tag_MajorVersion == 3 || id32_atom->ID32_TagInfo->ID3v2Tag_MajorVersion == 4) {
 			memcpy(id32_atom->AtomicData + tag_offset, thisframe->ID3v2_Frame_Namestr, 4);
@@ -1039,7 +1067,9 @@ uint32_t APar_Render_ID32_Tag(AtomicInfo* id32_atom, uint32_t max_alloc) {
 		
 	}
 	convert_to_syncsafe32(id32_atom->ID32_TagInfo->ID3v2Tag_Length - 10, id32_atom->AtomicData + 8); //-10 for a v2.4 tag with no extended header
-	//fprintf(stdout, "This ID32 tag was found to be of %u length", id32_atom->ID32_TagInfo->ID3v2Tag_Length);
+	
+	if (!contains_rendered_frames) id32_atom->ID32_TagInfo->ID3v2Tag_Length = 0;
+
 	return id32_atom->ID32_TagInfo->ID3v2Tag_Length;
 }
 
@@ -1088,7 +1118,7 @@ void APar_FieldInit(ID3v2Frame* aFrame, uint8_t a_field, uint8_t frame_comp_list
 		}
 		
 		case ID3_BINARY_DATA_FIELD : {
-			if (aFrame->ID3v2_Frame_ID +1 == ID3v2_EMBEDDED_PICTURE || aFrame->ID3v2_Frame_ID +1 == ID3v2_EMBEDDED_OBJECT ) {
+			if (aFrame->ID3v2_Frame_ID == ID3v2_EMBEDDED_PICTURE || aFrame->ID3v2_Frame_ID == ID3v2_EMBEDDED_OBJECT ) {
 				//this will be left NULL because it would would probably have to be realloced, so just do it later to the right size //byte_allocation = (uint32_t)findFileSize(frame_payload) + 1; //this should be limited to max_sync_safe_uint28_t
 			} else {
 				byte_allocation = 2000;
@@ -1121,7 +1151,7 @@ void APar_FrameInit(ID3v2Frame* aFrame, char* frame_str, uint16_t frameID, uint8
 	aFrame->ID3v2_FieldCount = FrameTypeConstructionList[frame_comp_list].ID3_FieldCount;
 	if (aFrame->ID3v2_FieldCount > 0) {
 		aFrame->ID3v2_Frame_Fields = (ID3v2Fields*)calloc(1, sizeof(ID3v2Fields)*aFrame->ID3v2_FieldCount);
-		aFrame->ID3v2_Frame_ID = frameID;
+		aFrame->ID3v2_Frame_ID = frameID - 1;
 		aFrame->ID3v2_FrameType = FrameTypeConstructionList[frame_comp_list].ID3_FrameType;
 		aFrame->ID3v2_Frame_ExpandedLength = 0;
 		aFrame->ID3v2_Frame_GroupingSymbol = 0;
@@ -1341,6 +1371,22 @@ void APar_FrameDataPut(ID3v2Frame* thisFrame, char* frame_payload, AdjunctArgs* 
 			modified_atoms = true;
 			GlobalID3Tag->modified_tag = true;
 			GlobalID3Tag->ID3v2_FrameCount++;
+			break;
+		}
+		case ID3_CD_ID_FRAME : {
+			thisFrame->ID3v2_Frame_Fields->field_length = GenerateMCDIfromCD(frame_payload, thisFrame->ID3v2_Frame_Fields->field_string);
+			thisFrame->ID3v2_Frame_Length = thisFrame->ID3v2_Frame_Fields->field_length;
+			
+			if (thisFrame->ID3v2_Frame_Length < 12) {
+				free(thisFrame->ID3v2_Frame_Fields->field_string);
+				thisFrame->ID3v2_Frame_Fields->field_string = NULL;
+				thisFrame->ID3v2_Frame_Fields->alloc_length = 0;
+				thisFrame->ID3v2_Frame_Length = 0;
+			} else {
+				modified_atoms = true;
+				GlobalID3Tag->modified_tag = true;
+				GlobalID3Tag->ID3v2_FrameCount++;
+			}
 			break;
 		}
 		case ID3_ATTACHED_PICTURE_FRAME : {
@@ -1584,7 +1630,13 @@ void APar_ID3FrameAmmend(short id32_atom_idx, char* frame_str, char* frame_paylo
 		if (adjunct_payloads->zlibCompressed) {
 			targetFrame->ID3v2_Frame_Flags |= (ID32_FRAMEFLAG_COMPRESSED + ID32_FRAMEFLAG_LENINDICATED);
 		}
-		APar_FrameDataPut(targetFrame, frame_payload, adjunct_payloads, str_encoding);
+		
+		if (targetFrame->ID3v2_Frame_ID == ID3v2_FRAME_LANGUAGE) {
+			APar_FrameDataPut(targetFrame, adjunct_payloads->targetLang, adjunct_payloads, str_encoding);
+		} else {
+			APar_FrameDataPut(targetFrame, frame_payload, adjunct_payloads, str_encoding);
+		}
+		
 		if (adjunct_payloads->zlibCompressed) {
 			targetFrame->ID3v2_Frame_ExpandedLength = targetFrame->ID3v2_Frame_Length;
 		}
@@ -1711,7 +1763,18 @@ void APar_Print_ID3v2_tags(AtomicInfo* id32_atom) {
 			}
 			
 		} else if (FrameTypeConstructionList[frame_comp_idx].ID3_FrameType == ID3_CD_ID_FRAME) { //TODO: print hex representation
-			fprintf(stdout, "(CD TOC Identifier) : %s\n", target_frameinfo->ID3v2_Frame_Fields->field_string);
+			uint8_t tracklistings = 0;
+			if (target_frameinfo->ID3v2_Frame_Fields->field_length >= 16) {
+				tracklistings = target_frameinfo->ID3v2_Frame_Fields->field_length / 8;
+				fprintf(stdout, "(Music CD Identifier) : Entries for %u tracks + leadout track.\n   Hex: 0x", tracklistings-1);
+			} else {
+				fprintf(stdout, "(Music CD Identifier) : Unknown format (less then 16 bytes).\n   Hex: 0x");
+			}
+			for (uint16_t hexidx = 1; hexidx < target_frameinfo->ID3v2_Frame_Fields->field_length+1; hexidx++) {
+				fprintf(stdout, "%02X", (uint8_t)target_frameinfo->ID3v2_Frame_Fields->field_string[hexidx-1]);
+				if (hexidx % 4 == 0) fprintf(stdout, " ");
+			}
+			fprintf(stdout, "\n");
 			
 		} else if (FrameTypeConstructionList[frame_comp_idx].ID3_FrameType == ID3_DESCRIBED_TEXT_FRAME) {
 			fprintf(stdout, "(%s, lang=%s, desc[", APar_GetTextEncoding(target_frameinfo, target_frameinfo->ID3v2_Frame_Fields+2),
