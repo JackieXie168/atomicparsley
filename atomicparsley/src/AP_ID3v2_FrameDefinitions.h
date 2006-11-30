@@ -88,6 +88,7 @@ ID3FrameDefinition KnownFrames[] = {
 	{ "WXX", "WXXX", "WXXX", "User defined URL link frame",              "",               ID3v2_FRAME_USERDEF_URL,           ID3_URL_FRAME_USERDEF },
 	
 	{ "UFI", "UFID", "UFID", "Unique file identifier",                   "",               ID3v2_FRAME_UFID,                  ID3_UNIQUE_FILE_ID_FRAME },
+	{ "MCI", "MCID", "MCDI", "Music CD Identifier",                      "",               ID3v2_FRAME_MUSIC_CD_ID,           ID3_CD_ID_FRAME },
 	
 	{ "COM", "COMM", "COMM", "Comment",                                  "comment",        ID3v2_FRAME_COMMENT,               ID3_DESCRIBED_TEXT_FRAME },
 	{ "ULT", "USLT", "USLT", "Unsynchronised lyrics",                    "lyrics",         ID3v2_FRAME_UNSYNCLYRICS,          ID3_DESCRIBED_TEXT_FRAME },

@@ -21,6 +21,7 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <stdio.h>
 
 #if defined HAVE_CONFIG_H
 #include "config.h"
@@ -57,9 +58,11 @@ typedef short       int16_t;
 #endif /* _INT16_T */
 
 //part of xorgens rand
+#if !defined (_MSC_VER)
 typedef unsigned long UINT; /* Type for random 32 or 64-bit integer, 
                                e.g. unsigned long, unsigned long long,
                                uint64_t, unsigned int or uint32_t */
+#endif
 
 #if defined (__ppc__) || defined (__ppc64__)
 #define SWAP16(x) (x)
@@ -74,7 +77,7 @@ typedef unsigned long UINT; /* Type for random 32 or 64-bit integer,
 #undef HAVE_LROUNDF
 #undef HAVE_STRSEP
 //#undef HAVE_ZLIB_H //comment this IN when compiling on win32 withOUT zlib present
-#define HAVE_ZLIB_H 1 //and comment this OUT
+//#define HAVE_ZLIB_H 1 //and comment this OUT
 #undef HAVE_SRANDDEV
 #endif
 

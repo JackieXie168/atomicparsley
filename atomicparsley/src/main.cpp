@@ -669,12 +669,12 @@ static char* ID3Help_text =
 "   - ID3 version 2.4 only with no up-converting from older versions.\n"
 "   - syncsafe integers are used as indicated by the id3 \"informal standard\". usage/reading of\n"
 "     nonstandard ordinary unsigned integers (uint32_t) is not/will not be implemented.\n"
-"   - zlib compression currently only available on *nixen platforms.\n"
 "   - externally referenced images (using mimetype '-->') are prohibited by the ID32 specification.\n"
 "   - presets for text frames (like TCON/genre) are not yet implemented. The only preset is for imagetype.\n"
 "   - ID32 atoms only work on 3gp branded files.\n"
 "   - the ID32 atom is only supported in a non-referenced context\n"
 "   - only tested at movie level; listings at non-movie levels is not yet implemented\n"
+"   - setting MCDI is only possible currently on Mac OS X\n"
 "   - probably a raft of other limitations that my brain lost along the way...\n"
 "----------------------------------------------------------------------------------------------------\n"
 " Usage:\n"
@@ -695,6 +695,28 @@ static char* ID3Help_text =
 " Extracting embedded images in APIC frames:\n"
 " --ID3Tag APIC extract\n"
 "       images are extracted into the same directory as the source mpeg-4 file\n"
+"\n"
+#if defined (DARWIN_PLATFORM)
+" Setting MCDI (Music CD Identifier):\n"
+" --ID3Tag MCDI disk4\n"
+"       Information to create this frame is taken directly off an Audio CD's TOC. If the target\n"
+"       disk is not found or is not an audio CD, a scan of all devices will occur. If an Audio CD\n"
+"       is present, the scan should yield what should be entered after 'MCDI':\n"
+"          % AP file --ID3Tag MCDI disk3\n"
+"          % No cd present in drive at disk3\n"
+"          % Device 'disk4' contains cd media\n"
+"          % Good news, device 'disk4' is an Audio CD and can be used for 'MCDI' setting\n"
+#elif defined (HAVE_LINUX_CDROM_H)
+" Setting MCDI (Music CD Identifier):\n"
+" --ID3Tag MCDI /dev/hdc\n"
+"       Information to create this frame is taken directly off an Audio CD's TOC. An Audio CD\n"
+"       must be mounted & present.\n"
+#elif defined (WIN32)
+" Setting MCDI (Music CD Identifier):\n"
+" --ID3Tag MCDI D\n"
+"       Information to create this frame is taken directly off an Audio CD's TOC. The letter after\n"
+"       \"MCDI\" is the letter of the drive where the CD is present.\n"
+#endif
 ;
 
 void ExtractPaddingPrefs(char* env_padding_prefs) {
