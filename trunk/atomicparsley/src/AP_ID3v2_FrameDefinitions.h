@@ -95,7 +95,13 @@ ID3FrameDefinition KnownFrames[] = {
 	
 	{ "",    "APIC", "APIC", "Attached picture",                         "",               ID3v2_EMBEDDED_PICTURE,            ID3_ATTACHED_PICTURE_FRAME },
 	{ "PIC", "",     "",     "Attached picture",                         "",               ID3v2_EMBEDDED_PICTURE_V2P2,       ID3_OLD_V2P2_PICTURE_FRAME },
-	{ "GEO", "GEOB", "GEOB", "Attached picture",                         "",               ID3v2_EMBEDDED_OBJECT,             ID3_ATTACHED_OBJECT_FRAME },
+	{ "GEO", "GEOB", "GEOB", "Attached object",                          "",               ID3v2_EMBEDDED_OBJECT,             ID3_ATTACHED_OBJECT_FRAME },
+	
+	{ "",    "GRID", "GRID", "Group ID registration",                    "",               ID3v2_FRAME_GRID,                  ID3_GROUP_ID_FRAME },
+	{ "",    "",     "SIGN", "Signature",                                "",               ID3v2_FRAME_SIGNATURE,             ID3_SIGNATURE_FRAME },
+	{ "",    "PRIV", "PRIV", "Private frame",                            "",               ID3v2_FRAME_PRIVATE,               ID3_PRIVATE_FRAME },
+	{ "CNT", "PCNT", "PCNT", "Play counter",                             "",               ID3v2_FRAME_PLAYCOUNTER,           ID3_PLAYCOUNTER_FRAME },
+	{ "POP", "POPM", "POPM", "Popularimeter",                            "",               ID3v2_FRAME_POPULARITY,            ID3_POPULAR_FRAME }
 
 };
 

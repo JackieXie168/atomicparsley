@@ -69,6 +69,8 @@ maint-clean:
 	rm -f config.cache config.h config.log config.status *~ Makefile
 	rm -f src/Makefile
 	rm -rf obj_dir
+	rm -rf autom4te.cache
+	rm -rf AtomicParsley AtomicParsley_ppc AtomicParsley_i386
 
 dist-clean:
 
