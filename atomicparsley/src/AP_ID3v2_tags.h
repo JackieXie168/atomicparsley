@@ -24,7 +24,9 @@ struct AdjunctArgs  {
 	char*     descripArg;
 	char*     mimeArg;
 	char*     pictypeArg;
-	char*     uniqIDArg;
+	char*     filenameArg;
+	char*     ratingArg;
+	char*     dataArg; //multipurposed: PRIV's binary data, GRID's group data, UFID's binary data, POPM's counter field
 	uint8_t   pictype_uint8;
 	uint8_t   groupSymbol;
 	bool      zlibCompressed;

@@ -75,6 +75,33 @@ bool ID3v2Tag_Flag_Unsyncronization = false; //bit7
 //                              generic functions                                    //
 ///////////////////////////////////////////////////////////////////////////////////////
 
+uint64_t syncsafeXX_to_UInt64(char* syncsafe_int, uint8_t syncsafe_len) {
+	if (syncsafe_len == 5) {
+		if (syncsafe_int[0] & 0x80 || syncsafe_int[1] & 0x80 || syncsafe_int[2] & 0x80 || syncsafe_int[3] & 0x80 || syncsafe_int[4] & 0x80) return 0;
+		return ((uint64_t)syncsafe_int[0] << 28) | (syncsafe_int[1] << 21) | (syncsafe_int[2] << 14) | (syncsafe_int[3] << 7) | syncsafe_int[4];
+	} else if (syncsafe_len == 6) {
+		if (syncsafe_int[0] & 0x80 || syncsafe_int[1] & 0x80 || syncsafe_int[2] & 0x80 || syncsafe_int[3] & 0x80 || syncsafe_int[4] & 0x80 || syncsafe_int[5] & 0x80) return 0;
+		return ((uint64_t)syncsafe_int[0] << 35) | ((uint64_t)syncsafe_int[1] << 28) | (syncsafe_int[2] << 21) | (syncsafe_int[3] << 14) |
+		                                                                               (syncsafe_int[4] << 7) | syncsafe_int[5];
+	} else if (syncsafe_len == 7) {
+		if (syncsafe_int[0] & 0x80 || syncsafe_int[1] & 0x80 || syncsafe_int[2] & 0x80 || syncsafe_int[3] & 0x80 ||
+		    syncsafe_int[4] & 0x80 || syncsafe_int[5] & 0x80 || syncsafe_int[6] & 0x80) return 0;
+		return ((uint64_t)syncsafe_int[0] << 42) | ((uint64_t)syncsafe_int[1] << 35) | ((uint64_t)syncsafe_int[2] << 28) | (syncsafe_int[3] << 21) | 
+		       (syncsafe_int[3] << 14) | (syncsafe_int[5] << 7) | syncsafe_int[6];
+	} else if (syncsafe_len == 8) {
+		if (syncsafe_int[0] & 0x80 || syncsafe_int[1] & 0x80 || syncsafe_int[2] & 0x80 || syncsafe_int[3] & 0x80 ||
+		    syncsafe_int[4] & 0x80 || syncsafe_int[5] & 0x80 || syncsafe_int[6] & 0x80 || syncsafe_int[7] & 0x80) return 0;
+		return ((uint64_t)syncsafe_int[0] << 49) | ((uint64_t)syncsafe_int[1] << 42) | ((uint64_t)syncsafe_int[2] << 35) | ((uint64_t)syncsafe_int[3] << 28) |
+					(syncsafe_int[4] << 21) | (syncsafe_int[5] << 14) | (syncsafe_int[6] << 7) | syncsafe_int[7];
+	} else if (syncsafe_len == 9) {
+		if (syncsafe_int[0] & 0x80 || syncsafe_int[1] & 0x80 || syncsafe_int[2] & 0x80 || syncsafe_int[3] & 0x80 || syncsafe_int[4] & 0x80 || 
+		    syncsafe_int[5] & 0x80 || syncsafe_int[6] & 0x80 || syncsafe_int[7] & 0x80 || syncsafe_int[8] & 0x80) return 0;
+		return ((uint64_t)syncsafe_int[0] << 56) | ((uint64_t)syncsafe_int[1] << 49) | ((uint64_t)syncsafe_int[2] << 42) | ((uint64_t)syncsafe_int[3] << 35) |
+					  ((uint64_t)syncsafe_int[4] << 28) | (syncsafe_int[5] << 21) | (syncsafe_int[6] << 14) | (syncsafe_int[7] << 7) | syncsafe_int[8];
+	}
+	return 0;
+}
+
 uint32_t syncsafe32_to_UInt32(char* syncsafe_int) {
 	if (syncsafe_int[0] & 0x80 || syncsafe_int[1] & 0x80 || syncsafe_int[2] & 0x80 || syncsafe_int[3] & 0x80) return 0;
 	return (syncsafe_int[0] << 21) | (syncsafe_int[1] << 14) | (syncsafe_int[2] << 7) | syncsafe_int[3];
@@ -91,6 +118,76 @@ void convert_to_syncsafe32(uint32_t in_uint, char* buffer) {
 	buffer[2] = (in_uint >>  7) & 0x7F;
 	buffer[3] = (in_uint >>  0) & 0x7F;
 	return;
+}
+
+uint8_t convert_to_syncsafeXX(uint64_t in_uint, char* buffer) {
+#if defined (_MSC_VER)
+	if (in_uint <= (uint64_t)34359738367) {
+#else
+	if (in_uint <= 34359738367ULL) {
+#endif
+		buffer[0] = (in_uint >> 28) & 0x7F;
+		buffer[1] = (in_uint >> 21) & 0x7F;
+		buffer[2] = (in_uint >> 14) & 0x7F;
+		buffer[3] = (in_uint >>  7) & 0x7F;
+		buffer[4] = (in_uint >>  0) & 0x7F;
+		return 5;
+#if defined (_MSC_VER)
+	} else if (in_uint <= (uint64_t)4398046511103) {
+#else
+	} else if (in_uint <= 4398046511103ULL) {
+#endif
+		buffer[0] = (in_uint >> 35) & 0x7F;
+		buffer[1] = (in_uint >> 28) & 0x7F;
+		buffer[2] = (in_uint >> 21) & 0x7F;
+		buffer[3] = (in_uint >> 14) & 0x7F;
+		buffer[4] = (in_uint >>  7) & 0x7F;
+		buffer[5] = (in_uint >>  0) & 0x7F;
+		return 6;
+#if defined (_MSC_VER)
+	} else if (in_uint <= (uint64_t)562949953421311) {
+#else
+	} else if (in_uint <= 562949953421311ULL) {
+#endif
+		buffer[0] = (in_uint >> 42) & 0x7F;
+		buffer[1] = (in_uint >> 35) & 0x7F;
+		buffer[2] = (in_uint >> 28) & 0x7F;
+		buffer[3] = (in_uint >> 21) & 0x7F;
+		buffer[4] = (in_uint >> 14) & 0x7F;
+		buffer[5] = (in_uint >>  7) & 0x7F;
+		buffer[6] = (in_uint >>  0) & 0x7F;
+		return 7;
+#if defined (_MSC_VER)
+	} else if (in_uint <= (uint64_t)72057594037927935) {
+#else
+	} else if (in_uint <= 72057594037927935ULL) {
+#endif
+		buffer[0] = (in_uint >> 49) & 0x7F;
+		buffer[1] = (in_uint >> 42) & 0x7F;
+		buffer[2] = (in_uint >> 35) & 0x7F;
+		buffer[3] = (in_uint >> 28) & 0x7F;
+		buffer[4] = (in_uint >> 21) & 0x7F;
+		buffer[5] = (in_uint >> 14) & 0x7F;
+		buffer[6] = (in_uint >>  7) & 0x7F;
+		buffer[7] = (in_uint >>  0) & 0x7F;
+		return 8;
+#if defined (_MSC_VER)
+	} else if (in_uint <= (uint64_t)9223372036854775807) {
+#else
+	} else if (in_uint <= 9223372036854775807ULL) { //that is some hardcore lovin'
+#endif
+		buffer[0] = (in_uint >> 56) & 0x7F;
+		buffer[1] = (in_uint >> 49) & 0x7F;
+		buffer[2] = (in_uint >> 42) & 0x7F;
+		buffer[3] = (in_uint >> 35) & 0x7F;
+		buffer[4] = (in_uint >> 28) & 0x7F;
+		buffer[5] = (in_uint >> 21) & 0x7F;
+		buffer[6] = (in_uint >> 14) & 0x7F;
+		buffer[7] = (in_uint >>  7) & 0x7F;
+		buffer[8] = (in_uint >>  0) & 0x7F;
+		return 9;
+	}
+	return 0;
 }
 
 uint32_t UInt24FromBigEndian(const char *string) { //v2.2 frame lengths
@@ -307,19 +404,32 @@ bool TestCLI_for_FrameParams(int frametype, uint8_t testparam) {
 	
 	if (frametype == ID3_UNIQUE_FILE_ID_FRAME && testparam == 3) {
 		return true;
-	}
+	} else if (frametype == ID3_ATTACHED_OBJECT_FRAME && testparam == 4) {
+		return true;
+	} else if (frametype == ID3_POPULAR_FRAME && testparam == 5) {
+		return true;
+	} else if (frametype == ID3_POPULAR_FRAME && testparam == 6) {
+		return true;
+	} else if (frametype == ID3_GROUP_ID_FRAME && testparam == 7) {
+		return true;
+	} else if (frametype == ID3_PRIVATE_FRAME && testparam == 8) {
+		return true;
+	} else {
+		uint8_t frametype_idx = GetFrameCompositionDescription(frametype);
 	
-	uint8_t frametype_idx = GetFrameCompositionDescription(frametype);
-	
-	for (uint8_t fld_i = 0; fld_i < FrameTypeConstructionList[frametype_idx].ID3_FieldCount; fld_i++) {
-		if (FrameTypeConstructionList[frametype_idx].ID3_FieldComponents[fld_i] == ID3_DESCRIPTION_FIELD && testparam == 0) {
-			return true;
-		}
-		if (FrameTypeConstructionList[frametype_idx].ID3_FieldComponents[fld_i] == ID3_MIME_TYPE_FIELD && testparam == 1) {
-			return true;
-		}
-		if (FrameTypeConstructionList[frametype_idx].ID3_FieldComponents[fld_i] == ID3_PIC_TYPE_FIELD && testparam == 2) {
-			return true;
+		for (uint8_t fld_i = 0; fld_i < FrameTypeConstructionList[frametype_idx].ID3_FieldCount; fld_i++) {
+			if (FrameTypeConstructionList[frametype_idx].ID3_FieldComponents[fld_i] == ID3_DESCRIPTION_FIELD && testparam == 0) {
+				return true;
+			}
+			if (FrameTypeConstructionList[frametype_idx].ID3_FieldComponents[fld_i] == ID3_MIME_TYPE_FIELD && testparam == 1) {
+				return true;
+			}
+			if (FrameTypeConstructionList[frametype_idx].ID3_FieldComponents[fld_i] == ID3_PIC_TYPE_FIELD && testparam == 2) {
+				return true;
+			}
+			if (FrameTypeConstructionList[frametype_idx].ID3_FieldComponents[fld_i] == ID3_PIC_TYPE_FIELD && testparam == 3) {
+				return true;
+			}
 		}
 	}
 	return false;
@@ -421,6 +531,7 @@ uint32_t APar_ExtractField(char* buffer, uint32_t maxFieldLen, ID3v2Frame* thisF
 		}
 		case ID3_TEXT_FIELD :
 		case ID3_URL_FIELD :
+		case ID3_COUNTER_FIELD :
 		case ID3_BINARY_DATA_FIELD : { //this class of fields may contains NULLs but is *NOT* NULL terminated in any form
 			(thisFrame->ID3v2_Frame_Fields+fieldNum)->ID3v2_Field_Type = fieldType;
 			(thisFrame->ID3v2_Frame_Fields+fieldNum)->field_length = maxFieldLen;
@@ -803,7 +914,9 @@ void APar_ID32_ScanID3Tag(FILE* source_file, AtomicInfo* id32_atom) {
 		} else {
 			fulltag_ptr+= target_list_frameinfo->ID3v2_Frame_Length;
 		}
-		
+		if (ID3v2_TestFrameFlag(target_list_frameinfo->ID3v2_Frame_Flags, ID32_FRAMEFLAG_GROUPING)) {
+			fulltag_ptr++;
+		}
 		id32_atom->ID32_TagInfo->ID3v2_FrameCount++;
 	}
 	
@@ -814,6 +927,23 @@ void APar_ID32_ScanID3Tag(FILE* source_file, AtomicInfo* id32_atom) {
 ///////////////////////////////////////////////////////////////////////////////////////
 //                         id3 rendering functions                                   //
 ///////////////////////////////////////////////////////////////////////////////////////
+
+bool APar_LocateFrameSymbol(AtomicInfo* id32_atom, ID3v2Frame* targetFrame, uint8_t groupsymbol) {
+	ID3v2Frame* testFrame = id32_atom->ID32_TagInfo->ID3v2_FirstFrame;
+	while (testFrame != NULL) {
+		if (targetFrame->ID3v2_Frame_ID == ID3v2_FRAME_GRID && testFrame->ID3v2_Frame_ID != ID3v2_FRAME_GRID) {
+			if (testFrame->ID3v2_Frame_GroupingSymbol == groupsymbol) {
+				return true;
+			}
+		} else if (targetFrame->ID3v2_Frame_ID != ID3v2_FRAME_GRID) {
+			if (testFrame->ID3v2_Frame_ID == ID3v2_FRAME_GRID && groupsymbol == (uint8_t)(testFrame->ID3v2_Frame_Fields+1)->field_string[0]) {
+				return true;
+			}
+		}
+		testFrame = testFrame->ID3v2_NextFrame;
+	}
+	return false;
+}
 
 void APar_FrameFilter(AtomicInfo* id32_atom) {
 	ID3v2Frame* MCDI_frame = NULL;
@@ -826,6 +956,23 @@ void APar_FrameFilter(AtomicInfo* id32_atom) {
 			}
 			if (thisFrame->ID3v2_Frame_ID == ID3v2_FRAME_TRACKNUM) {
 				TRCK_frame = thisFrame;
+			}
+			if (thisFrame->ID3v2_Frame_ID == ID3v2_FRAME_GRID) { //find any frames containing this symbol; if none are present this frame will be discarded
+				thisFrame->eliminate_frame = !APar_LocateFrameSymbol(id32_atom, thisFrame, (uint8_t)(thisFrame->ID3v2_Frame_Fields+1)->field_string[0]);
+				if (!thisFrame->eliminate_frame) {
+					thisFrame->ID3v2_Frame_Flags |= ID32_FRAMEFLAG_GROUPING;
+				}
+				
+			} else if (thisFrame->ID3v2_Frame_ID == ID3v2_FRAME_SIGNATURE) { //find a GRID frame that contains this symbol (@ field_string, not ID3v2_Frame_GroupingSymbol)
+				thisFrame->eliminate_frame = !APar_LocateFrameSymbol(id32_atom, thisFrame, (uint8_t)thisFrame->ID3v2_Frame_Fields->field_string[0]);
+				//since the group symbol is carried as a field for SIGN, no need to set the frame's grouping bit in the frame flags
+			
+			} else if (thisFrame->ID3v2_Frame_GroupingSymbol > 0) { //find a GRID frame that contains this symbol, otherwise discard it
+				thisFrame->eliminate_frame = !APar_LocateFrameSymbol(id32_atom, thisFrame, thisFrame->ID3v2_Frame_GroupingSymbol);
+				if (!thisFrame->eliminate_frame) {
+					thisFrame->ID3v2_Frame_Flags |= ID32_FRAMEFLAG_GROUPING;
+				}
+				
 			}
 		}
 		thisFrame = thisFrame->ID3v2_NextFrame;
@@ -1039,7 +1186,6 @@ uint32_t APar_Render_ID32_Tag(AtomicInfo* id32_atom, uint32_t max_alloc) {
 		}
 		
 		frame_length = 0;
-		
 		APar_RenderFields(id32_atom->AtomicData + tag_offset+frame_header_len, max_alloc-tag_offset, id32_atom->ID32_TagInfo, thisframe, &frame_header_len, &frame_length);
 		
 #if defined HAVE_ZLIB_H
@@ -1271,7 +1417,7 @@ uint32_t APar_TextFieldDataPut(ID3v2Fields* thisField, char* this_payload, uint8
 }
 
 uint32_t APar_BinaryFieldPut(ID3v2Fields* thisField, uint32_t a_number, char* this_payload, uint32_t payload_len) {
-	if (thisField->ID3v2_Field_Type == ID3_TEXT_ENCODING_FIELD || thisField->ID3v2_Field_Type == ID3_PIC_TYPE_FIELD) {
+	if (thisField->ID3v2_Field_Type == ID3_TEXT_ENCODING_FIELD || thisField->ID3v2_Field_Type == ID3_PIC_TYPE_FIELD || thisField->ID3v2_Field_Type == ID3_GROUPSYMBOL_FIELD) {
 		thisField->field_string[0] = (unsigned char)a_number;
 		thisField->field_length = 1;
 		//fprintf(stdout, "My (TE/PT) content is 0x%02X\n", thisField->field_string[0]);
@@ -1290,7 +1436,7 @@ uint32_t APar_BinaryFieldPut(ID3v2Fields* thisField, uint32_t a_number, char* th
 		thisField->ID3v2_Field_Type = ID3_BINARY_DATA_FIELD;
 		return file_length;
 	
-	} else if (thisField->ID3v2_Field_Type == ID3_BINARY_DATA_FIELD) {
+	} else if (thisField->ID3v2_Field_Type == ID3_BINARY_DATA_FIELD || thisField->ID3v2_Field_Type == ID3_COUNTER_FIELD) {
 		thisField->field_string = (char*)calloc(1, sizeof(char*)*payload_len+16);
 		memcpy(thisField->field_string, this_payload, payload_len);
 		
@@ -1304,7 +1450,7 @@ uint32_t APar_BinaryFieldPut(ID3v2Fields* thisField, uint32_t a_number, char* th
 }
 
 void APar_FrameDataPut(ID3v2Frame* thisFrame, char* frame_payload, AdjunctArgs* adjunct_payload, uint8_t str_encoding) {
-	if (adjunct_payload->multistringtext == false) thisFrame->ID3v2_Frame_Length = 0;
+	if (adjunct_payload->multistringtext == false && !APar_EvalFrame_for_Field(thisFrame->ID3v2_FrameType, ID3_COUNTER_FIELD) ) thisFrame->ID3v2_Frame_Length = 0;
 	switch(thisFrame->ID3v2_FrameType) {
 		case ID3_TEXT_FRAME : {
 			thisFrame->ID3v2_Frame_Length += APar_BinaryFieldPut(thisFrame->ID3v2_Frame_Fields, str_encoding, NULL, 1); //encoding
@@ -1353,7 +1499,7 @@ void APar_FrameDataPut(ID3v2Frame* thisFrame, char* frame_payload, AdjunctArgs* 
 		case ID3_UNIQUE_FILE_ID_FRAME : {
 			thisFrame->ID3v2_Frame_Length += APar_TextFieldDataPut(thisFrame->ID3v2_Frame_Fields, frame_payload, TE_LATIN1); //owner field
 			
-			if (memcmp(adjunct_payload->uniqIDArg, "randomUUIDstamp", 16) == 0) {
+			if (memcmp(adjunct_payload->dataArg, "randomUUIDstamp", 16) == 0) {
 				char uuid_binary_str[25]; memset(uuid_binary_str, 0, 25);
 				APar_generate_random_uuid(uuid_binary_str);
 				(thisFrame->ID3v2_Frame_Fields+1)->field_string = (char*)calloc(1, sizeof(char*)*40);
@@ -1364,8 +1510,8 @@ void APar_FrameDataPut(ID3v2Frame* thisFrame, char* frame_payload, AdjunctArgs* 
 				(thisFrame->ID3v2_Frame_Fields+1)->ID3v2_Field_Type = ID3_BINARY_DATA_FIELD;
 				thisFrame->ID3v2_Frame_Length += 36;
 			} else {
-				uint8_t uniqueIDlen = strlen(adjunct_payload->uniqIDArg);
-				thisFrame->ID3v2_Frame_Length += APar_BinaryFieldPut(thisFrame->ID3v2_Frame_Fields, str_encoding, NULL, (uniqueIDlen > 64 ? 64 : uniqueIDlen)); //unique file ID
+				uint8_t uniqueIDlen = strlen(adjunct_payload->dataArg);
+				thisFrame->ID3v2_Frame_Length += APar_BinaryFieldPut(thisFrame->ID3v2_Frame_Fields, 0, adjunct_payload->dataArg, (uniqueIDlen > 64 ? 64 : uniqueIDlen)); //unique file ID
 			}
 
 			modified_atoms = true;
@@ -1402,15 +1548,134 @@ void APar_FrameDataPut(ID3v2Frame* thisFrame, char* frame_payload, AdjunctArgs* 
 			break;
 		}
 		case ID3_ATTACHED_OBJECT_FRAME : {
+			thisFrame->ID3v2_Frame_Length += APar_BinaryFieldPut(thisFrame->ID3v2_Frame_Fields, str_encoding, NULL, 1); //encoding
+			thisFrame->ID3v2_Frame_Length += APar_TextFieldDataPut(thisFrame->ID3v2_Frame_Fields+1, adjunct_payload->mimeArg, TE_LATIN1); //mimetype
+			if (memcmp(adjunct_payload->filenameArg, "FILENAMESTAMP", 13) == 0) {
+				char* derived_filename = NULL;
+#if defined (WIN32)
+				derived_filename = strrchr(frame_payload, '\\');
+#else
+				derived_filename = strrchr(frame_payload, '/');
+#endif
+				if (derived_filename == NULL) {
+					derived_filename = frame_payload;
+				} else {
+					derived_filename++; //get rid of the preceding slash
+				}
+				thisFrame->ID3v2_Frame_Length += APar_TextFieldDataPut(thisFrame->ID3v2_Frame_Fields+2, derived_filename, str_encoding); //filename
+			} else {
+				thisFrame->ID3v2_Frame_Length += APar_TextFieldDataPut(thisFrame->ID3v2_Frame_Fields+2, adjunct_payload->filenameArg, str_encoding); //filename
+			}
+			thisFrame->ID3v2_Frame_Length += APar_TextFieldDataPut(thisFrame->ID3v2_Frame_Fields+3, adjunct_payload->descripArg, str_encoding); //description
+			thisFrame->ID3v2_Frame_Length += APar_BinaryFieldPut(thisFrame->ID3v2_Frame_Fields+4, 0, frame_payload, 0); //binary file (path)
+			modified_atoms = true;
+			GlobalID3Tag->modified_tag = true;
+			GlobalID3Tag->ID3v2_FrameCount++;
 			break;
 		}
 		case ID3_GROUP_ID_FRAME : {
+			uint32_t groupdatalen = strlen(adjunct_payload->dataArg);
+			if (adjunct_payload->groupSymbol > 0) {
+				thisFrame->ID3v2_Frame_Length += APar_TextFieldDataPut(thisFrame->ID3v2_Frame_Fields, frame_payload, TE_LATIN1); //owner field
+				thisFrame->ID3v2_Frame_Length += APar_BinaryFieldPut(thisFrame->ID3v2_Frame_Fields+1, adjunct_payload->groupSymbol, NULL, 1); //group symbol
+				if (groupdatalen > 0) { //not quite binary (unless it were entered as hex & converted), but it will do
+					thisFrame->ID3v2_Frame_Length += APar_BinaryFieldPut(thisFrame->ID3v2_Frame_Fields+2, 0, adjunct_payload->dataArg, groupdatalen); //group symbol
+				}
+			modified_atoms = true;
+			GlobalID3Tag->modified_tag = true;
+			GlobalID3Tag->ID3v2_FrameCount++;
+			}
 			break;
 		}
 		case ID3_SIGNATURE_FRAME : {
+			if (adjunct_payload->groupSymbol > 0) {
+				thisFrame->ID3v2_Frame_Length += APar_BinaryFieldPut(thisFrame->ID3v2_Frame_Fields, adjunct_payload->groupSymbol, NULL, 1); //group symbol
+				thisFrame->ID3v2_Frame_Length += APar_BinaryFieldPut(thisFrame->ID3v2_Frame_Fields+1, 0, frame_payload, strlen(frame_payload)); //signature
+				modified_atoms = true;
+				GlobalID3Tag->modified_tag = true;
+				GlobalID3Tag->ID3v2_FrameCount++;
+			}
 			break;
 		}
 		case ID3_PRIVATE_FRAME : {
+			uint32_t datalen = strlen(adjunct_payload->dataArg); //kinda precludes a true "binary" sense, but whatever...
+			if (datalen > 0) {
+				thisFrame->ID3v2_Frame_Length += APar_TextFieldDataPut(thisFrame->ID3v2_Frame_Fields, frame_payload, TE_LATIN1); //owner field
+				thisFrame->ID3v2_Frame_Length += APar_BinaryFieldPut(thisFrame->ID3v2_Frame_Fields+1, 0, adjunct_payload->dataArg, datalen); //signature
+				modified_atoms = true;
+				GlobalID3Tag->modified_tag = true;
+				GlobalID3Tag->ID3v2_FrameCount++;
+			}
+			break;
+		}
+		case ID3_PLAYCOUNTER_FRAME : {
+			uint64_t playcount = 0;
+			char play_count_syncsafe[15];
+			memset(play_count_syncsafe, 0, 16);
+
+			if (memcmp(frame_payload, "+1", 3) == 0) {
+				if (thisFrame->ID3v2_Frame_Length == 4) {
+					playcount = (uint64_t)syncsafe32_to_UInt32(thisFrame->ID3v2_Frame_Fields->field_string) + 1;
+				} else if (thisFrame->ID3v2_Frame_Length > 4) {
+					playcount = syncsafeXX_to_UInt64(thisFrame->ID3v2_Frame_Fields->field_string, thisFrame->ID3v2_Frame_Fields->field_length) +1;
+				} else {
+					playcount = 1;
+				}
+			} else {
+				sscanf(frame_payload, "%llu", &playcount);
+			}
+			
+			if (playcount < 268435455) {
+				convert_to_syncsafe32((uint32_t)playcount, play_count_syncsafe);
+				thisFrame->ID3v2_Frame_Length = APar_BinaryFieldPut(thisFrame->ID3v2_Frame_Fields, 0, play_count_syncsafe, 4);
+			} else {
+				uint8_t conversion_len = convert_to_syncsafeXX(playcount, play_count_syncsafe);
+				thisFrame->ID3v2_Frame_Length = APar_BinaryFieldPut(thisFrame->ID3v2_Frame_Fields, 0, play_count_syncsafe, conversion_len);
+			}
+			modified_atoms = true;
+			GlobalID3Tag->modified_tag = true;
+			GlobalID3Tag->ID3v2_FrameCount++;
+			break;
+		}
+		case ID3_POPULAR_FRAME : {
+			unsigned char popm_rating = 0;
+			uint64_t popm_playcount = 0;
+			char popm_play_count_syncsafe[15];
+			memset(popm_play_count_syncsafe, 0, 16);
+			
+			if (adjunct_payload->ratingArg != NULL) {
+				sscanf(adjunct_payload->ratingArg, "%hhu", &popm_rating);
+			}
+			thisFrame->ID3v2_Frame_Length += APar_TextFieldDataPut(thisFrame->ID3v2_Frame_Fields, frame_payload, TE_LATIN1); //owner field
+			thisFrame->ID3v2_Frame_Length += APar_BinaryFieldPut(thisFrame->ID3v2_Frame_Fields+1, 0, (char*)&popm_rating, 1); //rating
+			
+			if (adjunct_payload->dataArg != NULL) {
+				if (strlen(adjunct_payload->dataArg) > 0) {
+					if (memcmp(adjunct_payload->dataArg, "+1", 3) == 0) {
+						if ((thisFrame->ID3v2_Frame_Fields+2)->field_length == 4) {
+							popm_playcount = (uint64_t)syncsafe32_to_UInt32((thisFrame->ID3v2_Frame_Fields+2)->field_string) + 1;
+						} else if ((thisFrame->ID3v2_Frame_Fields+2)->field_length > 4) {
+							popm_playcount = syncsafeXX_to_UInt64((thisFrame->ID3v2_Frame_Fields+2)->field_string, (thisFrame->ID3v2_Frame_Fields+2)->field_length) +1;
+						} else {
+							popm_playcount = 1;
+						}
+					} else {
+						sscanf(adjunct_payload->dataArg, "%llu", &popm_playcount);
+					}
+				}
+			}
+			if (popm_playcount > 0) {
+				if (popm_playcount < 268435455) {
+					convert_to_syncsafe32((uint32_t)popm_playcount, popm_play_count_syncsafe);
+					thisFrame->ID3v2_Frame_Length = APar_BinaryFieldPut(thisFrame->ID3v2_Frame_Fields, 0, popm_play_count_syncsafe, 4); //syncsafe32 counter
+				} else {
+					uint8_t conversion_len = convert_to_syncsafeXX(popm_playcount, popm_play_count_syncsafe);
+					thisFrame->ID3v2_Frame_Length = APar_BinaryFieldPut(thisFrame->ID3v2_Frame_Fields, 0, popm_play_count_syncsafe, conversion_len); //BIGsyncsafe counter
+				}
+			}
+			modified_atoms = true;
+			GlobalID3Tag->modified_tag = true;
+			GlobalID3Tag->ID3v2_FrameCount++;
 			break;
 		}
 	} //end switch
@@ -1534,8 +1799,7 @@ ID3v2Frame* APar_FindFrame(ID3v2Tag* id3v2tag, char* frame_str, uint16_t frameID
 		if (id3v2tag->ID3v2_FirstFrame == NULL) id3v2tag->ID3v2_FirstFrame = newframe;
 		if (id3v2tag->ID3v2_FrameList != NULL) id3v2tag->ID3v2_FrameList->ID3v2_NextFrame = newframe;
 		id3v2tag->ID3v2_FrameList = newframe;
-		returnframe = newframe;
-		return returnframe;
+		return newframe;
 	}
 	
 	if (APar_EvalFrame_for_Field(frametype, ID3_DESCRIPTION_FIELD)) {
@@ -1640,6 +1904,7 @@ void APar_ID3FrameAmmend(short id32_atom_idx, char* frame_str, char* frame_paylo
 		if (adjunct_payloads->zlibCompressed) {
 			targetFrame->ID3v2_Frame_ExpandedLength = targetFrame->ID3v2_Frame_Length;
 		}
+		targetFrame->ID3v2_Frame_GroupingSymbol = adjunct_payloads->groupSymbol;
 	}
 	return;
 }
@@ -1706,6 +1971,8 @@ char* APar_GetTextEncoding(ID3v2Frame* aframe, ID3v2Fields* textfield) {
 }
 
 void APar_Print_ID3v2_tags(AtomicInfo* id32_atom) {
+	//TODO properly printout latin1 for fields like owner
+	//TODO for binary fields (like GRID group data) scan through to see if it needs to be printed in hex
 	//fprintf(stdout, "Maj.Min.Rev version was 2.%u.%u\n", id32_atom->ID32_TagInfo->ID3v2Tag_MajorVersion, id32_atom->ID32_TagInfo->ID3v2Tag_RevisionVersion);
 	char* id32_level = (char*)calloc(1, sizeof(char*)*16);
 	if (id32_atom->AtomicLevel == 2) {
@@ -1730,7 +1997,12 @@ void APar_Print_ID3v2_tags(AtomicInfo* id32_atom) {
 	
 	ID3v2Frame* target_frameinfo = id32_atom->ID32_TagInfo->ID3v2_FirstFrame;
 	while (target_frameinfo != NULL) {
-		fprintf(stdout, " Tag: %s \"%s\" ", target_frameinfo->ID3v2_Frame_Namestr , KnownFrames[target_frameinfo->ID3v2_Frame_ID].ID3V2_FrameDescription );
+		if (ID3v2_TestFrameFlag(target_frameinfo->ID3v2_Frame_Flags, ID32_FRAMEFLAG_GROUPING) && target_frameinfo && target_frameinfo->ID3v2_FrameType != ID3_GROUP_ID_FRAME) {
+			fprintf(stdout, " Tag: %s GID=0x%02X \"%s\" ", target_frameinfo->ID3v2_Frame_Namestr, target_frameinfo->ID3v2_Frame_GroupingSymbol,
+			                                           KnownFrames[target_frameinfo->ID3v2_Frame_ID].ID3V2_FrameDescription );
+		} else {
+			fprintf(stdout, " Tag: %s \"%s\" ", target_frameinfo->ID3v2_Frame_Namestr, KnownFrames[target_frameinfo->ID3v2_Frame_ID].ID3V2_FrameDescription );
+		}
 		uint8_t frame_comp_idx = GetFrameCompositionDescription(target_frameinfo->ID3v2_FrameType);
 		if (FrameTypeConstructionList[frame_comp_idx].ID3_FrameType == ID3_UNKNOWN_FRAME) {
 			fprintf(stdout, "(unknown frame) %u bytes\n", target_frameinfo->ID3v2_Frame_Fields->field_length);
@@ -1795,6 +2067,53 @@ void APar_Print_ID3v2_tags(AtomicInfo* id32_atom) {
 				fprintf(stdout, "]) : %u bytes\n", (target_frameinfo->ID3v2_Frame_Fields+4)->field_length);
 			}
 
+		} else if (target_frameinfo->ID3v2_FrameType == ID3_ATTACHED_OBJECT_FRAME) {
+			fprintf(stdout, "(filename=");
+			APar_Print_ID3TextField(target_frameinfo, target_frameinfo->ID3v2_Frame_Fields+2);
+			fprintf(stdout, ", mimetype=%s, desc[", (target_frameinfo->ID3v2_Frame_Fields+1)->field_string);
+			APar_Print_ID3TextField(target_frameinfo, target_frameinfo->ID3v2_Frame_Fields+3);
+			if (ID3v2_TestFrameFlag(target_frameinfo->ID3v2_Frame_Flags, ID32_FRAMEFLAG_COMPRESSED)) {
+				fprintf(stdout, "]) : %u bytes (%u compressed)\n",
+				                     (target_frameinfo->ID3v2_Frame_Fields+4)->field_length, target_frameinfo->ID3v2_Frame_Length);
+			} else {
+				fprintf(stdout, "]) : %u bytes\n", (target_frameinfo->ID3v2_Frame_Fields+4)->field_length);
+			}
+		
+		} else if (target_frameinfo->ID3v2_FrameType == ID3_GROUP_ID_FRAME) {
+			fprintf(stdout, "(owner='%s') : 0x%02X", target_frameinfo->ID3v2_Frame_Fields->field_string, (uint8_t)(target_frameinfo->ID3v2_Frame_Fields+1)->field_string[0]);
+			if ((target_frameinfo->ID3v2_Frame_Fields+2)->field_length > 0) {
+				fprintf(stdout, "; groupdata='%s'\n", (target_frameinfo->ID3v2_Frame_Fields+2)->field_string);
+			} else {
+				fprintf(stdout, "\n");
+			}
+			
+		} else if (target_frameinfo->ID3v2_FrameType == ID3_PRIVATE_FRAME) {
+			fprintf(stdout, "(owner='%s') : %s\n", target_frameinfo->ID3v2_Frame_Fields->field_string, (target_frameinfo->ID3v2_Frame_Fields+1)->field_string);
+		
+		} else if (target_frameinfo->ID3v2_FrameType == ID3_SIGNATURE_FRAME) {
+			fprintf(stdout, "{GID=0x%02X) : %s\n", (uint8_t)target_frameinfo->ID3v2_Frame_Fields->field_string[0], (target_frameinfo->ID3v2_Frame_Fields+1)->field_string);
+		
+		} else if (target_frameinfo->ID3v2_FrameType == ID3_PLAYCOUNTER_FRAME) {
+			if (target_frameinfo->ID3v2_Frame_Fields->field_length == 4) {
+				fprintf(stdout, ": %u\n", syncsafe32_to_UInt32(target_frameinfo->ID3v2_Frame_Fields->field_string) );
+			} else if (target_frameinfo->ID3v2_Frame_Fields->field_length > 4) {
+				fprintf(stdout, ": %llu\n", syncsafeXX_to_UInt64(target_frameinfo->ID3v2_Frame_Fields->field_string, target_frameinfo->ID3v2_Frame_Fields->field_length) );
+			}
+		
+		} else if (target_frameinfo->ID3v2_FrameType == ID3_POPULAR_FRAME) {
+			fprintf(stdout, "(owner='%s') : %u", target_frameinfo->ID3v2_Frame_Fields->field_string, (target_frameinfo->ID3v2_Frame_Fields+1)->field_string[0]);
+			if ((target_frameinfo->ID3v2_Frame_Fields+2)->field_length > 0) {
+				if ((target_frameinfo->ID3v2_Frame_Fields+2)->field_length == 4) {
+					fprintf(stdout, "; playcount=%u\n", syncsafe32_to_UInt32((target_frameinfo->ID3v2_Frame_Fields+2)->field_string));
+				} else if ((target_frameinfo->ID3v2_Frame_Fields+2)->field_length > 4) {
+					fprintf(stdout, "; playcount=%llu\n", syncsafeXX_to_UInt64((target_frameinfo->ID3v2_Frame_Fields+2)->field_string, (target_frameinfo->ID3v2_Frame_Fields+2)->field_length));
+				} else {
+					fprintf(stdout, "\n"); //don't know what it was supposed to be, so skip it
+				}
+			} else {
+				fprintf(stdout, "\n");
+			}
+		
 		} else {
 			fprintf(stdout, " [idx=%u;%d]\n", frame_comp_idx, FrameTypeConstructionList[frame_comp_idx].ID3_FrameType);
 		}
@@ -1880,24 +2199,39 @@ void APar_ID3ExtractFile(short id32_atom_idx, char* frame_str, char* originfile,
 		while (eval_frame != NULL) {
 			if (frameType == eval_frame->ID3v2_FrameType) {
 				memset(extract_filename, 0, sizeof(char*)*MAXPATHLEN+1);
-				ImageFileFormatDefinition* thisimage = APar_ImageExtractTest((eval_frame->ID3v2_Frame_Fields+4)->field_string, NULL);
 				memcpy(extract_filename, originfile, basepath_len);
 				iter++;
 				
-				char* img_description = APar_ConvertField_to_UTF8(eval_frame, ID3_DESCRIPTION_FIELD);
-				sprintf(extract_filename+basepath_len, "-img#%u-(desc=%s)-0x%02X%s", 
+				if (eval_frame->ID3v2_FrameType == ID3_ATTACHED_PICTURE_FRAME) {
+					ImageFileFormatDefinition* thisimage = APar_ImageExtractTest((eval_frame->ID3v2_Frame_Fields+4)->field_string, NULL);
+					char* img_description = APar_ConvertField_to_UTF8(eval_frame, ID3_DESCRIPTION_FIELD);
+					sprintf(extract_filename+basepath_len, "-img#%u-(desc=%s)-0x%02X%s", 
 				                                     iter, img_description, (uint8_t)((eval_frame->ID3v2_Frame_Fields+2)->field_string[0]), thisimage->image_fileextn);
 				
-				if (img_description != NULL) {
-					free(img_description);
-					img_description = NULL;
+					if (img_description != NULL) {
+						free(img_description);
+						img_description = NULL;
+					}
+				} else {
+					char* obj_description = APar_ConvertField_to_UTF8(eval_frame, ID3_DESCRIPTION_FIELD);
+					char* obj_filename = APar_ConvertField_to_UTF8(eval_frame, ID3_FILENAME_FIELD);
+					sprintf(extract_filename+basepath_len, "-obj#%u-(desc=%s)-%s", iter, obj_description, obj_filename);
+					
+					if (obj_description != NULL) {
+						free(obj_description);
+						obj_description = NULL;
+					}
+					if (obj_filename != NULL) {
+						free(obj_filename);
+						obj_filename = NULL;
+					}
 				}
 				
-				FILE *imgfile = APar_OpenFile(extract_filename, "wb");
-				if (imgfile != NULL) {
-					fwrite((eval_frame->ID3v2_Frame_Fields+4)->field_string, (size_t)((eval_frame->ID3v2_Frame_Fields+4)->field_length), 1, imgfile);
-					fclose(imgfile);
-					fprintf(stdout, "Extracted artwork to file: %s\n", extract_filename);
+				FILE *extractfile = APar_OpenFile(extract_filename, "wb");
+				if (extractfile != NULL) {
+					fwrite((eval_frame->ID3v2_Frame_Fields+4)->field_string, (size_t)((eval_frame->ID3v2_Frame_Fields+4)->field_length), 1, extractfile);
+					fclose(extractfile);
+					fprintf(stdout, "Extracted %s to file: %s\n", (frameType == ID3_ATTACHED_PICTURE_FRAME ? "artwork" : "object"), extract_filename);
 				}
 
 			}

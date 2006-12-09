@@ -2544,7 +2544,7 @@ void APar_ScanAtoms(const char *path, bool scan_for_tree_ONLY) {
 						case CHILD_ATOM : {
 							if (memcmp(atom, "hdlr", 4) == 0) {
 								char* handler_type = (char*)calloc(1, sizeof(char)*16);
-								APar_readX(handler_type, file, jump+20, 4);
+								APar_readX(handler_type, file, jump+16, 4);
 								parsedAtoms[atom_number-1].ancillary_data = UInt32FromBigEndian(handler_type);
 								free(handler_type);
 							} else if (memcmp(atom, "stco", 4) == 0 || memcmp(atom, "co64", 4) == 0) {
@@ -3722,14 +3722,14 @@ short APar_ID32_atom_Init(char* frameID_str, char meta_area, char* lang_str, uin
 	id32_trackpath = (char*)calloc(1, sizeof(char)*100);
 	
 	if (meta_area == -2) {
-		meta_atom = APar_FindAtom("meta", false, VERSIONED_ATOM, 0);
+		meta_atom = APar_FindAtom("meta", false, DUAL_STATE_ATOM, 0);
 	} else if (meta_area == -1) {
-		meta_atom = APar_FindAtom("moov.meta", false, VERSIONED_ATOM, 0);
+		meta_atom = APar_FindAtom("moov.meta", false, DUAL_STATE_ATOM, 0);
 	//} else if (meta_area = 0) {
 		//setting id3tags for all tracks will *not* be supported;
 	} else if (meta_area > 0) {
 		sprintf(id32_trackpath, "moov.trak[%u].meta", meta_area);
-		meta_atom = APar_FindAtom(id32_trackpath, false, VERSIONED_ATOM, 0);
+		meta_atom = APar_FindAtom(id32_trackpath, false, DUAL_STATE_ATOM, 0);
 	}
 	
 	if (meta_atom != NULL) {
@@ -3817,7 +3817,7 @@ short APar_ID32_atom_Init(char* frameID_str, char meta_area, char* lang_str, uin
 				hdlr_atom = APar_FindAtom(id32_trackpath, true, VERSIONED_ATOM, 0);
 			}
 			APar_MetaData_atom_QuickInit(hdlr_atom->AtomicNumber, 0, 0);
-			APar_Unified_atom_Put(hdlr_atom->AtomicNumber, "ID32", UTF8_iTunesStyle_256glyphLimited, 0, 32);
+			APar_Unified_atom_Put(hdlr_atom->AtomicNumber, "ID32", UTF8_iTunesStyle_256glyphLimited, 0, 0);
 			APar_Unified_atom_Put(hdlr_atom->AtomicNumber, NULL, UTF8_iTunesStyle_256glyphLimited, 0, 32);
 			APar_Unified_atom_Put(hdlr_atom->AtomicNumber, NULL, UTF8_iTunesStyle_256glyphLimited, 0, 32);
 			APar_Unified_atom_Put(hdlr_atom->AtomicNumber, NULL, UTF8_iTunesStyle_256glyphLimited, 0, 32);
@@ -3873,9 +3873,8 @@ short APar_ID32_atom_Init(char* frameID_str, char meta_area, char* lang_str, uin
 void APar_RenderAllID32Atoms() {
 	short atom_idx = 0;
 	short meta_idx = -1;
-	
 	//loop through each atom in the struct array (which holds the offset info/data)
- 	while (parsedAtoms[atom_idx].NextAtomNumber != 0) {
+ 	while (true) {
 		if (memcmp(parsedAtoms[atom_idx].AtomicName, "ID32", 4) == 0) {
 			if (parsedAtoms[atom_idx].ID32_TagInfo != NULL) {
 				uint32_t id32tag_max_length = APar_GetTagSize(&parsedAtoms[atom_idx]);
@@ -3904,8 +3903,10 @@ void APar_RenderAllID32Atoms() {
 			}
 		}
 		atom_idx = parsedAtoms[atom_idx].NextAtomNumber;
+		if (parsedAtoms[atom_idx].AtomicNumber == 0) break;
 		meta_idx = -1;
 	}
+	APar_DetermineAtomLengths();
 	return;
 }
 
@@ -4696,8 +4697,6 @@ void APar_DetermineNewFileLength() {
 }
 
 void APar_DetermineAtomLengths() {
-	APar_RenderAllID32Atoms();
-	
 	if (!udta_dynamics.dynamic_updating && (!psp_brand || !force_existing_hierarchy) && initial_optimize_pass) {
 		APar_Optimize(false);
 	} else {
@@ -5339,7 +5338,9 @@ void APar_WriteFile(const char* ISObasemediafile, const char* outfile, bool rewr
 	memset(temp_file_name, 0, sizeof(char)* 3500 );
 	memset(file_buffer, 0, sizeof(char)* max_buffer + 1 );
 	memset(data, 0, sizeof(char)*4 + 1);
-		
+	
+	APar_RenderAllID32Atoms();
+
 	if (!complete_free_space_erasure) {
 		APar_DetermineDynamicUpdate(true); //test whether it can happen
 	} else {

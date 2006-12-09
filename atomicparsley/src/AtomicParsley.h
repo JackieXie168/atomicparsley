@@ -231,6 +231,7 @@ extern uint32_t file_size;
 extern EmployedCodecs track_codecs;
 
 extern AtomicInfo parsedAtoms[];
+extern char* ISObasemediafile;
 extern FILE* source_file;
 
 extern padding_preferences pad_prefs;

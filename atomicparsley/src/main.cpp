@@ -671,10 +671,9 @@ static char* ID3Help_text =
 "     nonstandard ordinary unsigned integers (uint32_t) is not/will not be implemented.\n"
 "   - externally referenced images (using mimetype '-->') are prohibited by the ID32 specification.\n"
 "   - presets for text frames (like TCON/genre) are not yet implemented. The only preset is for imagetype.\n"
-"   - ID32 atoms only work on 3gp branded files.\n"
+"   - listing of ID3 tags on ID32 atoms is only available on 3gp branded files or forced with 'AP -t all'.\n"
 "   - the ID32 atom is only supported in a non-referenced context\n"
 "   - only tested at movie level; listings at non-movie levels is not yet implemented\n"
-"   - setting MCDI is only possible currently on Mac OS X\n"
 "   - probably a raft of other limitations that my brain lost along the way...\n"
 "----------------------------------------------------------------------------------------------------\n"
 " Usage:\n"
@@ -958,7 +957,7 @@ int main( int argc, char *argv[]) {
 	}
 	
 	total_args = argc;
-	char *ISObasemediafile = argv[1];
+	char* ISObasemediafile = argv[1];
 	
 	TestFileExistence(ISObasemediafile, true);
 	xmlInitEndianDetection(); 
@@ -2501,6 +2500,8 @@ int main( int argc, char *argv[]) {
 			id3args->descripArg = NULL;
 			id3args->mimeArg = NULL;
 			id3args->pictypeArg = NULL;
+			id3args->ratingArg = NULL;
+			id3args->dataArg = NULL;
 			id3args->pictype_uint8 = 0;
 			id3args->groupSymbol = 0;
 			id3args->zlibCompressed = false;
@@ -2515,7 +2516,7 @@ int main( int argc, char *argv[]) {
 			//1 = mimetype
 			//2 = imagetype
 			int frameType = FrameStr_TO_FrameType(target_frame_ID);
-			if (frameType > 0) {
+			if (frameType >= 0) {
 				if (TestCLI_for_FrameParams(frameType, 0)) {
 					id3args->descripArg = find_ID3_optarg(argv, optind, "desc=");
 				}
@@ -2526,10 +2527,31 @@ int main( int argc, char *argv[]) {
 					id3args->pictypeArg = find_ID3_optarg(argv, optind, "imagetype=");
 				}
 				if (TestCLI_for_FrameParams(frameType, 3)) {
-					id3args->uniqIDArg = find_ID3_optarg(argv, optind, "uniqueID=");
+					id3args->dataArg = find_ID3_optarg(argv, optind, "uniqueID=");
+				}
+				if (TestCLI_for_FrameParams(frameType, 4)) {
+					id3args->filenameArg = find_ID3_optarg(argv, optind, "filename=");
+				}
+				if (TestCLI_for_FrameParams(frameType, 5)) {
+					id3args->ratingArg = find_ID3_optarg(argv, optind, "rating=");
+				}
+				if (TestCLI_for_FrameParams(frameType, 6)) {
+					id3args->dataArg = find_ID3_optarg(argv, optind, "counter=");
+				}
+				if (TestCLI_for_FrameParams(frameType, 7)) {
+					id3args->dataArg = find_ID3_optarg(argv, optind, "data=");
+				}
+				if (TestCLI_for_FrameParams(frameType, 8)) {
+					id3args->dataArg = find_ID3_optarg(argv, optind, "data=");
 				}
 				if (memcmp("1", find_ID3_optarg(argv, optind, "compressed"), 1) == 0) {
 					id3args->zlibCompressed = true;
+				}
+				
+				char* groupsymbol = find_ID3_optarg(argv, optind, "groupsymbol=");
+				if (groupsymbol[0] == '0' && groupsymbol[1] == 'x') {
+					sscanf(groupsymbol, "%hhx", &id3args->groupSymbol);
+					if (id3args->groupSymbol < 0x80 || id3args->groupSymbol > 0xF0) id3args->groupSymbol = 0;
 				}
 			}
 			
