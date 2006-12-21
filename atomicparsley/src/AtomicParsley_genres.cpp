@@ -751,3 +751,28 @@ char* Expand_cli_mediastring(char* cli_rating) {
 	}
 	return media_rating;
 }
+
+//ID32 for ID3 frame functions
+char* ID3GenreIntToString(int genre) {
+	char* return_string = NULL;
+  if (genre >= 0 &&  genre <= 79) {
+		return_string = (char*)ID3v1GenreList[genre];
+	}
+	return return_string;
+}
+
+uint8_t ID3StringGenreToInt(const char* genre_string) {
+	uint8_t return_genre = 0xFF;
+	uint8_t total_genres = 80;
+	uint8_t genre_length = strlen(genre_string)+1;
+
+	for(uint8_t i = 0; i < total_genres; i++) {
+		if ( memcmp(genre_string, ID3v1GenreList[i], strlen(ID3v1GenreList[i])+1 > genre_length ? strlen(ID3v1GenreList[i])+1 : genre_length ) == 0) {
+			return i;
+		}
+	}
+	if ( return_genre > total_genres ) {
+		return_genre = 0xFF;
+	}
+	return return_genre;
+}

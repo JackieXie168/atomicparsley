@@ -34,3 +34,6 @@ void ListLanguageCodes();
 
 void ListMediaRatings();
 char* Expand_cli_mediastring(char* cli_rating);
+
+char* ID3GenreIntToString(int genre);
+uint8_t ID3StringGenreToInt(const char* genre_string);

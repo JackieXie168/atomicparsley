@@ -907,6 +907,24 @@ AtomicInfo* APar_FindAtom(const char* atom_name, bool createMissing, uint8_t ato
 					if (strlen(search_atom_name) >= 4) {
 						last_known_present_parent = thisAtom;
 					}
+				} else {
+					//its a file-level atom that needs to be created, so it won't have a last_known_present_parent
+					if (strlen(atom_name) == 4) {
+						short total_root_level_atoms = APar_ReturnChildrenAtoms (0, 0);
+						short test_root_atom = 0;
+						
+						
+						//scan through all top level atoms
+						for(uint8_t root_atom_i = 1; root_atom_i <= total_root_level_atoms; root_atom_i++) {
+							test_root_atom = APar_ReturnChildrenAtoms (0, root_atom_i);
+							if (memcmp(parsedAtoms[test_root_atom].AtomicName, "moov", 4) == 0) {
+								break;
+							}
+						}
+						if (test_root_atom != 0) {
+							thisAtom = APar_CreateSparseAtom(&atom_surrogate, NULL, APar_FindLastChild_of_ParentAtom(test_root_atom));
+						}
+					}
 				}
 				break;
 				
@@ -1754,20 +1772,48 @@ void APar_Print_metachild_atomcontents(uint8_t track_num, short metachild_atom, 
 	return;
 }
 
+void APar_PrintMetaChildren(AtomicInfo* metaAtom, AtomicInfo* hdlrAtom, bool quantum_listing) {
+	if (metaAtom != NULL && hdlrAtom != NULL) {
+		if (hdlrAtom->ancillary_data == 0x49443332) {
+			for (int i=metaAtom->NextAtomNumber; i < atom_number; i++) {
+				if ( parsedAtoms[i].AtomicLevel <= metaAtom->AtomicLevel ) break; //we've gone too far
+				if ( parsedAtoms[i].AtomicLevel == metaAtom->AtomicLevel + 1 ) APar_Print_metachild_atomcontents(0, i, quantum_listing);
+			}		
+		}
+	}
+	return;
+}
+
 void APar_PrintID32Metadata(bool quantum_listing) {
+	uint8_t total_tracks = 0;
+	uint8_t a_track = 0;//unused
+	short an_atom = 0;//unused
+	AtomicInfo* metaAtom = NULL;
+	AtomicInfo* metahandlerAtom = NULL;
+	char trackmeta_atom_path[50];
+	
 	printBOM();
 	
-	AtomicInfo* metaAtom = APar_FindAtom("moov.meta", false, VERSIONED_ATOM, 0);
-	if (metaAtom == NULL) return;
+	//file level
+	metaAtom = APar_FindAtom("meta", false, VERSIONED_ATOM, 0);
+	metahandlerAtom = APar_FindAtom("meta.hdlr", false, VERSIONED_ATOM, 0);
+	APar_PrintMetaChildren(metaAtom, metahandlerAtom, quantum_listing);
+
+	//movie level
+	metaAtom = APar_FindAtom("moov.meta", false, VERSIONED_ATOM, 0);
+	metahandlerAtom = APar_FindAtom("moov.meta.hdlr", false, VERSIONED_ATOM, 0);
+	APar_PrintMetaChildren(metaAtom, metahandlerAtom, quantum_listing);
 	
-	AtomicInfo* metahandlerAtom = APar_FindAtom("moov.meta.hdlr", false, VERSIONED_ATOM, 0);
-	if (metahandlerAtom == NULL) return;
-	
-	if (metahandlerAtom->ancillary_data == 0x49443332) {
-		for (int i=metaAtom->NextAtomNumber; i < atom_number; i++) {
-			if ( parsedAtoms[i].AtomicLevel <= metaAtom->AtomicLevel ) break; //we've gone too far
-			if ( parsedAtoms[i].AtomicLevel == metaAtom->AtomicLevel + 1 ) APar_Print_metachild_atomcontents(0, i, quantum_listing);
-		}
+	//track level
+	APar_TrackInfo(total_tracks, a_track, an_atom); //With track_num set to 0, it will return the total trak atom into total_tracks here.
+	for (uint8_t i = 1; i <= total_tracks; i++) {
+		memset(&trackmeta_atom_path, 0, 50);
+		sprintf(trackmeta_atom_path, "moov.trak[%u].meta", i);
+		
+		metaAtom = APar_FindAtom(trackmeta_atom_path, false, VERSIONED_ATOM, 0);
+		sprintf(trackmeta_atom_path, "moov.trak[%u].meta.hdlr", i);
+		metahandlerAtom = APar_FindAtom(trackmeta_atom_path, false, VERSIONED_ATOM, 0);
+		APar_PrintMetaChildren(metaAtom, metahandlerAtom, quantum_listing);
 	}
 	return;
 }
@@ -2070,33 +2116,61 @@ void APar_IdentifyBrand(char* file_brand ) {
 			fprintf(stdout, "AtomicParsley error: Quicktime movie files are not supported.\n");
 			exit(2);
 			break;
-			
-		//3gp-brands are listed in 3GPP/3GPP2 specification documents, not all are listed at mp4ra
 		
-		case 0x33673261 : //'3g2a' 3GPP2 release 0
+		//
+		//3GPP2 specification documents brands
+		//
+		
 		case 0x33673262 : //'3g2b' 3GPP2 release A
-		case 0x6B646469 : //'kddi' 3GPP2 EZmovie (optionally restricted) media
+			metadata_style = THIRD_GEN_PARTNER_VER2_REL_A;    //3GPP2 C.S0050-A_v1.0_060403, Annex A.2 lists differences between 3GPP & 3GPP2 - assets are not listed
+			break;
+
+		case 0x33673261 : //'3g2a'                          //3GPP2 release 0
 			metadata_style = THIRD_GEN_PARTNER_VER2;
 			break;
-			
-		case 0x33677034 : //'3gp4'
-		case 0x33677035 : //'3gp5' //'albm' album tag was added in Release6, so it shouldn't be added to a 3gp5 or 3gp4 branded file.
-		case 0x6D6D7034 : //'mmp4' probably does not support album; minor brands only go up to 3gp5, so.... I'm guessing not
 
-			metadata_style = THIRD_GEN_PARTNER;
+		//
+		//3GPP specification documents brands, not all are listed at mp4ra
+		//
+		
+		case 0x33677037 : //'3gp7'                          //Release 7 introduces ID32; though it doesn't list a iso bmffv2 compatible brand. Technically, ID32
+		                                                    //could be used on older 3gp brands, but iso2 would have to be added to the compatible brand list.
+		case 0x33677337 : //'3gs7'                          //I don't feel the need to do that, since other things might have to be done. And I'm not looking into it.
+		case 0x33677237 : //'3gr7'
+		case 0x33676537 : //'3ge7'
+		case 0x33676737 : //'3gg7'
+			metadata_style = THIRD_GEN_PARTNER_VER1_REL7;
 			break;
 		
-		case 0x33677036 : //'3gp6'
-		
+		case 0x33677036 : //'3gp6'                          //3gp assets which were introducted by NTT DoCoMo to the Rel6 workgroup on January 16, 2003
+																												//with S4-030005.zip from http://www.3gpp.org/ftp/tsg_sa/WG4_CODEC/TSGS4_25/Docs/ (! albm, loci)
 		case 0x33677236 : //'3gr6' progressive
 		case 0x33677336 : //'3gs6' streaming
 		case 0x33676536 : //'3ge6' extended presentations (jpeg images)
-		case 0x33676736 : //'3gg6' general (not yet suitable; superset)
-		
+		case 0x33676736 : //'3gg6' general (not yet suitable; superset)		
 			metadata_style = THIRD_GEN_PARTNER_VER1_REL6;
 			break;
-			
+		
+		case 0x33677034 : //'3gp4'                          //3gp assets (the full complement) are available: source caluse is S5.5 of TS26.244 (Rel6.4 & later):
+		case 0x33677035 : //'3gp5'                          //"that the file conforms to the specification; it includes everything required by,
+			metadata_style = THIRD_GEN_PARTNER;               //and nothing contrary to the specification (though there may be other material)"
+			break;                                            //it stands to reason that 3gp assets aren't contrary since 'udta' is defined by iso bmffv1
+		
+		//
+		//other brands that are have compatible brands relating to 3GPP/3GPP2
+		//
+		
+		case 0x6B646469 : //'kddi'                          //3GPP2 EZmovie (optionally restricted) media; these have a 3GPP2 compatible brand
+			metadata_style = THIRD_GEN_PARTNER_VER2;
+			break;
+		case 0x6D6D7034 : //'mmp4'
+			metadata_style = THIRD_GEN_PARTNER;
+			break;
+		
+		//
 		//what IS supported for iTunes-style metadata
+		//
+		
 		case 0x4D534E56 : //'MSNV'  (PSP) - this isn't actually listed at mp4ra, but since they are popular...
 			metadata_style = ITUNES_STYLE;
 			psp_brand = true;
@@ -2113,6 +2187,9 @@ void APar_IdentifyBrand(char* file_brand ) {
 			metadata_style = ITUNES_STYLE;
 			break;
 		
+		//
+		//other brands that are derivatives of the ISO Base Media File Format
+		//
 		case 0x6D6A7032 : //'mjp2'
 		case 0x6D6A3273 : //'mj2s'
 			metadata_style = MOTIONJPEG2000;
@@ -2123,9 +2200,23 @@ void APar_IdentifyBrand(char* file_brand ) {
 			fprintf(stdout, "AtomicParsley error: unsupported MPEG-4 file brand found '%s'\n", file_brand);
 			exit(2);
 			break;
-	
 	}
+	return;
+}
 
+void APar_TestCompatibleBrand(FILE* file, uint32_t atom_start, uint32_t atom_length) {
+	if (atom_length <= 16) return;
+	uint32_t compatible_brand = 0;
+	char compat_brands_str[4];
+	
+	memset(compat_brands_str, 0, 5);
+
+	for (uint32_t brand = 16; brand < atom_length; brand+=4) {
+		compatible_brand = APar_read32(compat_brands_str, file, atom_start+brand);
+		if (compatible_brand == 0x6D703432 || compatible_brand == 0x69736F32) {
+			parsedAtoms[atom_number-1].ancillary_data = compatible_brand;
+		}
+	}	
 	return;
 }
 
@@ -2366,13 +2457,16 @@ void APar_ScanAtoms(const char *path, bool scan_for_tree_ONLY) {
 			}
 
 			if ( memcmp(atom, "ftyp", 4) == 0 || jpeg2000signature) {
-				
-				if (!jpeg2000signature) APar_IdentifyBrand( data + 8 );
-			
+							
 				dataSize = UInt32FromBigEndian(data);
 				jump = dataSize;
 				
 				APar_AtomizeFileInfo(0, jump, 0, atom, generalAtomicLevel, CHILD_ATOM, SIMPLE_ATOM, 0, 0 , &uuid_info);
+				
+				if (!jpeg2000signature) {
+					APar_IdentifyBrand( data + 8 );
+					APar_TestCompatibleBrand(file, 0, dataSize);
+				}
 				
 				fseek(file, jump, SEEK_SET);
 				
@@ -2667,7 +2761,11 @@ void APar_ScanAtoms(const char *path, bool scan_for_tree_ONLY) {
 			fclose(file);
 		}
 		if (brand == 0x69736F6D) { //'isom' test for amc files & its (?always present?) uuid 0x63706764A88C11D48197009027087703
-			if ( APar_FindAtom("uuid=\x63\x70\x67\x64\xA8\x8C\x11\xD4\x81\x97\x00\x90\x27\x08\x77\x03", false, EXTENDED_ATOM, 0, true) != NULL) {
+			char EZ_movie_uuid[100];
+			memset(EZ_movie_uuid, 0, 100);
+			memcpy(EZ_movie_uuid, "uuid=\x63\x70\x67\x64\xA8\x8C\x11\xD4\x81\x97\x00\x90\x27\x08\x77\x03", 21); //this is in an endian form, so it needs to be converted
+			APar_endian_uuid_bin_str_conversion(EZ_movie_uuid+5);
+			if ( APar_FindAtom(EZ_movie_uuid, false, EXTENDED_ATOM, 0, true) != NULL) {
 				metadata_style = UNDEFINED_STYLE;
 			}
 		}
@@ -2984,7 +3082,7 @@ AtomicInfo* APar_CreateSparseAtom(AtomicInfo* surrogate_atom, AtomicInfo* parent
 	} else {
 		//determine the type of atom from our array of KnownAtoms; this is a worst case scenario; it should be handled properly afterwards
 		//make sure the level & the atom gets integrated into NextAtomNumber before APar_MatchToKnownAtom because getting the fullpath will rely on that
-		known_atom = APar_MatchToKnownAtom(surrogate_atom->AtomicName, parent_atom->AtomicName, false, NULL);
+		known_atom = APar_MatchToKnownAtom(surrogate_atom->AtomicName, (parent_atom == NULL ? "FILE_LEVEL" : parent_atom->AtomicName), false, NULL);
 		
 		new_atom->AtomicContainerState = KnownAtoms[known_atom].container_state;
 		new_atom->AtomicClassification = KnownAtoms[known_atom].box_type;
@@ -3721,9 +3819,9 @@ short APar_ID32_atom_Init(char* frameID_str, char meta_area, char* lang_str, uin
 	
 	id32_trackpath = (char*)calloc(1, sizeof(char)*100);
 	
-	if (meta_area == -2) {
+	if (meta_area == 0-FILE_LEVEL_ATOM) {
 		meta_atom = APar_FindAtom("meta", false, DUAL_STATE_ATOM, 0);
-	} else if (meta_area == -1) {
+	} else if (meta_area == 0-MOVIE_LEVEL_ATOM) {
 		meta_atom = APar_FindAtom("moov.meta", false, DUAL_STATE_ATOM, 0);
 	//} else if (meta_area = 0) {
 		//setting id3tags for all tracks will *not* be supported;
@@ -3747,9 +3845,9 @@ short APar_ID32_atom_Init(char* frameID_str, char meta_area, char* lang_str, uin
 	}
 	
 	//its possible the ID32 atom targeted already exists - finding it in the traditional form (not external, and not locally referenced) is easiest. Locally referenced isn't.
-	if (meta_area == -2) {
+	if (meta_area == 0-FILE_LEVEL_ATOM) {
 		ID32_atom = APar_FindAtom("meta.ID32", false, PACKED_LANG_ATOM, id32_lang);
-	} else if (meta_area == -1) {
+	} else if (meta_area == 0-MOVIE_LEVEL_ATOM) {
 		ID32_atom = APar_FindAtom("moov.meta.ID32", false, PACKED_LANG_ATOM, id32_lang);
 	//} else if (meta_area = 0) {
 		//setting id3tags for all tracks will *not* be supported;
@@ -3792,9 +3890,9 @@ short APar_ID32_atom_Init(char* frameID_str, char meta_area, char* lang_str, uin
 	//this only gets executed if a pre-existing satisfactory ID32 atom was not found. Being able to find it by atom.path by definition means it was not referenced.
 	if (non_referenced_data && !remove_ID32_atom) {
 		if (meta_atom == NULL) {
-			if (meta_area == -2) {
+			if (meta_area == 0-FILE_LEVEL_ATOM) {
 				meta_atom = APar_FindAtom("meta", true, VERSIONED_ATOM, 0);
-			} else if (meta_area == -1) {
+			} else if (meta_area == 0-MOVIE_LEVEL_ATOM) {
 				meta_atom = APar_FindAtom("moov.meta", true, VERSIONED_ATOM, 0);
 			//} else if (meta_area = 0) {
 				//setting id3tags for all tracks will *not* be supported;
@@ -3806,15 +3904,19 @@ short APar_ID32_atom_Init(char* frameID_str, char meta_area, char* lang_str, uin
 		
 		//create the required hdlr atom
 		if (hdlr_atom == NULL) {
-			if (meta_area == -2) {
+			if (meta_area == 0-FILE_LEVEL_ATOM) {
 				hdlr_atom = APar_FindAtom("meta.hdlr", true, VERSIONED_ATOM, 0);
-			} else if (meta_area == -1) {
+			} else if (meta_area == 0-MOVIE_LEVEL_ATOM) {
 				hdlr_atom = APar_FindAtom("moov.meta.hdlr", true, VERSIONED_ATOM, 0);
 			//} else if (meta_area = 0) {
 				//setting id3tags for all tracks will *not* be supported;
 			} else if (meta_area > 0) {
 				sprintf(id32_trackpath, "moov.trak[%u].meta.hdlr", meta_area);
 				hdlr_atom = APar_FindAtom(id32_trackpath, true, VERSIONED_ATOM, 0);
+			}
+			if (hdlr_atom == NULL) {
+				fprintf(stdout, "Uh, problem\n");
+				exit(0);
 			}
 			APar_MetaData_atom_QuickInit(hdlr_atom->AtomicNumber, 0, 0);
 			APar_Unified_atom_Put(hdlr_atom->AtomicNumber, "ID32", UTF8_iTunesStyle_256glyphLimited, 0, 0);
@@ -3826,9 +3928,9 @@ short APar_ID32_atom_Init(char* frameID_str, char meta_area, char* lang_str, uin
 		}
 		
 		//and finally create the ID32 atom
-		if (meta_area == -2) {
+		if (meta_area == 0-FILE_LEVEL_ATOM) {
 			ID32_atom = APar_FindAtom("meta.ID32", true, PACKED_LANG_ATOM, id32_lang);
-		} else if (meta_area == -1) {
+		} else if (meta_area == 0-MOVIE_LEVEL_ATOM) {
 			ID32_atom = APar_FindAtom("moov.meta.ID32", true, PACKED_LANG_ATOM, id32_lang);
 		//} else if (meta_area = 0) {
 			//setting id3tags for all tracks will *not* be supported;
@@ -3856,9 +3958,9 @@ short APar_ID32_atom_Init(char* frameID_str, char meta_area, char* lang_str, uin
 
 		return ID32_atom->AtomicNumber;
 	} else if (remove_ID32_atom) {
-		if (meta_area == -2) {
+		if (meta_area == 0-FILE_LEVEL_ATOM) {
 			APar_RemoveAtom("meta.ID32", PACKED_LANG_ATOM, id32_lang);
-		} else if (meta_area == -1) {
+		} else if (meta_area == 0-MOVIE_LEVEL_ATOM) {
 			APar_RemoveAtom("moov.meta.ID32", PACKED_LANG_ATOM, id32_lang);
 		//} else if (meta_area = 0) {
 			//setting id3tags for all tracks will *not* be supported;
@@ -4773,7 +4875,7 @@ void APar_DetermineAtomLengths() {
 		if (_atom_ == 0x75647461 && parsedAtoms[rev_atom_loop].AtomicLevel > parsedAtoms[ parsedAtoms[rev_atom_loop].NextAtomNumber ].AtomicLevel) { //udta with no child atoms; get here by erasing the last asset in a 3gp file, and it won't quite erase because udta thinks its the former AtomicLength
 			parsedAtoms[rev_atom_loop].AtomicLength = 8;
 		}
-		if (_atom_ == 0x6D657461  && parsedAtoms[rev_atom_loop].AtomicLevel != parsedAtoms[ parsedAtoms[rev_atom_loop].NextAtomNumber ].AtomicLevel - 1) { //meta with no child atoms; get here by erasing the last existing uuid atom.
+		if (_atom_ == 0x6D657461 && parsedAtoms[rev_atom_loop].AtomicLevel != parsedAtoms[ parsedAtoms[rev_atom_loop].NextAtomNumber ].AtomicLevel - 1) { //meta with no child atoms; get here by erasing the last existing uuid atom.
 			parsedAtoms[rev_atom_loop].AtomicLength = 12;
 		}
 		if (_atom_ == 0x696C7374 && parsedAtoms[rev_atom_loop].AtomicLevel != parsedAtoms[ parsedAtoms[rev_atom_loop].NextAtomNumber ].AtomicLevel - 1) { //ilst with no child atoms; get here by erasing the last piece of iTunes style metadata
@@ -4802,8 +4904,9 @@ APar_ValidateAtoms
 		2. test that the atom name is at least 4 letters long. So far, only quicktime atoms have NULLs in their names.
 		3. For files over 300k, make sure that no atom can present larger than the filesize (which would be bad); handy for when the file isn't parsed correctly
 		4. Test to make sure 'mdat' is at file-level. That is the only place it should ever be.
-		5. (A crude) Test to see if 'trak' atoms have a child 'tkhd' atom. If setting a copyright notice on a track at index built with some compilers faux 'trak's are made
-		6. If the file shunk below 90% (after accounting for additions or removals), error out - something went awry.
+		5. If its is a child atom that was set (and resides in memory), then its AtomicData should != NULL.
+		6. (A crude) Test to see if 'trak' atoms have a child 'tkhd' atom. If setting a copyright notice on a track at index built with some compilers faux 'trak's are made
+		7. If the file shunk below 90% (after accounting for additions or removals), error out - something went awry.
 ----------------------*/
 void APar_ValidateAtoms() {
 	bool atom_name_with_4_characters = true;
@@ -4845,8 +4948,13 @@ void APar_ValidateAtoms() {
 		}
 		
 		if (strncmp(parsedAtoms[iter].AtomicName, "mdat", 4) == 0 && parsedAtoms[iter].AtomicLevel != 1) {
-			fprintf(stderr, "AtomicParsley error: mdat atom was found at an illegal (not at top level). Aborting. %c\n", '\a');
+			fprintf(stderr, "AtomicParsley error: mdat atom was found not at file level. Aborting. %c\n", '\a');
 			exit(1); //the error which forced this was some bad atom length redetermination; probably won't be fixed
+		}
+		if (parsedAtoms[iter].AtomicStart == 0 && parsedAtoms[iter].AtomicData == NULL &&
+		    parsedAtoms[iter].AtomicNumber > 0 && parsedAtoms[iter].AtomicContainerState == CHILD_ATOM) {
+			fprintf(stderr, "AtomicParsley error: a '%s' atom was rendered to NULL length. Aborting. %c\n", parsedAtoms[iter].AtomicName, '\a');
+			exit(1); //data was not written to AtomicData for this new atom.
 		}
 		
 		if (memcmp(parsedAtoms[iter].AtomicName, "trak", 4) == 0 && parsedAtoms[iter+1].NextAtomNumber != 0) { //prevent writing any malformed tracks
