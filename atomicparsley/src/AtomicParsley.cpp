@@ -2244,6 +2244,9 @@ void APar_LocateDataReference(short chunk_offset_idx, FILE* file) {
 	
 	sampletable_atom_idx = APar_FindParentAtom(chunk_offset_idx, parsedAtoms[chunk_offset_idx].AtomicLevel);
 	stsd_atom = APar_FindChildAtom(sampletable_atom_idx, "stsd");
+	if (stsd_atom == NULL) {
+		return;
+	}
 	data_ref_idx = APar_read32(twenty_byte_buffer, file, stsd_atom->AtomicStart+28);
 	
 	minf_atom_idx = APar_FindParentAtom(sampletable_atom_idx, parsedAtoms[sampletable_atom_idx].AtomicLevel);
