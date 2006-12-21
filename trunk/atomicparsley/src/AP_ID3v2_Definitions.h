@@ -154,6 +154,10 @@ enum ID3v2FrameIDs {
 // is for a utf16 BOM to exist on text encoding 0x01. The (required) terminator for mime & filename are specifically
 // enumerated in the frame format, which matches the wording of the frame description.
 // ...and so AP does not terminate text fields
+//
+// Further sealing the case is the reference implementation for id3v2.3 (id3lib) doesn't terminate text fields:
+// http://sourceforge.net/project/showfiles.php?group_id=979&package_id=4679
+
 enum text_encodings {
 	TE_LATIN1 = 0,
 	TE_UTF16LE_WITH_BOM = 1,
@@ -161,7 +165,7 @@ enum text_encodings {
 	TE_UTF8 = 3
 };
 
-// Structure that defines the known atoms used by mpeg-4 family of specifications.
+// Structure that defines the (subset) known ID3 frames defined by id3 informal specification.
 typedef struct {
   char*         ID3V2p2_FrameID;
   char*					ID3V2p3_FrameID;
@@ -186,7 +190,6 @@ typedef struct {
 } ID3ImageType;
 
 // Structure that defines how any ID3v2FrameType is constructed, listing an array of its constituent ID3_FieldTypes
-
 typedef struct {
 	ID3v2FrameType   ID3_FrameType;
 	uint8_t          ID3_FieldCount;
@@ -194,10 +197,11 @@ typedef struct {
 } ID3v2FieldDefinition;
 
 struct ID3v2Fields {
-	int       ID3v2_Field_Type;
-	uint32_t  field_length;
-	uint32_t  alloc_length;
-	char*     field_string;
+	int          ID3v2_Field_Type;
+	uint32_t     field_length;
+	uint32_t     alloc_length;
+	char*        field_string;
+	ID3v2Fields* next_field;
 };
 
 struct ID3v2Frame {
@@ -212,6 +216,7 @@ struct ID3v2Frame {
 	int           ID3v2_Frame_ID;
 	int           ID3v2_FrameType;
 	uint8_t       ID3v2_FieldCount;
+	uint8_t       textfield_tally;
 	ID3v2Fields*  ID3v2_Frame_Fields; //malloc
 	ID3v2Frame*   ID3v2_NextFrame;
 	bool          eliminate_frame;	

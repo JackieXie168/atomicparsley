@@ -353,12 +353,13 @@ static char* fileLevelHelp_text =
 "                                              achieve absolutely 0 bytes 'free' space with --freefree, set\n"
 "                                              DEFAULT_PAD to 0 via the AP_PADDING mechanism (see below).\n"
 "\n"
-"  --preventOptimzing                  Prevents reorganizing the file to have file metadata before media data.\n"
+"  --preventOptimizing                 Prevents reorganizing the file to have file metadata before media data.\n"
 "                                      iTunes/Quicktime have so far *always* placed metadata first; many 3rd\n"
 "                                      party utilities do not (preventing streaming to the web, AirTunes, iTV).\n"
 "                                      Used in conjunction with --overWrite, files with metadata at the end\n"
 "                                      (most ffmpeg produced files) can have their tags rapidly updated without\n"
 "                                      requiring a full rewrite. Note: this does not un-optimize a file.\n"
+"                                      Note: this option will be canceled out if used with the --freefree option\n"
 "\n"
 "  --metaDump                          Dumps out 'moov.udta' metadata out to a new file next to original\n"
 "                                          (for diagnostic purposes, please remove artwork before sending)\n"
@@ -622,14 +623,14 @@ static char* rDNSHelp_text =
 " atom it contains. In the reverseDNS format, the parent to the structure called the '----' atom, with\n"
 " children atoms that describe & contain the metadata carried. The 'mean' child contains the reverse\n"
 " domain itself ('com.apple.iTunes') & the 'name' child contains the descriptor ('iTunNORM'). A 'data'\n"
-" atom follows that actually contains the contents of the tag.n"
+" atom follows that actually contains the contents of the tag.\n"
 "\n"
 "  --contentRating (rating)             Set the US TV/motion picture media content rating\n"
-"                                         for available ratings use \"AtomicParsley --rating-list\n"
+"                                         for available ratings use \"AtomicParsley --ratings-list\n"
 
 "  --rDNSatom      (str)   name=(name_str) domain=(reverse_domain)  Manually set a reverseDNS atom.\n"
 "\n"
-" To set the form manually, 3 things are required: a domain, a name, and content.\n"
+" To set the form manually, 3 things are required: a domain, a name, and the desired text.\n"
 " Examples:\n"
 "  --contentRating \"NC-17\" --contentRating \"TV-Y7\"\n"
 "  --rDNSatom \"mpaa|PG-13|300|\" name=iTunEXTC domain=com.apple.iTunes\n"
@@ -643,37 +644,43 @@ static char* ID3Help_text =
 "----------------------------------------------------------------------------------------------------\n"
 "      **  Please note: ID3 tag support is not feature complete & is in an alpha state.  **\n"
 "----------------------------------------------------------------------------------------------------\n"
-" ID3 tags are the tagging scheme used by mp3 files. In mpeg-4 files, support for this legacy tagging\n"
-" scheme was added around early 2006, but the last update to the ID3 version 2 \"informal standard\" was\n"
-" in 2000. With few exceptions, these tags in mpeg-4 files exist identically to their mp3 counterparts.\n"
+" ID3 tags are the tagging scheme used by mp3 files (where they are found typically at the start of the\n"
+" file). In mpeg-4 files, ID3 version 2 tags are located in specific hierarchies at certain levels, at\n"
+" file/movie/track level. The way that ID3 tags are carried on mpeg-4 files (carried by 'ID32' atoms)\n"
+" was added in early 2006, but the ID3 tagging 'informal standard' was last updated (to v2.4) in 2000.\n"
+" With few exceptions, ID3 tags in mpeg-4 files exist identically to their mp3 counterparts.\n"
+"\n"
+" The ID3 parlance, a frame contains an piece of metadata. A frame (like COMM for comment, or TIT1 for\n"
+" title) contains the information, while the tag contains all the frames collectively. The 'informal\n"
+" standard' for ID3 allows multiple langauges for frames like COMM (comment) & USLT (lyrics). In mpeg-4\n"
+" this language setting is removed from the ID3 domain and exists in the mpeg-4 domain. That means that\n"
+" when an english and a spanish comment are set, 2 separate ID32 atoms are created, each with a tag & 1\n"
+" frame as in this example:\n" 
+"       --ID3Tag COMM \"Primary\" --desc=AAA --ID3Tag COMM \"El Segundo\" UTF16LE lang=spa --desc=AAA\n"
 " See available frames with \"AtomicParsley --ID3frames-list\"\n"
 " See avilable imagetypes with \"AtomicParsley --imagetype-list\"\n"
 "\n"
-" AtomicParsley writes ID3 version 2.4.0 tags. Defaults are:\n"
-"   utf8 encoding where encoding is optional; options are [ LATIN1, UTF16BE, UTF16LE ]\n"
+" AtomicParsley writes ID3 version 2.4.0 tags *only*. There is no up-converting from older versions.\n"
+" Defaults are:\n"
+"   default to movie level (moov.meta.ID32); other options are [ \"root\", \"track=(num)\" ] (see WARNING)\n"
+"   UTF-8 text encoding when optional; other options are [ \"LATIN1\", \"UTF16BE\", \"UTF16LE\" ]\n"
+"   frames that require descriptions have a default of \"\"\n"
+"   for frames requiring a language setting, the ID32 language is used (currently defaulting to 'eng')\n"
 "   frames that require descriptions have a default of \"\"\n"
 "   image type defaults to 0x00 or Other; for image type 0x01, 32x32 png is enforced (switching to 0x02)\n"
 "   setting the image mimetype is generally not required as the file is tested, but can be overridden\n"
-"   for frames requiring a language setting, the ID32 language is used (currently defaulting to 'eng')\n"
 "   zlib compression off\n"
 "\n"
-"  Notes:\n"
-"     The ID3 'informal standard' allows multiple languages in for example COMM comments & USLT lyrics,\n"
-"     however the way that mpeg-4 allows the ID3 tags, this *multiple* language support is removed from\n"
-"     ID3 and is placed in the mpeg-4 domain. This means multiple ID32 atoms differing in language are\n"
-"     created, not a single ID32 atom with multiple COMMs of differing languages. In the example below,\n"
-"     2 ID32 atoms are created, each carrying a single ID3 COMM frame:\n"
-"       --ID3Tag COMM \"Primary\" --desc=AAA --ID3Tag COMM \"El Segundo\" UTF16LE lang=spa --desc=AAA\n"
+"  WARNING:\n"
+"     Quicktime Player (up to v7.1.3 at least) will freeze opeing a file with ID32 tags at movie level.\n"
+"     Specifically, the parent atom, 'meta' is the source of the issue. You can set the tags at file or\n"
+"     track level which avoids the problem, but the default is movie level. iTunes is unaffected.\n"
 "----------------------------------------------------------------------------------------------------\n"
 "   Current limitations:\n"
-"   - ID3 version 2.4 only with no up-converting from older versions.\n"
 "   - syncsafe integers are used as indicated by the id3 \"informal standard\". usage/reading of\n"
 "     nonstandard ordinary unsigned integers (uint32_t) is not/will not be implemented.\n"
 "   - externally referenced images (using mimetype '-->') are prohibited by the ID32 specification.\n"
-"   - presets for text frames (like TCON/genre) are not yet implemented. The only preset is for imagetype.\n"
-"   - listing of ID3 tags on ID32 atoms is only available on 3gp branded files or forced with 'AP -t all'.\n"
 "   - the ID32 atom is only supported in a non-referenced context\n"
-"   - only tested at movie level; listings at non-movie levels is not yet implemented\n"
 "   - probably a raft of other limitations that my brain lost along the way...\n"
 "----------------------------------------------------------------------------------------------------\n"
 " Usage:\n"
@@ -798,7 +805,7 @@ void find_optional_args(char *argv[], int start_optindargs, uint16_t &packed_lan
 	return;
 }
 
-void scan_ID3_optargs(char *argv[], int start_optargs, char* &target_lang, uint16_t &packed_lang, uint8_t &char_encoding, char meta_container, bool &multistring) {
+void scan_ID3_optargs(char *argv[], int start_optargs, char* &target_lang, uint16_t &packed_lang, uint8_t &char_encoding, char* meta_container, bool &multistring) {
 	packed_lang = 5575; //default ID32 lang is 'eng'
 	uint16_t i = 0;
 	
@@ -820,6 +827,13 @@ void scan_ID3_optargs(char *argv[], int start_optargs, char* &target_lang, uint1
 				char_encoding = TE_UTF16BE_NO_BOM;
 			} else if ( memcmp(argv[start_optargs + i], "LATIN1", 7) == 0 ) {
 				char_encoding = TE_LATIN1;
+				
+			} else if ( memcmp(argv[optind + i], "root", 5) == 0 ) {
+				*meta_container = 0-FILE_LEVEL_ATOM;
+			} else if ( memcmp(argv[optind + i], "track=", 6) == 0 ) {
+				char* track_index_str = argv[optind + i];
+				strsep(&track_index_str, "=");
+				sscanf(track_index_str, "%hhu", meta_container);
 			}
 		}
 		
@@ -839,6 +853,9 @@ char* find_ID3_optarg(char *argv[], int start_optargs, char* arg_string) {
 	while (argv[start_optargs + i] != NULL) {
 		if ( argv[start_optargs + i] && start_optargs + i <= total_args ) {
 			if (memcmp(arg_string, "compressed", 11) == 0 && memcmp(argv[start_optargs + i], "compressed", 11) == 0) {
+				return "1";
+			}
+			if (memcmp(arg_string, "text++", 7) == 0 && memcmp(argv[start_optargs + i], "text++", 7) == 0) {
 				return "1";
 			}
 			if (memcmp(argv[start_optargs + i], arg_string, arg_prefix_len) == 0) {
@@ -2060,7 +2077,7 @@ int main( int argc, char *argv[]) {
 		
 		case _3GP_Album : {
 			APar_ScanAtoms(ISObasemediafile);
-			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER_VER1_REL6 && metadata_style < MOTIONJPEG2000, 3, NULL) ) {
+			if ( !APar_assert(metadata_style >= THIRD_GEN_PARTNER && metadata_style < MOTIONJPEG2000, 2, "album") ) {
 				break;
 			}
 			bool set_UTF16_text = false;
@@ -2426,6 +2443,10 @@ int main( int argc, char *argv[]) {
 			
 			APar_ScanAtoms(ISObasemediafile);
 			
+			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "reverse DNS form") ) {
+				break;
+			}
+			
 			for (int i= 0; i <= 5-1; i++) {
 				if ( argv[optind + i] && optind + i <= argc ) {
 					if ( memcmp(argv[optind + i], "name=", 5) == 0 ) {
@@ -2491,9 +2512,16 @@ int main( int argc, char *argv[]) {
 			char* target_frame_ID = NULL;
 			uint16_t packed_lang = 0;
 			uint8_t char_encoding = TE_UTF8; //utf8 is the default encoding
-			char meta_container = MOVIE_LEVEL_ATOM;
+			char meta_container = 0-MOVIE_LEVEL_ATOM;
 			bool multistring = false;
 			APar_ScanAtoms(ISObasemediafile);
+			
+			//limit the files that can be tagged with meta.ID32 atoms. The file has to conform to the ISO BMFFv2 in order for a 'meta' atom.
+			//This should exclude files branded as 3gp5 for example, except it doesn't always. The test is for a compatible brand (of a v2 ISO MBFF).
+			//Quicktime writes some 3GPP files as 3gp5 with a compatible brand of mp42, so tagging works on these files. Not when you use timed text though.
+			if ( !APar_assert(parsedAtoms[0].ancillary_data != 0 || (metadata_style >= THIRD_GEN_PARTNER_VER1_REL7 && metadata_style < MOTIONJPEG2000), 3, NULL) ) {
+				break;
+			}
 			AdjunctArgs* id3args = (AdjunctArgs*)malloc(sizeof(AdjunctArgs));
 			
 			id3args->targetLang = NULL; //it will default later to "eng"
@@ -2512,9 +2540,6 @@ int main( int argc, char *argv[]) {
 				target_frame_ID = optarg;
 			}
 			
-			//0 = description
-			//1 = mimetype
-			//2 = imagetype
 			int frameType = FrameStr_TO_FrameType(target_frame_ID);
 			if (frameType >= 0) {
 				if (TestCLI_for_FrameParams(frameType, 0)) {
@@ -2547,6 +2572,11 @@ int main( int argc, char *argv[]) {
 				if (memcmp("1", find_ID3_optarg(argv, optind, "compressed"), 1) == 0) {
 					id3args->zlibCompressed = true;
 				}
+				if (frameType == ID3_TEXT_FRAME) {
+					if (memcmp("1", find_ID3_optarg(argv, optind, "text++"), 1) == 0) { //TODO: this needs to be more transparent
+						id3args->multistringtext = true;
+					}
+				}
 				
 				char* groupsymbol = find_ID3_optarg(argv, optind, "groupsymbol=");
 				if (groupsymbol[0] == '0' && groupsymbol[1] == 'x') {
@@ -2555,11 +2585,11 @@ int main( int argc, char *argv[]) {
 				}
 			}
 			
-			scan_ID3_optargs(argv, optind, id3args->targetLang, packed_lang, char_encoding, meta_container, multistring);
+			scan_ID3_optargs(argv, optind, id3args->targetLang, packed_lang, char_encoding, &meta_container, multistring);
 			if (id3args->targetLang == NULL) id3args->targetLang = "eng";
 			
 			APar_OpenISOBaseMediaFile(ISObasemediafile, true); //if not already scanned, the whole tag for *this* ID32 atom needs to be read from file
-			short id3_atom = APar_ID32_atom_Init(target_frame_ID, -1, id3args->targetLang, packed_lang);
+			short id3_atom = APar_ID32_atom_Init(target_frame_ID, meta_container, id3args->targetLang, packed_lang);
 			
 			if (memcmp(argv[optind + 0], "extract", 7) == 0 && (memcmp(target_frame_ID, "APIC", 4) == 0 || memcmp(target_frame_ID, "GEOB", 4) == 0)) {
 				APar_ID3ExtractFile(id3_atom, target_frame_ID, ISObasemediafile, NULL, id3args);

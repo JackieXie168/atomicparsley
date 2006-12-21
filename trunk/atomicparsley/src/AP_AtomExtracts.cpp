@@ -1300,7 +1300,8 @@ void APar_ExtractBrands(char* filepath) {
 	char* buffer = (char *)calloc(1, sizeof(char)*16);
 	uint32_t atom_length = 0;
 	uint8_t file_type_offset = 0;
-	//bool scan_file = false;
+	uint32_t compatible_brand = 0;
+	bool cb_V2ISOBMFF = false;
 	
 	fseek(a_file, 4, SEEK_SET); //this fseek will to.... the first 30 or so bytes; fseeko isn't required
 	fread(buffer, 1, 4, a_file);
@@ -1334,8 +1335,12 @@ void APar_ExtractBrands(char* filepath) {
 		fprintf(stdout, " Compatible Brands:");
 		for (uint32_t i = 16+file_type_offset; i < atom_length; i+=4) {
 			APar_readX(buffer, a_file, i, 4);
-			if (UInt32FromBigEndian(buffer) != 0) {
+			compatible_brand = UInt32FromBigEndian(buffer);
+			if (compatible_brand != 0) {
 				fprintf(stdout, " %s", buffer);
+				if (compatible_brand == 0x6D703432 || compatible_brand == 0x69736F32) {
+					cb_V2ISOBMFF = true;
+				}
 			}
 		}
 		fprintf(stdout, "\n");
@@ -1350,14 +1355,22 @@ void APar_ExtractBrands(char* filepath) {
 			break;
 		}
 		case THIRD_GEN_PARTNER: {
-			fprintf(stdout, "   3GP-style asset metadata allowed - except 'albm' album tag. 3gp6 or later major brand required.\n");
+			fprintf(stdout, "   3GP-style copyright asset metadata only. 3gp6 or later major brand required for other assets.\n");
 			break;
 		}
 		case THIRD_GEN_PARTNER_VER1_REL6:
+		case THIRD_GEN_PARTNER_VER1_REL7:
 		case THIRD_GEN_PARTNER_VER2: {
 			fprintf(stdout, "   3GP-style asset metadata allowed.\n");
 			break;
 		}
+		case THIRD_GEN_PARTNER_VER2_REL_A: {
+			fprintf(stdout, "   3GP-style asset metadata allowed [& unimplemented GAD (Geographical Area Description) asset].\n");
+			break;
+		}
+	}
+	if (cb_V2ISOBMFF || metadata_style == THIRD_GEN_PARTNER_VER1_REL7) {
+		fprintf(stdout, "   ID3 tags on ID32 atoms @ file/movie/track level allowed.\n");
 	}
 	fprintf(stdout, "   ISO-copyright notices @ movie and/or track level allowed.\n   uuid private user extension tags allowed.\n");
 	

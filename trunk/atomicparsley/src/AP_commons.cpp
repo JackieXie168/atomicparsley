@@ -525,12 +525,12 @@ bool APar_assert(bool expression, int error_msg, char* supplemental_info) {
 			}
 			
 			case 2 : { //trying to set a 3gp asset on an mpeg-4 file with the improper brand
-				fprintf(stdout, "AP warning:\n\tSetting the %s asset is only available on 3GPP files.\n\tIt is not supported on ordinary MPEG-4 files.\nSkipping\n", supplemental_info);
+				fprintf(stdout, "AP warning:\n\tSetting the %s asset is only available on 3GPP files branded 3gp6 or later.\nSkipping\n", supplemental_info);
 				break;
 			}
 			
-			case 3 : { //trying to set a 3gp album asset on an early 3gp file that only came into being with 3gp6
-				fprintf(stdout, "AtomicParsley warning: \n\tthe 'albm' tag is only allowed on files of '3gp6' brand & later.\nSkipping.\n");
+			case 3 : { //trying to set 'meta' on a file without a iso2 or mp42 compatible brand.
+				fprintf(stdout, "AtomicParsley warning: ID3 tags requires a v2 compatible file, which was not found.\nSkipping.\n");
 				break;
 			}
 			case 4 : { //trying to set a 3gp album asset on an early 3gp file that only came into being with 3gp6
@@ -542,7 +542,7 @@ bool APar_assert(bool expression, int error_msg, char* supplemental_info) {
 				break;
 			}
 			case 6 : { //trying to set id3 metadata on track 33 when there are only 3 tracks
-				fprintf(stdout, "AP warning: skipping non-existing track number setting id3 tag: %s.\n", supplemental_info);
+				fprintf(stdout, "AP error: skipping non-existing track number setting frame %s for ID32 atom.\n", supplemental_info);
 				break;
 			}
 			case 7 : { //trying to set id3 metadata on track 33 when there are only 3 tracks

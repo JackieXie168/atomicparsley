@@ -30,6 +30,7 @@
 #include "AP_iconv.h"
 #include "APar_uuid.h"
 #include "AP_CDTOC.h"
+#include "AtomicParsley_genres.h"
 
 #include "AP_ID3v2_FrameDefinitions.h"
 
@@ -121,11 +122,13 @@ void convert_to_syncsafe32(uint32_t in_uint, char* buffer) {
 }
 
 uint8_t convert_to_syncsafeXX(uint64_t in_uint, char* buffer) {
+	if 
 #if defined (_MSC_VER)
-	if (in_uint <= (uint64_t)34359738367) {
+	(in_uint <= (uint64_t)34359738367)
 #else
-	if (in_uint <= 34359738367ULL) {
+	(in_uint <= 34359738367ULL)
 #endif
+	{
 		buffer[0] = (in_uint >> 28) & 0x7F;
 		buffer[1] = (in_uint >> 21) & 0x7F;
 		buffer[2] = (in_uint >> 14) & 0x7F;
@@ -284,6 +287,13 @@ uint32_t ID3v2_desynchronize(char* buffer, uint32_t bufferlen) {
 	return desync_count;
 }
 
+uint8_t TestCharInRange(uint8_t testchar, uint8_t lowerlimit, uint8_t upperlimit) {
+	if (testchar >= lowerlimit && testchar <= upperlimit) {
+		return 1;
+	}
+	return 0;
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////
 //                             test functions                                        //
 ///////////////////////////////////////////////////////////////////////////////////////
@@ -308,6 +318,39 @@ void WriteZlibData(char* buffer, uint32_t buff_len) {
 //                               cli functions                                       //
 ///////////////////////////////////////////////////////////////////////////////////////
 
+char* ReturnFrameTypeStr(int frametype) {
+	if (frametype == ID3_TEXT_FRAME) {
+		return "text frame             ";
+	} else if (frametype == ID3_TEXT_FRAME_USERDEF) {
+		return "user defined text frame";
+	} else if (frametype == ID3_URL_FRAME) {
+		return "url frame              ";
+	} else if (frametype == ID3_URL_FRAME_USERDEF) {
+		return "user defined url frame ";
+	} else if (frametype == ID3_UNIQUE_FILE_ID_FRAME) {
+		return "file ID                ";
+	} else if (frametype == ID3_CD_ID_FRAME ) {
+		return "AudioCD ID frame       ";
+	} else if (frametype == ID3_DESCRIBED_TEXT_FRAME) {
+		return "described text frame   ";
+	} else if (frametype == ID3_ATTACHED_PICTURE_FRAME) {
+		return "picture frame          ";
+	} else if (frametype == ID3_ATTACHED_OBJECT_FRAME) {
+		return "encapuslated object frm";			
+	} else if (frametype == ID3_GROUP_ID_FRAME) {
+		return "group ID frame         ";
+	} else if (frametype == ID3_SIGNATURE_FRAME) {
+		return "signature frame        ";
+	} else if (frametype == ID3_PRIVATE_FRAME) {
+		return "private frame          ";
+	} else if (frametype == ID3_PLAYCOUNTER_FRAME) {
+		return "playcounter            ";
+	} else if (frametype == ID3_POPULAR_FRAME) {
+		return "popularimeter          ";
+	}
+	return "";
+} 
+
 void ListID3FrameIDstrings() {
 	char* frametypestr = NULL;
 	char* presetpadding = NULL;
@@ -315,26 +358,8 @@ void ListID3FrameIDstrings() {
 	fprintf(stdout, "ID3v2.4 Implemented Frames:\nframeID    type                   alias       Description\n--------------------------------------------------------------------------\n");
 	for (uint16_t i = 1; i < total_known_frames; i++) {
 		if (strlen(KnownFrames[i].ID3V2p4_FrameID) != 4) continue;
-		if (KnownFrames[i].ID3v2_FrameType == ID3_TEXT_FRAME) {
-			frametypestr = "text frame             ";
-		} else if (KnownFrames[i].ID3v2_FrameType == ID3_TEXT_FRAME_USERDEF) {
-			frametypestr = "user defined text frame";
-		} else if (KnownFrames[i].ID3v2_FrameType == ID3_URL_FRAME) {
-			frametypestr = "url frame              ";
-		} else if (KnownFrames[i].ID3v2_FrameType == ID3_URL_FRAME_USERDEF) {
-			frametypestr = "user defined url frame ";
-		} else if (KnownFrames[i].ID3v2_FrameType == ID3_TEXT_FRAME_USERDEF) {
-			frametypestr = "user text frame        ";
-		} else if (KnownFrames[i].ID3v2_FrameType == ID3_UNIQUE_FILE_ID_FRAME) {
-			frametypestr = "file ID                ";
-		} else if (KnownFrames[i].ID3v2_FrameType == ID3_DESCRIBED_TEXT_FRAME) {
-			frametypestr = "described text frame   ";
-		} else if (KnownFrames[i].ID3v2_FrameType == ID3_ATTACHED_PICTURE_FRAME) {
-			frametypestr = "picture frame          ";
-		} else if (KnownFrames[i].ID3v2_FrameType == ID3_ATTACHED_OBJECT_FRAME) {
-			frametypestr = "encapuslated object frm";
-		}
-		
+		frametypestr = ReturnFrameTypeStr(KnownFrames[i].ID3v2_FrameType);
+
 		int strpad = 12 - strlen(KnownFrames[i].CLI_frameIDpreset);
 		if (strpad == 12) {
 			presetpadding = "            ";
@@ -366,6 +391,48 @@ void ListID3FrameIDstrings() {
 
 		fprintf(stdout, "%s   %s    %s%s | %s\n", KnownFrames[i].ID3V2p4_FrameID, frametypestr, KnownFrames[i].CLI_frameIDpreset, presetpadding, KnownFrames[i].ID3V2_FrameDescription);
 	}
+	fprintf(stdout,
+"--------------------------------------------------------------------------\n"
+"For each frame type, these parameters are available:\n"
+"  text frames:                 (str) [encoding]\n"
+"  user defined text frame :    (str) [desc=(str)] [encoding]\n"
+"  url frame :                  (url)\n"
+"  user defined url frame :     (url) [desc=(str)] [encoding]\n"
+"  file ID frame :              (owner) [uniqueID={\"randomUUIDstamp\",(str)}]\n"
+#if defined (DARWIN_PLATFORM)
+"  AudioCD ID frame :           disk(num)\n"
+#elif defined (HAVE_LINUX_CDROM_H)
+"  AudioCD ID frame :           (/path)\n"
+#elif defined (WIN32)
+"  AudioCD ID frame :           (num)\n"
+#endif
+"  described text frame :       (str) [desc=(str)] [encoding]\n"
+"  picture frame :              (/path) [desc=(str)] [mimetype=(str)] [imagetype=(hex)] [encoding]\n"
+"  encapuslated object frame :  (/path) [desc=(str)] [mimetype=(str)] [filename={\"FILENAMESTAMP\",(str)}] [encoding]\n"
+"  group ID frame :             (owner) groupsymbol=(hex) [data=(str)]\n"
+"  signature frame :            (str) groupsymbol=(hex)\n"
+"  private frame :              (owner) data=(str)\n"
+"  playcounter :                (num or \"+1\")\n"
+"  popularimeter :              (owner) rating=(1...255) [counter=(num or \"+1\")]\n"
+"\n"
+"   Legend:\n"
+"    parameters in brackets[] signal an optional parameter, parens() signal a required parameter\n"
+"     [encoding] may be one either the default UTF8, or one of { LATIN1 UTF16BE UTF16LE }\n"
+"     (str) signals a string - like \"Suzie\"\n"
+"     (num) means a number; +1 will increment a counter by 1; (hex) means a hexadecimal number - like 0x11)\n"
+"     (url) menas a url, in string form; (owner) means a url/email string\n"
+"     uniqueID=randomUUIDstamp will create a high quality random uuid\n"
+"     filename=FILENAMESTAMP will embed the name of the file given in the /path for GEOB\n"
+"\n"
+"   All frames also take additional parameters:\n"
+"     [{root,track=(num)}] specifies file level, track level or (default) movie level for an ID32 atom\n"
+"     [compress] compresses the given frame using zlib deflate compression\n"
+"     [groupsymbol=(num)] associates a frame with a GRID frame of the same group symbol\n"
+"     [lang=(3char)] (default='eng') sets the language/ID32 atom to which the frame belongs\n"
+"                    use AP --languages-list to see a list of available languages\n"
+);
+	
+	
 	return;
 }
 
@@ -439,6 +506,7 @@ bool TestCLI_for_FrameParams(int frametype, uint8_t testparam) {
 //                         frame identity functions                                  //
 ///////////////////////////////////////////////////////////////////////////////////////
 
+/*
 uint16_t MatchID3FrameIDstr(const char* foundFrameID, uint8_t tagVersion) {
 	uint16_t matchingFrameID = 0; //return the UnknownFrame if it can't be found
 	uint16_t total_known_frames = (uint16_t)(sizeof(KnownFrames)/sizeof(*KnownFrames));
@@ -456,6 +524,23 @@ uint16_t MatchID3FrameIDstr(const char* foundFrameID, uint8_t tagVersion) {
 		}
 	}
 	return matchingFrameID;
+}
+*/
+int MatchID3FrameIDstr(const char* foundFrameID, uint8_t tagVersion) {
+	uint16_t total_known_frames = (uint16_t)(sizeof(KnownFrames)/sizeof(*KnownFrames));
+	uint8_t frameLen = (tagVersion >= 3 ? 4 : 3) +1;
+	
+	for (int i = 0; i < total_known_frames; i++) {
+		char* testFrameID = NULL;
+		if (tagVersion == 2) testFrameID = KnownFrames[i].ID3V2p2_FrameID;
+		if (tagVersion == 3) testFrameID = KnownFrames[i].ID3V2p3_FrameID;
+		if (tagVersion == 4) testFrameID = KnownFrames[i].ID3V2p4_FrameID;
+		
+		if (memcmp(foundFrameID, testFrameID, frameLen) == 0) {
+			return KnownFrames[i].ID3v2_InternalFrameID;
+		}
+	}
+	return ID3v2_UNKNOWN_FRAME; //return the UnknownFrame if it can't be found
 }
 
 uint8_t GetFrameCompositionDescription(int ID3v2_FrameTypeID) {
@@ -490,12 +575,51 @@ int FrameStr_TO_FrameType(char* frame_str) {
 	return frame_type;
 }
 
+ID3v2Fields* APar_FindLastTextField(ID3v2Frame* aFrame) {
+	ID3v2Fields* lastusedtextfield = NULL;
+	if (aFrame->textfield_tally > 0) {
+		lastusedtextfield = aFrame->ID3v2_Frame_Fields+1;
+		while (true) {
+			if (lastusedtextfield->next_field == NULL) {
+				break;
+			}
+			lastusedtextfield = lastusedtextfield->next_field;
+		}
+	}	
+	return lastusedtextfield;
+}
+
+bool APar_ExtraTextFieldInit(ID3v2Fields* lastField, uint32_t utf8len, uint8_t textencoding) {
+	ID3v2Fields* extraField = NULL;
+	lastField->next_field = (ID3v2Fields*)calloc(1, sizeof(ID3v2Fields)*1);
+	if (lastField->next_field == NULL) {
+		fprintf(stdout, "There was insufficient memory to allocate another ID3 field\n");
+		exit(12);
+	}
+	extraField = lastField->next_field;
+	extraField->ID3v2_Field_Type = ID3_TEXT_FIELD;
+	extraField->field_length = 0;
+	
+	if (textencoding == TE_UTF16LE_WITH_BOM || textencoding == TE_UTF16BE_NO_BOM) {
+		extraField->alloc_length = 2 + (utf8len * 2);
+	} else {
+		extraField->alloc_length = utf8len + 1;
+	}
+	if (extraField->alloc_length > 0) {
+		extraField->field_string = (char*)calloc(1, sizeof(char*) * extraField->alloc_length);
+		if (!APar_assert((extraField->field_string != NULL), 11, "while setting an extra text field") ) exit(11);
+		return true;
+	}		
+	return false;
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////
 //                            id3 parsing functions                                  //
 ///////////////////////////////////////////////////////////////////////////////////////
-
+/*
 uint32_t APar_ExtractField(char* buffer, uint32_t maxFieldLen, ID3v2Frame* thisFrame, uint8_t fieldNum, int fieldType, uint8_t textEncoding) {
 	uint32_t bytes_used = 0;
+	(thisFrame->ID3v2_Frame_Fields+fieldNum)->next_field = NULL;
 	switch(fieldType) {
 		case ID3_UNKNOWN_FIELD : { //the difference between this unknown field & say a binary data field is the unknown field is always the first (and only) field
 			thisFrame->ID3v2_Frame_Fields->ID3v2_Field_Type = ID3_UNKNOWN_FIELD;
@@ -539,7 +663,11 @@ uint32_t APar_ExtractField(char* buffer, uint32_t maxFieldLen, ID3v2Frame* thisF
 			memcpy((thisFrame->ID3v2_Frame_Fields+fieldNum)->field_string, buffer, maxFieldLen);
 			(thisFrame->ID3v2_Frame_Fields+fieldNum)->alloc_length = (sizeof(char)*maxFieldLen+1 > 16 ? maxFieldLen+1 : 16);
 			
-			bytes_used = maxFieldLen;
+			if (fieldType == ID3_TEXT_FIELD) {
+				bytes_used = findstringNULLterm(buffer, textEncoding, maxFieldLen);			
+			} else {
+				bytes_used = maxFieldLen;
+			}
 			break;
 		}
 		case ID3_MIME_TYPE_FIELD :
@@ -571,139 +699,258 @@ uint32_t APar_ExtractField(char* buffer, uint32_t maxFieldLen, ID3v2Frame* thisF
 	}
 	//fprintf(stdout, "%u, %s, %s\n", bytes_used, buffer, (thisFrame->ID3v2_Frame_Fields+fieldNum)->field_string);
 	return bytes_used;
+} */
+
+uint32_t APar_ExtractField(char* buffer, uint32_t maxFieldLen, ID3v2Frame* thisFrame, ID3v2Fields* thisField, int fieldType, uint8_t textEncoding) {
+	uint32_t bytes_used = 0;
+	thisField->next_field = NULL;
+	switch(fieldType) {
+		case ID3_UNKNOWN_FIELD : { //the difference between this unknown field & say a binary data field is the unknown field is always the first (and only) field
+			thisField->ID3v2_Field_Type = ID3_UNKNOWN_FIELD;
+			thisField->field_length = maxFieldLen;
+			thisField->field_string = (char*)calloc(1, sizeof(char)*(maxFieldLen+1 > 16 ? maxFieldLen+1 : 16));
+			thisField->alloc_length = sizeof(char)*(maxFieldLen+1 > 16 ? maxFieldLen+1 : 16);
+			memcpy(thisField->field_string, buffer, maxFieldLen);
+			
+			bytes_used = maxFieldLen;
+			break;
+		}
+		case ID3_PIC_TYPE_FIELD :
+		case ID3_GROUPSYMBOL_FIELD :
+		case ID3_TEXT_ENCODING_FIELD : {
+			thisField->ID3v2_Field_Type = fieldType;
+			thisField->field_length = 1;
+			thisField->field_string = (char*)calloc(1, sizeof(char)*16);
+			thisField->field_string[0] = buffer[0]; //memcpy(thisField->field_string, buffer, 1);
+			thisField->alloc_length = sizeof(char)*16;
+			
+			bytes_used = 1;
+			break;
+		}
+		case ID3_LANGUAGE_FIELD : {
+			thisField->ID3v2_Field_Type = ID3_LANGUAGE_FIELD;
+			thisField->field_length = 3;
+			thisField->field_string = (char*)calloc(1, sizeof(char)*16);
+			memcpy(thisField->field_string, buffer, 3);
+			thisField->alloc_length = sizeof(char)*16;
+			
+			bytes_used = 3;
+			break;
+		}
+		case ID3_TEXT_FIELD :
+		case ID3_URL_FIELD :
+		case ID3_COUNTER_FIELD :
+		case ID3_BINARY_DATA_FIELD : { //this class of fields may contains NULLs but is *NOT* NULL terminated in any form
+			thisField->ID3v2_Field_Type = fieldType;
+			thisField->field_length = maxFieldLen;
+			thisField->field_string = (char*)calloc(1, sizeof(char)*maxFieldLen+1 > 16 ? maxFieldLen+1 : 16);
+			memcpy(thisField->field_string, buffer, maxFieldLen);
+			thisField->alloc_length = (sizeof(char)*maxFieldLen+1 > 16 ? maxFieldLen+1 : 16);
+			
+			if (fieldType == ID3_TEXT_FIELD) {
+				bytes_used = findstringNULLterm(buffer, textEncoding, maxFieldLen);			
+			} else {
+				bytes_used = maxFieldLen;
+			}
+			break;
+		}
+		case ID3_MIME_TYPE_FIELD :
+		case ID3_OWNER_FIELD : { //difference between ID3_OWNER_FIELD & ID3_DESCRIPTION_FIELD field classes is the owner field is always 8859-1 encoded (single NULL term)
+			thisField->ID3v2_Field_Type = fieldType;
+			thisField->field_length = findstringNULLterm(buffer, 0, maxFieldLen);
+			thisField->field_string = (char*)calloc(1, sizeof(char) * thisField->field_length +1 > 16 ? thisField->field_length +1 : 16);
+			memcpy(thisField->field_string, buffer, thisField->field_length);
+			thisField->alloc_length = (sizeof(char)*maxFieldLen+1 > 16 ? maxFieldLen+1 : 16);
+						
+			bytes_used = thisField->field_length;
+			break;
+		
+		}
+		case ID3_FILENAME_FIELD :
+		case ID3_DESCRIPTION_FIELD : {
+			thisField->ID3v2_Field_Type = fieldType;
+			thisField->field_length = findstringNULLterm(buffer, textEncoding, maxFieldLen);
+			thisField->field_string = (char*)calloc(1, sizeof(char) * thisField->field_length +1 > 16 ? thisField->field_length +1 : 16);
+			memcpy(thisField->field_string, buffer, thisField->field_length);
+			thisField->alloc_length = (sizeof(char) * thisField->field_length +1 > 16 ? thisField->field_length +1 : 16);
+						
+			bytes_used = thisField->field_length;
+			break;
+		}
+	}
+	//fprintf(stdout, "%u, %s, %s\n", bytes_used, buffer, (thisFrame->ID3v2_Frame_Fields+fieldNum)->field_string);
+	return bytes_used;
 }
 
 void APar_ScanID3Frame(ID3v2Frame* targetframe, char* frame_ptr, uint32_t frameLen) {
+	uint32_t offset_into_frame = 0;
+	
 	switch(targetframe->ID3v2_FrameType) {
 		case ID3_UNKNOWN_FRAME : {
-			APar_ExtractField(frame_ptr, frameLen, targetframe, 0, ID3_UNKNOWN_FIELD, 0);
+			APar_ExtractField(frame_ptr, frameLen, targetframe, targetframe->ID3v2_Frame_Fields, ID3_UNKNOWN_FIELD, 0);
 			break;
 		}
 		case ID3_TEXT_FRAME : {
-			APar_ExtractField(frame_ptr, 1, targetframe, 0, ID3_TEXT_ENCODING_FIELD, 0);
+			uint8_t textencoding = 0xFF;
+			offset_into_frame += APar_ExtractField(frame_ptr, 1, targetframe, targetframe->ID3v2_Frame_Fields, ID3_TEXT_ENCODING_FIELD, 0);
 			
-			APar_ExtractField(frame_ptr + 1, frameLen - 1, targetframe, 1, ID3_TEXT_FIELD, targetframe->ID3v2_Frame_Fields->field_string[0]);
+			offset_into_frame += APar_ExtractField(frame_ptr + 1, frameLen - 1, targetframe, targetframe->ID3v2_Frame_Fields+1,
+			                                        ID3_TEXT_FIELD, targetframe->ID3v2_Frame_Fields->field_string[0]);
+			targetframe->textfield_tally++;
+			
+			if (offset_into_frame >= frameLen) break;
+			textencoding = targetframe->ID3v2_Frame_Fields->field_string[0];
+			
+			if (offset_into_frame < frameLen) {
+				while (true) {
+					if (offset_into_frame >= frameLen) break;
+					
+					//skip the required separator for multiple strings
+					if (textencoding == TE_LATIN1 || textencoding == TE_UTF8) {
+						offset_into_frame += 1;
+					} else if (textencoding == TE_UTF16LE_WITH_BOM || textencoding == TE_UTF16LE_WITH_BOM) {
+						offset_into_frame += 2;
+					}
+					
+					//multiple id3v2.4 strings should be separated with a single NULL byte; some implementations might terminate the string AND use a NULL separator
+					if (textencoding == TE_LATIN1 || textencoding == TE_UTF8) {
+						if ((frame_ptr + offset_into_frame)[0] == 0) offset_into_frame+=1;
+					} else if (textencoding == TE_UTF16LE_WITH_BOM || textencoding == TE_UTF16LE_WITH_BOM) {
+						if ((frame_ptr + offset_into_frame)[0] == 0 && (frame_ptr + offset_into_frame)[1] == 0) offset_into_frame+=2;
+					}
+					
+					//a 3rd NULL would not be good
+					if (textencoding == TE_LATIN1 || textencoding == TE_UTF8) {
+						if ((frame_ptr + offset_into_frame)[0] == 0) break;
+					} else if (textencoding == TE_UTF16LE_WITH_BOM || textencoding == TE_UTF16LE_WITH_BOM) {
+						if ((frame_ptr + offset_into_frame)[0] == 0 && (frame_ptr + offset_into_frame)[1] == 0) break;
+					}
+					
+					ID3v2Fields* last_textfield = APar_FindLastTextField(targetframe);
+					if (APar_ExtraTextFieldInit(last_textfield, frameLen - offset_into_frame, textencoding)) {
+						offset_into_frame += APar_ExtractField(frame_ptr + offset_into_frame, frameLen - offset_into_frame, targetframe, last_textfield->next_field,
+																									 ID3_TEXT_FIELD, textencoding);
+						targetframe->textfield_tally++;
+					}
+					//copy the string to the new field
+					break;
+				}
+			}
 			break;
 		}
 		case ID3_URL_FRAME : {
-			APar_ExtractField(frame_ptr, frameLen, targetframe, 0, ID3_URL_FIELD, 0);
+			APar_ExtractField(frame_ptr, frameLen, targetframe, targetframe->ID3v2_Frame_Fields, ID3_URL_FIELD, 0);
 			break;
 		}
 		case ID3_TEXT_FRAME_USERDEF :
 		case ID3_URL_FRAME_USERDEF : {
-			uint32_t offset_into_frame = 0;
-			offset_into_frame += APar_ExtractField(frame_ptr, 1, targetframe, 0, ID3_TEXT_ENCODING_FIELD, 0);
+			offset_into_frame += APar_ExtractField(frame_ptr, 1, targetframe, targetframe->ID3v2_Frame_Fields, ID3_TEXT_ENCODING_FIELD, 0);
 			
-			offset_into_frame += APar_ExtractField(frame_ptr + offset_into_frame, frameLen - offset_into_frame, targetframe, 1, ID3_DESCRIPTION_FIELD, 
-																																																targetframe->ID3v2_Frame_Fields->field_string[0]);
+			offset_into_frame += APar_ExtractField(frame_ptr + offset_into_frame, frameLen - offset_into_frame, targetframe, 
+			                                       targetframe->ID3v2_Frame_Fields+1, ID3_DESCRIPTION_FIELD, targetframe->ID3v2_Frame_Fields->field_string[0]);
 			
 			offset_into_frame += skipNULLterm(frame_ptr + offset_into_frame, targetframe->ID3v2_Frame_Fields->field_string[0], frameLen - offset_into_frame);
 			
 			if (targetframe->ID3v2_FrameType == ID3_TEXT_FRAME_USERDEF) {
-				APar_ExtractField(frame_ptr + offset_into_frame, frameLen - offset_into_frame, targetframe, 2, ID3_TEXT_FIELD, 
-																																																targetframe->ID3v2_Frame_Fields->field_string[0]);
+				APar_ExtractField(frame_ptr + offset_into_frame, frameLen - offset_into_frame, targetframe,
+				                  targetframe->ID3v2_Frame_Fields+2, ID3_TEXT_FIELD, targetframe->ID3v2_Frame_Fields->field_string[0]);
 			} else if (targetframe->ID3v2_FrameType == ID3_URL_FRAME_USERDEF) {
-				APar_ExtractField(frame_ptr + offset_into_frame, frameLen - offset_into_frame, targetframe, 2, ID3_URL_FIELD, 
-																																																targetframe->ID3v2_Frame_Fields->field_string[0]);
+				APar_ExtractField(frame_ptr + offset_into_frame, frameLen - offset_into_frame, targetframe,
+				                  targetframe->ID3v2_Frame_Fields+2, ID3_URL_FIELD, targetframe->ID3v2_Frame_Fields->field_string[0]);
 			}
 			break;
 		}
 		case ID3_UNIQUE_FILE_ID_FRAME : {
-			
-			uint32_t offset_into_frame = 0;
-			offset_into_frame += APar_ExtractField(frame_ptr, frameLen, targetframe, 0, ID3_OWNER_FIELD, 0);
+			offset_into_frame += APar_ExtractField(frame_ptr, frameLen, targetframe, targetframe->ID3v2_Frame_Fields, ID3_OWNER_FIELD, 0);
 			offset_into_frame++; //iso-8859-1 owner field is NULL terminated
 			
-			APar_ExtractField(frame_ptr + offset_into_frame, frameLen - offset_into_frame, targetframe, 1, ID3_BINARY_DATA_FIELD, 0);
+			APar_ExtractField(frame_ptr + offset_into_frame, frameLen - offset_into_frame, targetframe, targetframe->ID3v2_Frame_Fields+1, ID3_BINARY_DATA_FIELD, 0);
 			break;
 		}
 		case ID3_CD_ID_FRAME : {
-			APar_ExtractField(frame_ptr, frameLen, targetframe, 0, ID3_BINARY_DATA_FIELD, 0);
+			APar_ExtractField(frame_ptr, frameLen, targetframe, targetframe->ID3v2_Frame_Fields, ID3_BINARY_DATA_FIELD, 0);
 			break;
 		}
 		case ID3_DESCRIBED_TEXT_FRAME : {
-			uint32_t offset_into_frame = 0;
-			offset_into_frame += APar_ExtractField(frame_ptr, 1, targetframe, 0, ID3_TEXT_ENCODING_FIELD, 0);
+			offset_into_frame += APar_ExtractField(frame_ptr, 1, targetframe, targetframe->ID3v2_Frame_Fields, ID3_TEXT_ENCODING_FIELD, 0);
 			
-			offset_into_frame += APar_ExtractField(frame_ptr + offset_into_frame, 3, targetframe, 1, ID3_LANGUAGE_FIELD, 0);
+			offset_into_frame += APar_ExtractField(frame_ptr + offset_into_frame, 3, targetframe, targetframe->ID3v2_Frame_Fields+1, ID3_LANGUAGE_FIELD, 0);
 			
-			offset_into_frame += APar_ExtractField(frame_ptr + offset_into_frame, frameLen - offset_into_frame, targetframe, 2, ID3_DESCRIPTION_FIELD, 
-																																																targetframe->ID3v2_Frame_Fields->field_string[0]);
+			offset_into_frame += APar_ExtractField(frame_ptr + offset_into_frame, frameLen - offset_into_frame, targetframe,
+			                                       targetframe->ID3v2_Frame_Fields+2, ID3_DESCRIPTION_FIELD, targetframe->ID3v2_Frame_Fields->field_string[0]);
 			
 			offset_into_frame += skipNULLterm(frame_ptr + offset_into_frame, targetframe->ID3v2_Frame_Fields->field_string[0], frameLen - offset_into_frame);
 			
 			if (frameLen > offset_into_frame) {
-				APar_ExtractField(frame_ptr + offset_into_frame, frameLen - offset_into_frame, targetframe, 3, ID3_TEXT_FIELD, 
-																																																targetframe->ID3v2_Frame_Fields->field_string[0]);
+				APar_ExtractField(frame_ptr + offset_into_frame, frameLen - offset_into_frame, targetframe, targetframe->ID3v2_Frame_Fields+3,
+				                  ID3_TEXT_FIELD, targetframe->ID3v2_Frame_Fields->field_string[0]);
 			}
 			break;
 		}
 		case ID3_ATTACHED_OBJECT_FRAME :
 		case ID3_ATTACHED_PICTURE_FRAME : {
-			uint32_t offset_into_frame = 0;
-			offset_into_frame += APar_ExtractField(frame_ptr, 1, targetframe, 0, ID3_TEXT_ENCODING_FIELD, 0);
+			offset_into_frame += APar_ExtractField(frame_ptr, 1, targetframe, targetframe->ID3v2_Frame_Fields, ID3_TEXT_ENCODING_FIELD, 0);
 			
-			offset_into_frame += APar_ExtractField(frame_ptr + offset_into_frame, frameLen - 1, targetframe, 1, ID3_MIME_TYPE_FIELD, 0);
+			offset_into_frame += APar_ExtractField(frame_ptr + offset_into_frame, frameLen - 1, targetframe, targetframe->ID3v2_Frame_Fields+1, ID3_MIME_TYPE_FIELD, 0);
 			
 			offset_into_frame += 1; //should only be 1 NULL
 			
 			if (targetframe->ID3v2_FrameType == ID3_ATTACHED_PICTURE_FRAME) {
-				offset_into_frame += APar_ExtractField(frame_ptr + offset_into_frame, 1, targetframe, 2, ID3_PIC_TYPE_FIELD, 0);
+				offset_into_frame += APar_ExtractField(frame_ptr + offset_into_frame, 1, targetframe, targetframe->ID3v2_Frame_Fields+2, ID3_PIC_TYPE_FIELD, 0);
 			} else {
-				offset_into_frame += APar_ExtractField(frame_ptr + offset_into_frame, frameLen - offset_into_frame, targetframe, 2, ID3_FILENAME_FIELD, 0);
+				offset_into_frame += APar_ExtractField(frame_ptr + offset_into_frame, frameLen - offset_into_frame, targetframe,
+				                                       targetframe->ID3v2_Frame_Fields+2, ID3_FILENAME_FIELD, 0);
 			
 				offset_into_frame+=skipNULLterm(frame_ptr + offset_into_frame, targetframe->ID3v2_Frame_Fields->field_string[0], frameLen - offset_into_frame);
 			}
 			
-			offset_into_frame += APar_ExtractField(frame_ptr + offset_into_frame, frameLen - offset_into_frame, targetframe, 3, ID3_DESCRIPTION_FIELD,
-																																																targetframe->ID3v2_Frame_Fields->field_string[0]);
+			offset_into_frame += APar_ExtractField(frame_ptr + offset_into_frame, frameLen - offset_into_frame, targetframe, targetframe->ID3v2_Frame_Fields+3, 
+			                                       ID3_DESCRIPTION_FIELD, targetframe->ID3v2_Frame_Fields->field_string[0]);
 			
 			offset_into_frame += skipNULLterm(frame_ptr + offset_into_frame, targetframe->ID3v2_Frame_Fields->field_string[0], frameLen - offset_into_frame);
 			
 			if (frameLen > offset_into_frame) {
-				offset_into_frame += APar_ExtractField(frame_ptr + offset_into_frame, frameLen - offset_into_frame, targetframe, 4, ID3_BINARY_DATA_FIELD, 0);
+				offset_into_frame += APar_ExtractField(frame_ptr + offset_into_frame, frameLen - offset_into_frame, targetframe, targetframe->ID3v2_Frame_Fields+4,
+				                                       ID3_BINARY_DATA_FIELD, 0);
 			}
 			break;
 		}
 		case ID3_PRIVATE_FRAME : { //the only difference between the 'priv' frame & the 'ufid' frame is ufid is limited to 64 bytes
-			uint32_t offset_into_frame = 0;
-			offset_into_frame += APar_ExtractField(frame_ptr, frameLen, targetframe, 0, ID3_OWNER_FIELD, 0);
+			offset_into_frame += APar_ExtractField(frame_ptr, frameLen, targetframe, targetframe->ID3v2_Frame_Fields, ID3_OWNER_FIELD, 0);
 			offset_into_frame++; //iso-8859-1 owner field is NULL terminated
 			
-			APar_ExtractField(frame_ptr + offset_into_frame, frameLen - 1, targetframe, 1, ID3_BINARY_DATA_FIELD, 0);
+			APar_ExtractField(frame_ptr + offset_into_frame, frameLen - 1, targetframe, targetframe->ID3v2_Frame_Fields+1, ID3_BINARY_DATA_FIELD, 0);
 			break;
 		}
 		case ID3_GROUP_ID_FRAME : {
-			uint32_t offset_into_frame = 0;
-			offset_into_frame += APar_ExtractField(frame_ptr, frameLen, targetframe, 0, ID3_OWNER_FIELD, 0);
+			offset_into_frame += APar_ExtractField(frame_ptr, frameLen, targetframe, targetframe->ID3v2_Frame_Fields, ID3_OWNER_FIELD, 0);
 			offset_into_frame++; //iso-8859-1 owner field is NULL terminated
 			
-			offset_into_frame += APar_ExtractField(frame_ptr + offset_into_frame, 1, targetframe, 1, ID3_GROUPSYMBOL_FIELD, 0);
+			offset_into_frame += APar_ExtractField(frame_ptr + offset_into_frame, 1, targetframe, targetframe->ID3v2_Frame_Fields+1, ID3_GROUPSYMBOL_FIELD, 0);
 			
 			if (frameLen > offset_into_frame) {
-				APar_ExtractField(frame_ptr + offset_into_frame, frameLen - offset_into_frame, targetframe, 2, ID3_BINARY_DATA_FIELD, 0);
+				APar_ExtractField(frame_ptr + offset_into_frame, frameLen - offset_into_frame, targetframe, targetframe->ID3v2_Frame_Fields+2, ID3_BINARY_DATA_FIELD, 0);
 			}
 			break;
 		}
 		case ID3_SIGNATURE_FRAME : {
-			APar_ExtractField(frame_ptr, 1, targetframe, 0, ID3_GROUPSYMBOL_FIELD, 0);
+			APar_ExtractField(frame_ptr, 1, targetframe, targetframe->ID3v2_Frame_Fields, ID3_GROUPSYMBOL_FIELD, 0);
 			
-			APar_ExtractField(frame_ptr + 1, frameLen - 1, targetframe, 1, ID3_BINARY_DATA_FIELD, 0);
+			APar_ExtractField(frame_ptr + 1, frameLen - 1, targetframe, targetframe->ID3v2_Frame_Fields+1, ID3_BINARY_DATA_FIELD, 0);
 			break;
 		}
 		case ID3_PLAYCOUNTER_FRAME : {
-			APar_ExtractField(frame_ptr, frameLen, targetframe, 0, ID3_COUNTER_FIELD, 0);
+			APar_ExtractField(frame_ptr, frameLen, targetframe, targetframe->ID3v2_Frame_Fields, ID3_COUNTER_FIELD, 0);
 			break;
 		}
 		case ID3_POPULAR_FRAME : {
-			uint32_t offset_into_frame = 0;
-			offset_into_frame += APar_ExtractField(frame_ptr, frameLen, targetframe, 0, ID3_OWNER_FIELD, 0); //surrogate for 'emai to user' field
+			offset_into_frame += APar_ExtractField(frame_ptr, frameLen, targetframe, targetframe->ID3v2_Frame_Fields, ID3_OWNER_FIELD, 0); //surrogate for 'emai to user' field
 			offset_into_frame++; //iso-8859-1 email address field is NULL terminated
 			
-			offset_into_frame += APar_ExtractField(frame_ptr + offset_into_frame, 1, targetframe, 1, ID3_BINARY_DATA_FIELD, 0);
+			offset_into_frame += APar_ExtractField(frame_ptr + offset_into_frame, 1, targetframe, targetframe->ID3v2_Frame_Fields+1, ID3_BINARY_DATA_FIELD, 0);
 			
 			if (frameLen > offset_into_frame) {
-				APar_ExtractField(frame_ptr, frameLen - offset_into_frame, targetframe, 2, ID3_COUNTER_FIELD, 0);
+				APar_ExtractField(frame_ptr, frameLen - offset_into_frame, targetframe, targetframe->ID3v2_Frame_Fields+2, ID3_COUNTER_FIELD, 0);
 			}
 			break;
 		}
@@ -799,12 +1046,13 @@ void APar_ID32_ScanID3Tag(FILE* source_file, AtomicInfo* id32_atom) {
 		
 		ID3v2Frame* target_list_frameinfo = (ID3v2Frame*)calloc(1, sizeof(ID3v2Frame));
 		target_list_frameinfo->ID3v2_NextFrame = NULL;
-		target_list_frameinfo->ID3v2_Frame_ID = MatchID3FrameIDstr(fulltag_ptr, id32_atom->ID32_TagInfo->ID3v2Tag_MajorVersion); //hardcoded way
-		target_list_frameinfo->ID3v2_FrameType = KnownFrames[target_list_frameinfo->ID3v2_Frame_ID].ID3v2_FrameType;
+		target_list_frameinfo->ID3v2_Frame_ID = MatchID3FrameIDstr(fulltag_ptr, id32_atom->ID32_TagInfo->ID3v2Tag_MajorVersion);
+		target_list_frameinfo->ID3v2_FrameType = KnownFrames[target_list_frameinfo->ID3v2_Frame_ID+1].ID3v2_FrameType;
 		
 		uint8_t FrameCompositionList = GetFrameCompositionDescription(target_list_frameinfo->ID3v2_FrameType);
 		target_list_frameinfo->ID3v2_FieldCount = FrameTypeConstructionList[FrameCompositionList].ID3_FieldCount;
 		target_list_frameinfo->ID3v2_Frame_ExpandedLength = 0;
+		target_list_frameinfo->textfield_tally = 0;
 		target_list_frameinfo->eliminate_frame = false;
 		uint8_t frame_offset = 0;
 
@@ -1016,6 +1264,7 @@ uint32_t APar_GetTagSize(AtomicInfo* id32_atom) { // a rough approximation of ho
 }
 
 void APar_RenderFields(char* dest_buffer, uint32_t max_alloc, ID3v2Tag* id3_tag, ID3v2Frame* id3v2_frame, uint32_t* frame_header_len, uint32_t* frame_length) {
+	uint8_t encoding_val = 0;
 	if (id3v2_frame->ID3v2_Frame_Fields == NULL) {
 		*frame_header_len = 0;
 		*frame_length = 0;
@@ -1056,7 +1305,7 @@ void APar_RenderFields(char* dest_buffer, uint32_t max_alloc, ID3v2Tag* id3_tag,
 					return;
 				} else {
 					APar_LimitBufferRange(max_alloc, *frame_header_len + *frame_length +2); //+2 for a possible extra NULLs
-					uint8_t encoding_val = id3v2_frame->ID3v2_Frame_Fields->field_string[0]; //ID3_TEXT_ENCODING_FIELD is always the first field, and should have an encoding
+					encoding_val = id3v2_frame->ID3v2_Frame_Fields->field_string[0]; //ID3_TEXT_ENCODING_FIELD is always the first field, and should have an encoding
 					if ( (id3_tag->ID3v2Tag_MajorVersion == 4 && encoding_val == TE_UTF8) || encoding_val == TE_LATIN1 ) {
 						if (this_field->ID3v2_Field_Type != ID3_TEXT_FIELD) APar_ValidateNULLTermination8bit(this_field);
 						
@@ -1064,7 +1313,7 @@ void APar_RenderFields(char* dest_buffer, uint32_t max_alloc, ID3v2Tag* id3_tag,
 						*frame_length += this_field->field_length;
 
 					} else if ((id3_tag->ID3v2Tag_MajorVersion == 4 && encoding_val == TE_UTF16LE_WITH_BOM) || encoding_val == TE_UTF16BE_NO_BOM) {
-						APar_ValidateNULLTermination16bit(this_field, encoding_val);
+						APar_ValidateNULLTermination16bit(this_field, encoding_val); //TODO: shouldn't this also exclude ID3_TEXT_FIELDs?
 						
 						memcpy(dest_buffer + *frame_length, this_field->field_string, this_field->field_length);
 						*frame_length += this_field->field_length;
@@ -1104,6 +1353,23 @@ void APar_RenderFields(char* dest_buffer, uint32_t max_alloc, ID3v2Tag* id3_tag,
 			}
 		
 		} //end switch
+	}
+	if (id3v2_frame->ID3v2_FrameType == ID3_TEXT_FRAME && id3v2_frame->textfield_tally > 1 && id3_tag->ID3v2Tag_MajorVersion == 4) {
+		ID3v2Fields* extra_textfield = (id3v2_frame->ID3v2_Frame_Fields+1)->next_field;
+		while (true) {
+			if (extra_textfield == NULL) break;
+			
+			if (encoding_val == TE_UTF8 || encoding_val == TE_LATIN1 ) {
+				*frame_length+=1;
+			} else if (encoding_val == TE_UTF16LE_WITH_BOM || encoding_val == TE_UTF16BE_NO_BOM) {
+				*frame_length+=2;
+			}
+			
+			memcpy(dest_buffer + *frame_length, extra_textfield->field_string, extra_textfield->field_length);
+			*frame_length += extra_textfield->field_length;
+			
+			extra_textfield = extra_textfield->next_field;
+		}
 	}
 	return;
 }
@@ -1277,32 +1543,32 @@ void APar_FieldInit(ID3v2Frame* aFrame, uint8_t a_field, uint8_t frame_comp_list
 		//	break;
 		//}
 	}
-	//if (byte_allocation > 0) {
-		this_field = aFrame->ID3v2_Frame_Fields + a_field;
-		this_field->ID3v2_Field_Type = field_type;
-		if (byte_allocation > 0) {
-			this_field->field_string = (char*)calloc(1, sizeof(char*)*byte_allocation);
-			if (!APar_assert((this_field->field_string != NULL), 11, aFrame->ID3v2_Frame_Namestr) ) exit(11);
-		} else {
-			this_field->field_string = NULL;
-		}
-		this_field->field_length = 0;
-		this_field->alloc_length = byte_allocation;
-		//fprintf(stdout, "For %u field, %u bytes were allocated.\n", this_field->ID3v2_Field_Type, byte_allocation);
-	//}
+	this_field = aFrame->ID3v2_Frame_Fields + a_field;
+	this_field->ID3v2_Field_Type = field_type;
+	if (byte_allocation > 0) {
+		this_field->field_string = (char*)calloc(1, sizeof(char*)*byte_allocation);
+		if (!APar_assert((this_field->field_string != NULL), 11, aFrame->ID3v2_Frame_Namestr) ) exit(11);
+	} else {
+		this_field->field_string = NULL;
+	}
+	this_field->field_length = 0;
+	this_field->alloc_length = byte_allocation;
+	this_field->next_field = NULL;
+	//fprintf(stdout, "For %u field, %u bytes were allocated.\n", this_field->ID3v2_Field_Type, byte_allocation);
 	return;
 }
 
-void APar_FrameInit(ID3v2Frame* aFrame, char* frame_str, uint16_t frameID, uint8_t frame_comp_list, char* frame_payload) {
+void APar_FrameInit(ID3v2Frame* aFrame, char* frame_str, int frameID, uint8_t frame_comp_list, char* frame_payload) {
 	aFrame->ID3v2_FieldCount = FrameTypeConstructionList[frame_comp_list].ID3_FieldCount;
 	if (aFrame->ID3v2_FieldCount > 0) {
 		aFrame->ID3v2_Frame_Fields = (ID3v2Fields*)calloc(1, sizeof(ID3v2Fields)*aFrame->ID3v2_FieldCount);
-		aFrame->ID3v2_Frame_ID = frameID - 1;
+		aFrame->ID3v2_Frame_ID = frameID;
 		aFrame->ID3v2_FrameType = FrameTypeConstructionList[frame_comp_list].ID3_FrameType;
 		aFrame->ID3v2_Frame_ExpandedLength = 0;
 		aFrame->ID3v2_Frame_GroupingSymbol = 0;
 		aFrame->ID3v2_Frame_Flags = 0;
 		aFrame->ID3v2_Frame_Length = 0;
+		aFrame->textfield_tally = 0;
 		aFrame->eliminate_frame = false;
 		memcpy(aFrame->ID3v2_Frame_Namestr, frame_str, 5);
 		
@@ -1348,20 +1614,16 @@ void APar_realloc_memcpy(ID3v2Fields* thisField, uint32_t new_size) {
 ///////////////////////////////////////////////////////////////////////////////////////
 
 uint32_t APar_TextFieldDataPut(ID3v2Fields* thisField, char* this_payload, uint8_t str_encoding, bool multistringtext = false) {
-	if (multistringtext == false) thisField->field_length = 0;
 	uint32_t bytes_used = 0;
+
+	if (multistringtext == false) {
+		thisField->field_length = 0;
+	}
 	
 	if (str_encoding == TE_UTF8) {
 		bytes_used = strlen(this_payload); //no NULL termination is provided until render time
 		if (bytes_used + thisField->field_length > thisField->alloc_length) {
 			APar_realloc_memcpy(thisField, (bytes_used > 2000 ? bytes_used : 2000) );
-		}
-		if (thisField->field_length > 0) {
-			//to accommodate id3v2.4's "multiple string" hack (NULL separators):
-			//add sufficient length to thisField->field_length to accommodate a unicode NULL (1 or 2 bytes based on encoding).
-			//requires testing the last few bytes to see if it contains just a BOM/NULL pair or something else
-			//requires addressing the printing of such fields as well
-			//...and only on v2.4 is this allowed.
 		}
 		memcpy(thisField->field_string + thisField->field_length, this_payload, bytes_used);
 		thisField->field_length += bytes_used;
@@ -1398,7 +1660,7 @@ uint32_t APar_TextFieldDataPut(ID3v2Fields* thisField, char* this_payload, uint8
 		if (2 * (uint32_t)string_length + thisField->field_length > thisField->alloc_length) { //important: realloc before BOM testing!!!
 			APar_realloc_memcpy(thisField, (2 * (uint32_t)string_length + thisField->field_length > 2000 ? 2 * (uint32_t)string_length + thisField->field_length : 2000) );
 		}
-		if (thisField->field_length == 0) {
+		if (thisField->field_length == 0 && multistringtext == false) {
 			memcpy(thisField->field_string, "\xFF\xFE", 2);
 		}
 		
@@ -1411,6 +1673,14 @@ uint32_t APar_TextFieldDataPut(ID3v2Fields* thisField, char* this_payload, uint8
 		if (converted_bytes > 0) {
 			thisField->field_length += (uint32_t)converted_bytes + bom_offset;
 			bytes_used = converted_bytes;
+		}
+	}
+	
+	if (multistringtext != false) {
+		if (str_encoding == TE_UTF16LE_WITH_BOM || str_encoding == TE_UTF16BE_NO_BOM) {
+			bytes_used += 2;
+		} else {
+			bytes_used += 1;
 		}
 	}
 	return bytes_used;
@@ -1453,12 +1723,20 @@ void APar_FrameDataPut(ID3v2Frame* thisFrame, char* frame_payload, AdjunctArgs* 
 	if (adjunct_payload->multistringtext == false && !APar_EvalFrame_for_Field(thisFrame->ID3v2_FrameType, ID3_COUNTER_FIELD) ) thisFrame->ID3v2_Frame_Length = 0;
 	switch(thisFrame->ID3v2_FrameType) {
 		case ID3_TEXT_FRAME : {
-			thisFrame->ID3v2_Frame_Length += APar_BinaryFieldPut(thisFrame->ID3v2_Frame_Fields, str_encoding, NULL, 1); //encoding
-			thisFrame->ID3v2_Frame_Length += APar_TextFieldDataPut(thisFrame->ID3v2_Frame_Fields+1, frame_payload, str_encoding, adjunct_payload->multistringtext); //text field
-			//fprintf(stdout, "I am of text type %u\n", str_encoding);
+			if (adjunct_payload->multistringtext && thisFrame->textfield_tally >= 1) {
+				ID3v2Fields* last_textfield = APar_FindLastTextField (thisFrame);
+				if (APar_ExtraTextFieldInit(last_textfield, strlen(frame_payload), (uint8_t)thisFrame->ID3v2_Frame_Fields->field_string[0])) {
+					thisFrame->ID3v2_Frame_Length += APar_TextFieldDataPut(last_textfield->next_field, frame_payload, (uint8_t)thisFrame->ID3v2_Frame_Fields->field_string[0], true);
+				}
+			} else {
+				thisFrame->ID3v2_Frame_Length += APar_BinaryFieldPut(thisFrame->ID3v2_Frame_Fields, str_encoding, NULL, 1); //encoding
+				thisFrame->ID3v2_Frame_Length += APar_TextFieldDataPut(thisFrame->ID3v2_Frame_Fields+1, frame_payload, str_encoding, false); //text field
+				GlobalID3Tag->ID3v2_FrameCount++;
+			}
 			modified_atoms = true;
 			GlobalID3Tag->modified_tag = true;
-			GlobalID3Tag->ID3v2_FrameCount++;
+			//GlobalID3Tag->ID3v2_FrameCount++; //don't do this for all text frames because the multiple text field support of id3v2.4; only when the frame is initially set
+			thisFrame->textfield_tally++;
 			break;
 		}
 		case ID3_TEXT_FRAME_USERDEF : {
@@ -1601,7 +1879,7 @@ void APar_FrameDataPut(ID3v2Frame* thisFrame, char* frame_payload, AdjunctArgs* 
 			uint32_t datalen = strlen(adjunct_payload->dataArg); //kinda precludes a true "binary" sense, but whatever...
 			if (datalen > 0) {
 				thisFrame->ID3v2_Frame_Length += APar_TextFieldDataPut(thisFrame->ID3v2_Frame_Fields, frame_payload, TE_LATIN1); //owner field
-				thisFrame->ID3v2_Frame_Length += APar_BinaryFieldPut(thisFrame->ID3v2_Frame_Fields+1, 0, adjunct_payload->dataArg, datalen); //signature
+				thisFrame->ID3v2_Frame_Length += APar_BinaryFieldPut(thisFrame->ID3v2_Frame_Fields+1, 0, adjunct_payload->dataArg, datalen); //data
 				modified_atoms = true;
 				GlobalID3Tag->modified_tag = true;
 				GlobalID3Tag->ID3v2_FrameCount++;
@@ -1788,7 +2066,7 @@ char* APar_ConvertField_to_UTF8(ID3v2Frame* targetframe, int fieldtype) {
 	return utf8str;
 }
 
-ID3v2Frame* APar_FindFrame(ID3v2Tag* id3v2tag, char* frame_str, uint16_t frameID, int frametype, AdjunctArgs* adjunct_payloads, bool createframe) {
+ID3v2Frame* APar_FindFrame(ID3v2Tag* id3v2tag, char* frame_str, int frameID, int frametype, AdjunctArgs* adjunct_payloads, bool createframe) {
 	ID3v2Frame* returnframe = NULL;
 	ID3v2Frame* evalframe = id3v2tag->ID3v2_FirstFrame;
 	uint8_t supplemental_matching = 0;
@@ -1830,6 +2108,7 @@ ID3v2Frame* APar_FindFrame(ID3v2Tag* id3v2tag, char* frame_str, uint16_t frameID
 			}
 		
 		} else {
+			//fprintf(stdout, "frame is %s; eval frameID is %d ?= %d\n", frame_str, evalframe->ID3v2_Frame_ID, frameID);
 			if (evalframe->ID3v2_Frame_ID == frameID) {
 				returnframe = evalframe;
 				break;
@@ -1848,8 +2127,8 @@ void APar_ID3FrameAmmend(short id32_atom_idx, char* frame_str, char* frame_paylo
 	if (id32_atom_idx < 1) return;
 	if (memcmp(parsedAtoms[id32_atom_idx].AtomicName, "ID32", 4) != 0) return;
 	
-	uint16_t frameID = MatchID3FrameIDstr(frame_str, GlobalID3Tag->ID3v2Tag_MajorVersion);
-	int frameType = KnownFrames[frameID].ID3v2_FrameType;
+	int frameID = MatchID3FrameIDstr(frame_str, GlobalID3Tag->ID3v2Tag_MajorVersion);
+	int frameType = KnownFrames[frameID+1].ID3v2_FrameType;
 	uint8_t frameCompositionList = GetFrameCompositionDescription(frameType);
 	
 	if (frameType == ID3_ATTACHED_PICTURE_FRAME || frameType == ID3_ATTACHED_OBJECT_FRAME) {
@@ -1879,12 +2158,58 @@ void APar_ID3FrameAmmend(short id32_atom_idx, char* frame_str, char* frame_paylo
 			APar_assert(false, 10, frame_str);
 			return;
 		}
+		
+		//check tags to be set so they conform to the id3v2 informal specification
+		if (frameType == ID3_TEXT_FRAME) {
+			if (frameID == ID3v2_FRAME_COPYRIGHT || frameID == ID3v2_FRAME_PRODNOTICE) {
+				if ((TestCharInRange(frame_payload[0], '0', '9') + TestCharInRange(frame_payload[1], '0', '9') + TestCharInRange(frame_payload[2], '0', '9') +
+						 TestCharInRange(frame_payload[3], '0', '9') != 4) || frame_payload[4] != ' ') {
+					fprintf(stderr, "AtomicParsley warning: frame %s was skipped because it did not start with a year followed by a space\n", KnownFrames[frameID].ID3V2p4_FrameID);
+					return;
+				}
+			
+			} else if (frameID == ID3v2_FRAME_PART_O_SET || frameID == ID3v2_FRAME_TRACKNUM) {
+				uint8_t pos_len = strlen(frame_payload);
+				for (uint8_t letter_idx = 0; letter_idx < pos_len; letter_idx++) {
+					if (frame_payload[letter_idx] == '/') continue;
+					if (TestCharInRange(frame_payload[letter_idx], '0', '9') != 1) {
+						if (frameID-1 == ID3v2_FRAME_PART_O_SET) {
+							fprintf(stderr, "AtomicParsley warning: frame %s was skipped because it had an extraneous character: %c\n", KnownFrames[frameID].ID3V2p4_FrameID, frame_payload[letter_idx]);
+							return;
+						} else { //okay this is to support the beloved vinyl
+							if (!(TestCharInRange(frame_payload[letter_idx], 'A', 'F') && TestCharInRange(frame_payload[letter_idx+1], '0', '9'))) {
+								fprintf(stderr, "AtomicParsley warning: frame %s was skipped because it had an extraneous character: %c\n", KnownFrames[frameID].ID3V2p4_FrameID, frame_payload[letter_idx]);
+								return;
+							}
+						}
+					}
+				}			
+			} else if (frameID == ID3v2_FRAME_ISRC) {
+				uint8_t isrc_len = strlen(frame_payload);
+				if (isrc_len != 12) {
+					fprintf(stderr, "AtomicParsley warning: setting ISRC frame was skipped because it was not 12 characters long\n");
+					return;
+				}
+				for (uint8_t isrc_ltr_idx = 0; isrc_ltr_idx < isrc_len; isrc_ltr_idx++) {
+					if (TestCharInRange(frame_payload[isrc_ltr_idx], '0', '9') + TestCharInRange(frame_payload[isrc_ltr_idx], 'A', 'Z') == 0) {
+						fprintf(stderr, "AtomicParsley warning: ISRC can only consist of A-Z & 0-9; letter %u was %c; skipping\n", isrc_ltr_idx+1, frame_payload[isrc_ltr_idx]);
+						return;
+					}
+				}
+			}
+		}
+
+		
 		if (targetFrame == NULL) {
 			targetFrame = APar_FindFrame(parsedAtoms[id32_atom_idx].ID32_TagInfo, frame_str, frameID, frameType, adjunct_payloads, true);
 			if (targetFrame == NULL) {
 				fprintf(stdout, "NULL frame\n");
 				exit(0);
 			} else {
+				if (adjunct_payloads->multistringtext) {
+					fprintf(stdout, "AtomicParsley error: trying to add a supplemental text field to text frame %s\nfor a frame that has not been intially used. Skipping\n", frame_str);
+					return;
+				}
 				APar_FrameInit(targetFrame, frame_str, frameID, frameCompositionList, frame_payload);			
 			}
 		}
@@ -1897,6 +2222,18 @@ void APar_ID3FrameAmmend(short id32_atom_idx, char* frame_str, char* frame_paylo
 		
 		if (targetFrame->ID3v2_Frame_ID == ID3v2_FRAME_LANGUAGE) {
 			APar_FrameDataPut(targetFrame, adjunct_payloads->targetLang, adjunct_payloads, str_encoding);
+			
+		} else if (targetFrame->ID3v2_Frame_ID == ID3v2_FRAME_CONTENTTYPE) {
+			uint8_t genre_idx = ID3StringGenreToInt(frame_payload);
+			if (genre_idx != 0xFF) {
+				char genre_str_idx[2];
+				genre_str_idx[0] = 0; genre_str_idx[1] = 0; genre_str_idx[1] = 0;
+				sprintf(genre_str_idx, "%hhu", genre_idx);
+				APar_FrameDataPut(targetFrame, genre_str_idx, adjunct_payloads, str_encoding);
+			} else {
+				APar_FrameDataPut(targetFrame, frame_payload, adjunct_payloads, str_encoding);
+			}
+		
 		} else {
 			APar_FrameDataPut(targetFrame, frame_payload, adjunct_payloads, str_encoding);
 		}
@@ -1999,18 +2336,65 @@ void APar_Print_ID3v2_tags(AtomicInfo* id32_atom) {
 	while (target_frameinfo != NULL) {
 		if (ID3v2_TestFrameFlag(target_frameinfo->ID3v2_Frame_Flags, ID32_FRAMEFLAG_GROUPING) && target_frameinfo && target_frameinfo->ID3v2_FrameType != ID3_GROUP_ID_FRAME) {
 			fprintf(stdout, " Tag: %s GID=0x%02X \"%s\" ", target_frameinfo->ID3v2_Frame_Namestr, target_frameinfo->ID3v2_Frame_GroupingSymbol,
-			                                           KnownFrames[target_frameinfo->ID3v2_Frame_ID].ID3V2_FrameDescription );
+			                                           KnownFrames[target_frameinfo->ID3v2_Frame_ID+1].ID3V2_FrameDescription );
 		} else {
-			fprintf(stdout, " Tag: %s \"%s\" ", target_frameinfo->ID3v2_Frame_Namestr, KnownFrames[target_frameinfo->ID3v2_Frame_ID].ID3V2_FrameDescription );
+			fprintf(stdout, " Tag: %s \"%s\" ", target_frameinfo->ID3v2_Frame_Namestr, KnownFrames[target_frameinfo->ID3v2_Frame_ID+1].ID3V2_FrameDescription );
 		}
 		uint8_t frame_comp_idx = GetFrameCompositionDescription(target_frameinfo->ID3v2_FrameType);
 		if (FrameTypeConstructionList[frame_comp_idx].ID3_FrameType == ID3_UNKNOWN_FRAME) {
 			fprintf(stdout, "(unknown frame) %u bytes\n", target_frameinfo->ID3v2_Frame_Fields->field_length);
 			
 		} else if (FrameTypeConstructionList[frame_comp_idx].ID3_FrameType == ID3_TEXT_FRAME) {
-			fprintf(stdout, "(%s) : ", APar_GetTextEncoding(target_frameinfo, target_frameinfo->ID3v2_Frame_Fields+1) );
-			APar_Print_ID3TextField(target_frameinfo, target_frameinfo->ID3v2_Frame_Fields+1, true);
+			ID3v2Fields* atextfield = target_frameinfo->ID3v2_Frame_Fields+1;
 			
+			if (target_frameinfo->textfield_tally > 1) {
+				fprintf(stdout, "(%s) : { ", APar_GetTextEncoding(target_frameinfo, target_frameinfo->ID3v2_Frame_Fields+1) );
+			} else {
+				fprintf(stdout, "(%s) : ", APar_GetTextEncoding(target_frameinfo, target_frameinfo->ID3v2_Frame_Fields+1) );
+			}
+			
+			while (true) {
+				if (target_frameinfo->textfield_tally > 1) {
+					fprintf(stdout, "\"");
+				}
+				
+				if (target_frameinfo->ID3v2_Frame_ID == ID3v2_FRAME_CONTENTTYPE) {
+					char* genre_string = NULL;
+					int genre_idx = (int)strtol(atextfield->field_string, &genre_string, 10);
+					if (genre_string != atextfield->field_string) {
+						genre_string = ID3GenreIntToString(genre_idx);
+						fprintf(stdout, "%s", ID3GenreIntToString(genre_idx) );
+					} else {
+						APar_Print_ID3TextField(target_frameinfo, atextfield,  target_frameinfo->textfield_tally == 1 ? true : false);
+					}
+				
+				} else if (target_frameinfo->ID3v2_Frame_ID == ID3v2_FRAME_COPYRIGHT) {
+					APar_fprintf_UTF8_data("\xC2\xA9 ");
+					APar_Print_ID3TextField(target_frameinfo, atextfield,  target_frameinfo->textfield_tally == 1 ? true : false);
+				
+				} else if (target_frameinfo->ID3v2_Frame_ID == ID3v2_FRAME_PRODNOTICE) {
+					APar_fprintf_UTF8_data("\xE2\x84\x97 ");
+					APar_Print_ID3TextField(target_frameinfo, atextfield,  target_frameinfo->textfield_tally == 1 ? true : false);
+				
+				} else {
+					APar_Print_ID3TextField(target_frameinfo, atextfield, target_frameinfo->textfield_tally == 1 ? true : false);
+				}
+				
+				if (target_frameinfo->textfield_tally > 1) {
+					fprintf(stdout, "\"");
+				} else {
+					break;
+				}
+				
+				atextfield = atextfield->next_field;
+				if (atextfield == NULL) {
+					fprintf(stdout, " }\n");
+					break;
+				} else {
+					fprintf(stdout, ", ");
+				}
+			}
+						
 		} else if (FrameTypeConstructionList[frame_comp_idx].ID3_FrameType == ID3_TEXT_FRAME_USERDEF) {
 			fprintf(stdout, "(user-defined text frame) ");
 			fprintf(stdout, "%u fields\n", target_frameinfo->ID3v2_FieldCount);
@@ -2182,8 +2566,8 @@ void APar_ID3ExtractFile(short id32_atom_idx, char* frame_str, char* originfile,
 	if (id32_atom_idx < 1) return;
 	if (memcmp(parsedAtoms[id32_atom_idx].AtomicName, "ID32", 4) != 0) return;
 	
-	uint16_t frameID = MatchID3FrameIDstr(frame_str, parsedAtoms[id32_atom_idx].ID32_TagInfo->ID3v2Tag_MajorVersion);
-	int frameType = KnownFrames[frameID].ID3v2_FrameType;
+	int frameID = MatchID3FrameIDstr(frame_str, parsedAtoms[id32_atom_idx].ID32_TagInfo->ID3v2Tag_MajorVersion);
+	int frameType = KnownFrames[frameID+1].ID3v2_FrameType;
 	uint8_t frameCompositionList = GetFrameCompositionDescription(frameType);
 	
 	if (destination_folder == NULL) {
@@ -2266,9 +2650,17 @@ void APar_FreeID32Memory(ID3v2Tag* id32tag) {
 #if defined(DEBUG_V)
 			fprintf(stdout, "freeing field %s ; %u of %u fields\n", (aframe->ID3v2_Frame_Fields+id3fld)->field_string, id3fld+1, aframe->ID3v2_FieldCount);
 #endif
-			if ( (aframe->ID3v2_Frame_Fields+id3fld)->field_string != NULL ) {
-				free( (aframe->ID3v2_Frame_Fields+id3fld)->field_string );
-				(aframe->ID3v2_Frame_Fields+id3fld)->field_string = NULL;
+			ID3v2Fields* afield = aframe->ID3v2_Frame_Fields+id3fld;
+			ID3v2Fields* freefield = NULL;
+			while (true) {
+				if ( afield->field_string != NULL ) {
+					free( afield->field_string );
+					afield->field_string = NULL;
+				}
+				freefield = afield;
+				afield = afield->next_field;
+				if (afield == NULL) break;
+				if (aframe->ID3v2_Frame_Fields+id3fld != freefield) free(freefield);
 			}
 		}
 		free( aframe->ID3v2_Frame_Fields );
