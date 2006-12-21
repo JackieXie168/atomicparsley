@@ -1354,10 +1354,7 @@ void APar_ExtractBrands(char* filepath) {
 			fprintf(stdout, "   iTunes-style metadata allowed.\n");
 			break;
 		}
-		case THIRD_GEN_PARTNER: {
-			fprintf(stdout, "   3GP-style copyright asset metadata only. 3gp6 or later major brand required for other assets.\n");
-			break;
-		}
+		case THIRD_GEN_PARTNER:
 		case THIRD_GEN_PARTNER_VER1_REL6:
 		case THIRD_GEN_PARTNER_VER1_REL7:
 		case THIRD_GEN_PARTNER_VER2: {
