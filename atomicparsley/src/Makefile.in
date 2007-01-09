@@ -59,17 +59,18 @@ STRIP =
 
 ALL_OBJ = $(AP_OBJ_DIR)/*.o
 AP_OBJ_DIR = $(top_srcdir)/obj_dir
-COMMON_SOURCE_FILES = AP_commons.cpp AtomicParsley_genres.cpp AP_iconv.cpp \
+COMMON_SOURCE_FILES = AP_commons.cpp AP_arrays.cpp AP_iconv.cpp \
 AtomicParsley.cpp AP_AtomExtracts.cpp APar_sha1.cpp APar_uuid.cpp \
-AP_ID3v2_tags.cpp AP_CDTOC.cpp main.cpp
+AP_ID3v2_tags.cpp AP_MetadataListings.cpp AP_CDTOC.cpp main.cpp
 COMMON_OBJ = makeworkdir $(AP_OBJ_DIR)/AP_commons.o \
-		$(AP_OBJ_DIR)/AtomicParsley_genres.o \
+		$(AP_OBJ_DIR)/AP_arrays.o \
 		$(AP_OBJ_DIR)/AP_iconv.o \
 		$(AP_OBJ_DIR)/AtomicParsley.o \
 		$(AP_OBJ_DIR)/AP_AtomExtracts.o \
 		$(AP_OBJ_DIR)/APar_sha1.o \
 		$(AP_OBJ_DIR)/APar_uuid.o \
 		$(AP_OBJ_DIR)/AP_ID3v2_tags.o \
+		$(AP_OBJ_DIR)/AP_MetadataListings.o \
 		$(AP_OBJ_DIR)/AP_CDTOC.o \
 		$(AP_OBJ_DIR)/main.o
 
