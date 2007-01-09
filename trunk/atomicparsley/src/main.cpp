@@ -15,7 +15,7 @@
     cannot, write to the Free Software Foundation, 59 Temple Place
     Suite 330, Boston, MA 02111-1307, USA.  Or www.fsf.org
 
-    Copyright ©2005-2006 puck_lock
+    Copyright ©2005-2007 puck_lock
 		
 		----------------------
     Code Contributions by:
@@ -45,9 +45,10 @@
 #include "AtomicParsley.h"
 #include "AP_AtomExtracts.h"
 #include "AP_iconv.h"                 /* for xmlInitEndianDetection used in endian utf16 conversion */
-#include "AtomicParsley_genres.h"
+#include "AP_arrays.h"
 #include "APar_uuid.h"
 #include "AP_ID3v2_tags.h"
+#include "AP_MetadataListings.h"
 
 // define one-letter cli options for
 #define OPT_HELP                 'h'
@@ -631,11 +632,14 @@ static char* rDNSHelp_text =
 "  --rDNSatom      (str)   name=(name_str) domain=(reverse_domain)  Manually set a reverseDNS atom.\n"
 "\n"
 " To set the form manually, 3 things are required: a domain, a name, and the desired text.\n"
+" Note: multiple 'data' atoms are supported, but not in the com.apple.iTunes domain\n"
 " Examples:\n"
 "  --contentRating \"NC-17\" --contentRating \"TV-Y7\"\n"
 "  --rDNSatom \"mpaa|PG-13|300|\" name=iTunEXTC domain=com.apple.iTunes\n"
 "  --contentRating \"\"\n"
 "  --rDNSatom \"\" name=iTunEXTC domain=com.apple.iTunes\n"
+"  --rDNSatom \"try1\" name=EVAL domain=org.fsf --rDNSatom \"try 2\" name=EVAL domain=org.fsf\n"
+"  --rDNSatom \"\" name=EVAL domain=org.fsf\n"
 "----------------------------------------------------------------------------------------------------\n"
 ;
 
@@ -855,9 +859,9 @@ char* find_ID3_optarg(char *argv[], int start_optargs, char* arg_string) {
 			if (memcmp(arg_string, "compressed", 11) == 0 && memcmp(argv[start_optargs + i], "compressed", 11) == 0) {
 				return "1";
 			}
-			if (memcmp(arg_string, "text++", 7) == 0 && memcmp(argv[start_optargs + i], "text++", 7) == 0) {
-				return "1";
-			}
+			//if (memcmp(arg_string, "text++", 7) == 0 && memcmp(argv[start_optargs + i], "text++", 7) == 0) {
+			//	return "1";
+			//}
 			if (memcmp(argv[start_optargs + i], arg_string, arg_prefix_len) == 0) {
 				ret_val = argv[start_optargs + i] + arg_prefix_len;
 				break;
@@ -1120,15 +1124,15 @@ int main( int argc, char *argv[]) {
 				APar_OpenISOBaseMediaFile(ISObasemediafile, true);
 				
 				if (memcmp(argv[optind], "+", 1) == 0) {
-					APar_PrintDataAtoms(ISObasemediafile, NULL, PRINT_FREE_SPACE + PRINT_PADDING_SPACE + PRINT_USER_DATA_SPACE + PRINT_MEDIA_SPACE, PRINT_DATA );
+					APar_Print_iTunesData(ISObasemediafile, NULL, PRINT_FREE_SPACE + PRINT_PADDING_SPACE + PRINT_USER_DATA_SPACE + PRINT_MEDIA_SPACE, PRINT_DATA );
 				} else {
 					fprintf(stdout, "---------------------------\n");
-					APar_print_ISO_UserData_per_track();
+					APar_Print_ISO_UserData_per_track();
 					
 					AtomicInfo* iTuneslistAtom = APar_FindAtom("moov.udta.meta.ilst", false, SIMPLE_ATOM, 0);
 					if (iTuneslistAtom != NULL) {
 						fprintf(stdout, "---------------------------\n  iTunes-style metadata tags:\n");
-						APar_PrintDataAtoms(ISObasemediafile, NULL, PRINT_FREE_SPACE + PRINT_PADDING_SPACE + PRINT_USER_DATA_SPACE + PRINT_MEDIA_SPACE, PRINT_DATA, iTuneslistAtom );
+						APar_Print_iTunesData(ISObasemediafile, NULL, PRINT_FREE_SPACE + PRINT_PADDING_SPACE + PRINT_USER_DATA_SPACE + PRINT_MEDIA_SPACE, PRINT_DATA, iTuneslistAtom );
 					}
 					fprintf(stdout, "---------------------------\n");
 				}
@@ -1141,7 +1145,7 @@ int main( int argc, char *argv[]) {
 				if (metadata_style >= THIRD_GEN_PARTNER) {
 					APar_PrintUserDataAssests();
 				} else if (metadata_style == ITUNES_STYLE) {
-					APar_PrintDataAtoms(ISObasemediafile, NULL, 0, PRINT_DATA); //false, don't try to extractPix
+					APar_Print_iTunesData(ISObasemediafile, NULL, 0, PRINT_DATA); //false, don't try to extractPix
 					APar_Print_APuuid_atoms(ISObasemediafile, NULL, PRINT_DATA);
 				}
 			}
@@ -1157,7 +1161,7 @@ int main( int argc, char *argv[]) {
 			GetBasePath( ISObasemediafile, base_path );
 			APar_ScanAtoms(ISObasemediafile);
 			APar_OpenISOBaseMediaFile(ISObasemediafile, true);
-			APar_PrintDataAtoms(ISObasemediafile, base_path, 0, EXTRACT_ARTWORK); //exportPix to stripped ISObasemediafile path
+			APar_Print_iTunesData(ISObasemediafile, base_path, 0, EXTRACT_ARTWORK); //exportPix to stripped ISObasemediafile path
 			APar_OpenISOBaseMediaFile(ISObasemediafile, false);
 			
 			free(base_path);
@@ -1168,7 +1172,7 @@ int main( int argc, char *argv[]) {
 		case OPT_ExtractPixToPath: {
 			APar_ScanAtoms(ISObasemediafile);
 			APar_OpenISOBaseMediaFile(ISObasemediafile, true);
-			APar_PrintDataAtoms(ISObasemediafile, optarg, 0, EXTRACT_ARTWORK); //exportPix to a different path
+			APar_Print_iTunesData(ISObasemediafile, optarg, 0, EXTRACT_ARTWORK); //exportPix to a different path
 			APar_OpenISOBaseMediaFile(ISObasemediafile, false);
 			break;
 		}
@@ -1181,7 +1185,7 @@ int main( int argc, char *argv[]) {
 				APar_assert(false, 4, &*major_brand);
 				break;
 			}
-			short artistData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©ART.data", optarg, AtomFlags_Data_Text);
+			AtomicInfo* artistData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©ART.data", optarg, AtomFlags_Data_Text);
 			APar_Unified_atom_Put(artistData_atom, optarg, UTF8_iTunesStyle_256glyphLimited, 0, 0);
 			break;
 		}
@@ -1192,7 +1196,7 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			short titleData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©nam.data", optarg, AtomFlags_Data_Text);
+			AtomicInfo* titleData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©nam.data", optarg, AtomFlags_Data_Text);
 			APar_Unified_atom_Put(titleData_atom, optarg, UTF8_iTunesStyle_256glyphLimited, 0, 0);
 			break;
 		}
@@ -1203,7 +1207,7 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			short albumData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©alb.data", optarg, AtomFlags_Data_Text);
+			AtomicInfo* albumData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©alb.data", optarg, AtomFlags_Data_Text);
 			APar_Unified_atom_Put(albumData_atom, optarg, UTF8_iTunesStyle_256glyphLimited, 0, 0);
 			break;
 		}
@@ -1237,7 +1241,7 @@ int main( int argc, char *argv[]) {
 				sscanf(optarg, "%hu", &pos_in_total);
 			}
 			
-			short tracknumData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.trkn.data", optarg, AtomFlags_Data_Binary);
+			AtomicInfo* tracknumData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.trkn.data", optarg, AtomFlags_Data_Binary);
 			//tracknum: [0, 0, 0, 0,   0, 0, 0, pos_in_total, 0, the_total, 0, 0]; BUT that first uint32_t is already accounted for in APar_MetaData_atom_Init
 			APar_Unified_atom_Put(tracknumData_atom, NULL, UTF8_iTunesStyle_256glyphLimited, 0, 16);
 			APar_Unified_atom_Put(tracknumData_atom, NULL, UTF8_iTunesStyle_256glyphLimited, pos_in_total, 16);
@@ -1266,7 +1270,7 @@ int main( int argc, char *argv[]) {
 				sscanf(optarg, "%hu", &pos_in_total);
 			}
 			
-			short disknumData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.disk.data", optarg, AtomFlags_Data_Binary);
+			AtomicInfo* disknumData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.disk.data", optarg, AtomFlags_Data_Binary);
 			//disknum: [0, 0, 0, 0,   0, 0, 0, pos_in_total, 0, the_total]; BUT that first uint32_t is already accounted for in APar_MetaData_atom_Init
 			APar_Unified_atom_Put(disknumData_atom, NULL, UTF8_iTunesStyle_256glyphLimited, 0, 16);
 			APar_Unified_atom_Put(disknumData_atom, NULL, UTF8_iTunesStyle_256glyphLimited, pos_in_total, 16);
@@ -1280,7 +1284,7 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			short commentData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©cmt.data", optarg, AtomFlags_Data_Text);
+			AtomicInfo* commentData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©cmt.data", optarg, AtomFlags_Data_Text);
 			APar_Unified_atom_Put(commentData_atom, optarg, UTF8_iTunesStyle_256glyphLimited, 0, 0);
 			break;
 		}
@@ -1291,7 +1295,7 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			short yearData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©day.data", optarg, AtomFlags_Data_Text);
+			AtomicInfo* yearData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©day.data", optarg, AtomFlags_Data_Text);
 			APar_Unified_atom_Put(yearData_atom, optarg, UTF8_iTunesStyle_256glyphLimited, 0, 0);
 			break;
 		}
@@ -1302,7 +1306,7 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			short lyricsData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©lyr.data", optarg, AtomFlags_Data_Text);
+			AtomicInfo* lyricsData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©lyr.data", optarg, AtomFlags_Data_Text);
 			APar_Unified_atom_Put(lyricsData_atom, optarg, UTF8_iTunesStyle_Unlimited, 0, 0);
 			break;
 		}
@@ -1313,7 +1317,7 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			short composerData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©wrt.data", optarg, AtomFlags_Data_Text);
+			AtomicInfo* composerData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©wrt.data", optarg, AtomFlags_Data_Text);
 			APar_Unified_atom_Put(composerData_atom, optarg, UTF8_iTunesStyle_256glyphLimited, 0, 0);
 			break;
 		}
@@ -1324,7 +1328,7 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			short copyrightData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.cprt.data", optarg, AtomFlags_Data_Text);
+			AtomicInfo* copyrightData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.cprt.data", optarg, AtomFlags_Data_Text);
 			APar_Unified_atom_Put(copyrightData_atom, optarg, UTF8_iTunesStyle_256glyphLimited, 0, 0);
 			break;
 		}
@@ -1335,7 +1339,7 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			short groupingData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©grp.data", optarg, AtomFlags_Data_Text);
+			AtomicInfo* groupingData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©grp.data", optarg, AtomFlags_Data_Text);
 			APar_Unified_atom_Put(groupingData_atom, optarg, UTF8_iTunesStyle_256glyphLimited, 0, 0);
 			break;
 		}
@@ -1350,7 +1354,7 @@ int main( int argc, char *argv[]) {
 				APar_RemoveAtom("moov.udta.meta.ilst.cpil.data", VERSIONED_ATOM, 0);
 			} else {
 				//compilation: [0, 0, 0, 0,   boolean_value]; BUT that first uint32_t is already accounted for in APar_MetaData_atom_Init
-				short compilationData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.cpil.data", optarg, AtomFlags_Data_UInt);
+				AtomicInfo* compilationData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.cpil.data", optarg, AtomFlags_Data_UInt);
 				APar_Unified_atom_Put(compilationData_atom, NULL, UTF8_iTunesStyle_256glyphLimited, 1, 8); //a hard coded uint8_t of: 1 is compilation
 			}
 			break;
@@ -1368,7 +1372,7 @@ int main( int argc, char *argv[]) {
 				uint16_t bpm_value = 0;
 				sscanf(optarg, "%hu", &bpm_value );
 				//bpm is [0, 0, 0, 0,   0, bpm_value]; BUT that first uint32_t is already accounted for in APar_MetaData_atom_Init
-				short bpmData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.tmpo.data", optarg, AtomFlags_Data_UInt);
+				AtomicInfo* bpmData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.tmpo.data", optarg, AtomFlags_Data_UInt);
 				APar_Unified_atom_Put(bpmData_atom, NULL, UTF8_iTunesStyle_256glyphLimited, bpm_value, 16);
 			}
 			break;
@@ -1390,7 +1394,7 @@ int main( int argc, char *argv[]) {
 					rating_value = 4; //most non \00, \02 numbers are allowed
 				}
 				//rating is [0, 0, 0, 0,   rating_value]; BUT that first uint32_t is already accounted for in APar_MetaData_atom_Init
-				short advisoryData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.rtng.data", optarg, AtomFlags_Data_UInt);
+				AtomicInfo* advisoryData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.rtng.data", optarg, AtomFlags_Data_UInt);
 				APar_Unified_atom_Put(advisoryData_atom, NULL, UTF8_iTunesStyle_256glyphLimited, rating_value, 8);
 			}
 			break;
@@ -1432,7 +1436,7 @@ int main( int argc, char *argv[]) {
 					}
 				}
 				//stik is [0, 0, 0, 0,   stik_value]; BUT that first uint32_t is already accounted for in APar_MetaData_atom_Init
-				short stikData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.stik.data", optarg, AtomFlags_Data_UInt);
+				AtomicInfo* stikData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.stik.data", optarg, AtomFlags_Data_UInt);
 				APar_Unified_atom_Put(stikData_atom, NULL, UTF8_iTunesStyle_256glyphLimited, stik_value, 8);
 			}
 			break;
@@ -1444,7 +1448,7 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			short encodingtoolData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©too.data", optarg, AtomFlags_Data_Text);
+			AtomicInfo* encodingtoolData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.©too.data", optarg, AtomFlags_Data_Text);
 			APar_Unified_atom_Put(encodingtoolData_atom, optarg, UTF8_iTunesStyle_256glyphLimited, 0, 0);
 			break;
 		}
@@ -1455,7 +1459,7 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			short descriptionData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.desc.data", optarg, AtomFlags_Data_Text);
+			AtomicInfo* descriptionData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.desc.data", optarg, AtomFlags_Data_Text);
 			APar_Unified_atom_Put(descriptionData_atom, optarg, UTF8_iTunesStyle_256glyphLimited, 0, 0);
 			break;
 		}
@@ -1466,7 +1470,7 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			short tvnetworkData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.tvnn.data", optarg, AtomFlags_Data_Text);
+			AtomicInfo* tvnetworkData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.tvnn.data", optarg, AtomFlags_Data_Text);
 			APar_Unified_atom_Put(tvnetworkData_atom, optarg, UTF8_iTunesStyle_256glyphLimited, 0, 0);
 			break;
 		}
@@ -1477,7 +1481,7 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			short tvshownameData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.tvsh.data", optarg, AtomFlags_Data_Text);
+			AtomicInfo* tvshownameData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.tvsh.data", optarg, AtomFlags_Data_Text);
 			APar_Unified_atom_Put(tvshownameData_atom, optarg, UTF8_iTunesStyle_256glyphLimited, 0, 0);
 			break;
 		}
@@ -1488,7 +1492,7 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			short tvepisodeData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.tven.data", optarg, AtomFlags_Data_Text);
+			AtomicInfo* tvepisodeData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.tven.data", optarg, AtomFlags_Data_Text);
 			APar_Unified_atom_Put(tvepisodeData_atom, optarg, UTF8_iTunesStyle_256glyphLimited, 0, 0);
 			break;
 		}
@@ -1502,7 +1506,7 @@ int main( int argc, char *argv[]) {
 			uint16_t data_value = 0;
 			sscanf(optarg, "%hu", &data_value );
 			
-			short tvseasonData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.tvsn.data", optarg, AtomFlags_Data_UInt);
+			AtomicInfo* tvseasonData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.tvsn.data", optarg, AtomFlags_Data_UInt);
 			//season is [0, 0, 0, 0,   0, 0, 0, data_value]; BUT that first uint32_t is already accounted for in APar_MetaData_atom_Init
 			APar_Unified_atom_Put(tvseasonData_atom, NULL, UTF8_iTunesStyle_256glyphLimited, 0, 16);
 			APar_Unified_atom_Put(tvseasonData_atom, NULL, UTF8_iTunesStyle_256glyphLimited, data_value, 16);
@@ -1518,7 +1522,7 @@ int main( int argc, char *argv[]) {
 			uint16_t data_value = 0;
 			sscanf(optarg, "%hu", &data_value );
 			
-			short tvepisodenumData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.tves.data", optarg, AtomFlags_Data_UInt);
+			AtomicInfo* tvepisodenumData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.tves.data", optarg, AtomFlags_Data_UInt);
 			//episodenumber is [0, 0, 0, 0,   0, 0, 0, data_value]; BUT that first uint32_t is already accounted for in APar_MetaData_atom_Init
 			APar_Unified_atom_Put(tvepisodenumData_atom, NULL, UTF8_iTunesStyle_256glyphLimited, 0, 16);
 			APar_Unified_atom_Put(tvepisodenumData_atom, NULL, UTF8_iTunesStyle_256glyphLimited, data_value, 16);
@@ -1531,7 +1535,7 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			short albumartistData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.aART.data", optarg, AtomFlags_Data_Text);
+			AtomicInfo* albumartistData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.aART.data", optarg, AtomFlags_Data_Text);
 			APar_Unified_atom_Put(albumartistData_atom, optarg, UTF8_iTunesStyle_256glyphLimited, 0, 0);
 			break;
 		}
@@ -1546,7 +1550,7 @@ int main( int argc, char *argv[]) {
 				APar_RemoveAtom("moov.udta.meta.ilst.pcst.data", VERSIONED_ATOM, 0);
 			} else {
 				//podcastflag: [0, 0, 0, 0,   boolean_value]; BUT that first uint32_t is already accounted for in APar_MetaData_atom_Init
-				short podcastFlagData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.pcst.data", optarg, AtomFlags_Data_UInt);
+				AtomicInfo* podcastFlagData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.pcst.data", optarg, AtomFlags_Data_UInt);
 				APar_Unified_atom_Put(podcastFlagData_atom, NULL, UTF8_iTunesStyle_256glyphLimited, 1, 8); //a hard coded uint8_t of: 1 denotes podcast flag
 			}
 			
@@ -1559,7 +1563,7 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			short keywordData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.keyw.data", optarg, AtomFlags_Data_Text);
+			AtomicInfo* keywordData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.keyw.data", optarg, AtomFlags_Data_Text);
 			APar_Unified_atom_Put(keywordData_atom, optarg, UTF8_iTunesStyle_256glyphLimited, 0, 0);
 			break;
 		}
@@ -1570,7 +1574,7 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			short categoryData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.catg.data", optarg, AtomFlags_Data_Text);
+			AtomicInfo* categoryData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.catg.data", optarg, AtomFlags_Data_Text);
 			APar_Unified_atom_Put(categoryData_atom, optarg, UTF8_iTunesStyle_256glyphLimited, 0, 0);
 			break;
 		}
@@ -1581,7 +1585,7 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			short podcasturlData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.purl.data", optarg, AtomFlags_Data_Binary);
+			AtomicInfo* podcasturlData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.purl.data", optarg, AtomFlags_Data_Binary);
 			APar_Unified_atom_Put(podcasturlData_atom, optarg, UTF8_iTunesStyle_Binary, 0, 0);
 			break;
 		}
@@ -1592,7 +1596,7 @@ int main( int argc, char *argv[]) {
 				break;
 			}
 			
-			short globalidData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.egid.data", optarg, AtomFlags_Data_Binary);
+			AtomicInfo* globalidData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.egid.data", optarg, AtomFlags_Data_Binary);
 			APar_Unified_atom_Put(globalidData_atom, optarg, UTF8_iTunesStyle_Binary, 0, 0);
 			break;
 		}
@@ -1616,8 +1620,8 @@ int main( int argc, char *argv[]) {
 				purd_time = optarg;
 			}
 			
-			short globalidData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.purd.data", optarg, AtomFlags_Data_Text);
-			APar_Unified_atom_Put(globalidData_atom, purd_time, UTF8_iTunesStyle_256glyphLimited, 0, 0);
+			AtomicInfo* globalIDData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.purd.data", optarg, AtomFlags_Data_Text);
+			APar_Unified_atom_Put(globalIDData_atom, purd_time, UTF8_iTunesStyle_256glyphLimited, 0, 0);
 			if (free_memory) {
 				free(purd_time);
 				purd_time = NULL;
@@ -1635,7 +1639,7 @@ int main( int argc, char *argv[]) {
 				APar_RemoveAtom("moov.udta.meta.ilst.pgap.data", VERSIONED_ATOM, 0);
 			} else {
 				//gapless playback: [0, 0, 0, 0,   boolean_value]; BUT that first uint32_t is already accounted for in APar_MetaData_atom_Init
-				short gaplessData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.pgap.data", optarg, AtomFlags_Data_UInt);
+				AtomicInfo* gaplessData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.pgap.data", optarg, AtomFlags_Data_UInt);
 				APar_Unified_atom_Put(gaplessData_atom, NULL, UTF8_iTunesStyle_256glyphLimited, 1, 8); //a hard coded uint8_t of: 1 is compilation
 			}
 			break;
@@ -1652,7 +1656,7 @@ int main( int argc, char *argv[]) {
 				}
 			}
 			
-			short tdtgUUID = APar_uuid_atom_Init("moov.udta.meta.uuid=%s", "tdtg", AtomFlags_Data_Text, formed_time, false);
+			AtomicInfo* tdtgUUID = APar_uuid_atom_Init("moov.udta.meta.uuid=%s", "tdtg", AtomFlags_Data_Text, formed_time, false);
 			APar_Unified_atom_Put(tdtgUUID, formed_time, UTF8_iTunesStyle_Unlimited, 0, 0);
 			free(formed_time);
 			break;
@@ -1660,18 +1664,14 @@ int main( int argc, char *argv[]) {
 		
 		case Meta_URL : {
 			APar_ScanAtoms(ISObasemediafile);
-			//APar_Add_uuid_atom(ISObasemediafile, "moov.udta.meta.ilst.uuid=%s", "©url", AtomFlags_Data_Text, optarg, false); //apple iTunes bug; not allowed
-			//APar_Add_uuid_atom(ISObasemediafile, "moov.udta.meta.uuid=%s", "©url", AtomFlags_Data_Text, optarg, false);
-			short urlUUID = APar_uuid_atom_Init("moov.udta.meta.uuid=%s", "©url", AtomFlags_Data_Text, optarg, false);
+			AtomicInfo* urlUUID = APar_uuid_atom_Init("moov.udta.meta.uuid=%s", "©url", AtomFlags_Data_Text, optarg, false);
 			APar_Unified_atom_Put(urlUUID, optarg, UTF8_iTunesStyle_Unlimited, 0, 0);
 			break;
 		}
 		
 		case Meta_Information : {
 			APar_ScanAtoms(ISObasemediafile);
-			//APar_Add_uuid_atom(ISObasemediafile, "moov.udta.meta.ilst.uuid=%s", "©inf", AtomFlags_Data_Text, optarg, false); //apple iTunes bug; not allowed
-			//APar_Add_uuid_atom(ISObasemediafile, "moov.udta.meta.uuid=%s", "©inf", AtomFlags_Data_Text, optarg, false);
-			short infoUUID = APar_uuid_atom_Init("moov.udta.meta.uuid=%s", "©inf", AtomFlags_Data_Text, optarg, false);
+			AtomicInfo* infoUUID = APar_uuid_atom_Init("moov.udta.meta.uuid=%s", "©inf", AtomFlags_Data_Text, optarg, false);
 			APar_Unified_atom_Put(infoUUID, optarg, UTF8_iTunesStyle_Unlimited, 0, 0);
 			break;
 		}
@@ -1733,9 +1733,9 @@ int main( int argc, char *argv[]) {
 				}
 			}
 			
-			short genericUUID = APar_uuid_atom_Init("moov.udta.meta.uuid=%s", optarg, uuid_dataType, argv[optind +1], true);
+			AtomicInfo* genericUUID = APar_uuid_atom_Init("moov.udta.meta.uuid=%s", optarg, uuid_dataType, argv[optind +1], true);
 			
-			if (uuid_dataType == AtomFlags_Data_uuid_binary && genericUUID > 0) {
+			if (uuid_dataType == AtomFlags_Data_uuid_binary && genericUUID != NULL) {
 				TestFileExistence(uuid_file_path, true);
 				
 //format for a uuid atom set by AP:
@@ -1760,8 +1760,8 @@ int main( int argc, char *argv[]) {
 				uint32_t extn_len = strlen(uuid_file_extn)+1; //+1 for the trailing 1 byte NULL terminator
 				uint32_t file_len = (uint32_t)findFileSize(uuid_file_path);
 				
-				APar_MetaData_atom_QuickInit(genericUUID, uuid_dataType, 20, extn_len + desc_len + file_len + 100);
-				parsedAtoms[genericUUID].AtomicClassification = EXTENDED_ATOM; //it gets reset in QuickInit Above; force its proper setting
+				APar_MetaData_atom_QuickInit(genericUUID->AtomicNumber, uuid_dataType, 20, extn_len + desc_len + file_len + 100);
+				genericUUID->AtomicClassification = EXTENDED_ATOM; //it gets reset in QuickInit Above; force its proper setting
 				
 				if (uuid_file_description == NULL || desc_len == 0) {
 					APar_Unified_atom_Put(genericUUID, "[none]", UTF8_3GP_Style, 7, 32); //sets 4bytes desc_len, then 7bytes description (forced to "[none]"=6 + 1 byte NULL =7)
@@ -1780,8 +1780,8 @@ int main( int argc, char *argv[]) {
 				FILE* uuid_binfile = APar_OpenFile(uuid_file_path, "rb");
 				APar_Unified_atom_Put(genericUUID, NULL, UTF8_3GP_Style, file_len, 32);
 				//store the data directly on the atom in AtomicData
-				uint32_t bin_bytes_read = APar_ReadFile(parsedAtoms[genericUUID].AtomicData + (parsedAtoms[genericUUID].AtomicLength - 32), uuid_binfile, file_len);
-				parsedAtoms[genericUUID].AtomicLength += bin_bytes_read;
+				uint32_t bin_bytes_read = APar_ReadFile(genericUUID->AtomicData + (genericUUID->AtomicLength - 32), uuid_binfile, file_len);
+				genericUUID->AtomicLength += bin_bytes_read;
 				fclose(uuid_binfile);
 				
 			} else { //text type
@@ -1900,7 +1900,6 @@ int main( int argc, char *argv[]) {
 			uint8_t userdata_area = MOVIE_LEVEL_ATOM;
 			uint8_t selected_track = 0;
 			uint8_t a_track = 0;//unused
-			short an_atom = 0;//unused
 			uint8_t asset_iterations = 0;
 
 			find_optional_args(argv, optind, packed_lang, set_UTF16_text, userdata_area, selected_track, 3);
@@ -1908,14 +1907,13 @@ int main( int argc, char *argv[]) {
 			if (userdata_area == MOVIE_LEVEL_ATOM || userdata_area == SINGLE_TRACK_ATOM) {
 				asset_iterations = 1;
 			} else if (userdata_area == ALL_TRACKS_ATOM) {
-				APar_TrackInfo(asset_iterations, a_track, an_atom); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
+				APar_FindAtomInTrack(asset_iterations, a_track, NULL); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
 				if (asset_iterations == 1) selected_track = 1; //otherwise, APar_UserData_atom_Init will shift to non-existing track 0
 			}
 			
 			for (uint8_t i_asset = 1; i_asset <= asset_iterations; i_asset++) {
-				short title_3GP_atom = APar_UserData_atom_Init("titl", optarg, userdata_area, asset_iterations == 1 ? selected_track : i_asset, packed_lang);
-				APar_Unified_atom_Put(title_3GP_atom, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
-				title_3GP_atom = -1;
+				AtomicInfo* title_asset = APar_UserData_atom_Init("titl", optarg, userdata_area, asset_iterations == 1 ? selected_track : i_asset, packed_lang);
+				APar_Unified_atom_Put(title_asset, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
 			}
 			break;
 		}
@@ -1930,7 +1928,6 @@ int main( int argc, char *argv[]) {
 			uint8_t userdata_area = MOVIE_LEVEL_ATOM;
 			uint8_t selected_track = 0;
 			uint8_t a_track = 0;//unused
-			short an_atom = 0;//unused
 			uint8_t asset_iterations = 0;
 
 			find_optional_args(argv, optind, packed_lang, set_UTF16_text, userdata_area, selected_track, 3);
@@ -1938,14 +1935,13 @@ int main( int argc, char *argv[]) {
 			if (userdata_area == MOVIE_LEVEL_ATOM || userdata_area == SINGLE_TRACK_ATOM) {
 				asset_iterations = 1;
 			} else if (userdata_area == ALL_TRACKS_ATOM) {
-				APar_TrackInfo(asset_iterations, a_track, an_atom); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
+				APar_FindAtomInTrack(asset_iterations, a_track, NULL); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
 				if (asset_iterations == 1) selected_track = 1;
 			}
 			
 			for (uint8_t i_asset = 1; i_asset <= asset_iterations; i_asset++) {
-				short author_3GP_atom = APar_UserData_atom_Init("auth", optarg, userdata_area, asset_iterations == 1 ? selected_track : i_asset, packed_lang);
-				APar_Unified_atom_Put(author_3GP_atom, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
-				author_3GP_atom = -1;
+				AtomicInfo* author_asset = APar_UserData_atom_Init("auth", optarg, userdata_area, asset_iterations == 1 ? selected_track : i_asset, packed_lang);
+				APar_Unified_atom_Put(author_asset, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
 			}
 			break;
 		}
@@ -1960,7 +1956,6 @@ int main( int argc, char *argv[]) {
 			uint8_t userdata_area = MOVIE_LEVEL_ATOM;
 			uint8_t selected_track = 0;
 			uint8_t a_track = 0;//unused
-			short an_atom = 0;//unused
 			uint8_t asset_iterations = 0;
 
 			find_optional_args(argv, optind, packed_lang, set_UTF16_text, userdata_area, selected_track, 3);
@@ -1968,14 +1963,13 @@ int main( int argc, char *argv[]) {
 			if (userdata_area == MOVIE_LEVEL_ATOM || userdata_area == SINGLE_TRACK_ATOM) {
 				asset_iterations = 1;
 			} else if (userdata_area == ALL_TRACKS_ATOM) {
-				APar_TrackInfo(asset_iterations, a_track, an_atom); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
+				APar_FindAtomInTrack(asset_iterations, a_track, NULL); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
 				if (asset_iterations == 1) selected_track = 1;
 			}
 			
 			for (uint8_t i_asset = 1; i_asset <= asset_iterations; i_asset++) {
-				short performer_3GP_atom = APar_UserData_atom_Init("perf", optarg, userdata_area, asset_iterations == 1 ? selected_track : i_asset, packed_lang);
-				APar_Unified_atom_Put(performer_3GP_atom, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
-				performer_3GP_atom = -1;
+				AtomicInfo* performer_asset = APar_UserData_atom_Init("perf", optarg, userdata_area, asset_iterations == 1 ? selected_track : i_asset, packed_lang);
+				APar_Unified_atom_Put(performer_asset, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
 			}
 			break;
 		}
@@ -1990,7 +1984,6 @@ int main( int argc, char *argv[]) {
 			uint8_t userdata_area = MOVIE_LEVEL_ATOM;
 			uint8_t selected_track = 0;
 			uint8_t a_track = 0;//unused
-			short an_atom = 0;//unused
 			uint8_t asset_iterations = 0;
 
 			find_optional_args(argv, optind, packed_lang, set_UTF16_text, userdata_area, selected_track, 3);
@@ -1998,14 +1991,13 @@ int main( int argc, char *argv[]) {
 			if (userdata_area == MOVIE_LEVEL_ATOM || userdata_area == SINGLE_TRACK_ATOM) {
 				asset_iterations = 1;
 			} else if (userdata_area == ALL_TRACKS_ATOM) {
-				APar_TrackInfo(asset_iterations, a_track, an_atom); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
+				APar_FindAtomInTrack(asset_iterations, a_track, NULL); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
 				if (asset_iterations == 1) selected_track = 1;
 			}
 			
 			for (uint8_t i_asset = 1; i_asset <= asset_iterations; i_asset++) {
-				short genre_3GP_atom = APar_UserData_atom_Init("gnre", optarg, userdata_area, asset_iterations == 1 ? selected_track : i_asset, packed_lang);
-				APar_Unified_atom_Put(genre_3GP_atom, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
-				genre_3GP_atom = -1;
+				AtomicInfo* genre_asset = APar_UserData_atom_Init("gnre", optarg, userdata_area, asset_iterations == 1 ? selected_track : i_asset, packed_lang);
+				APar_Unified_atom_Put(genre_asset, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
 			}
 			break;
 		}
@@ -2020,7 +2012,6 @@ int main( int argc, char *argv[]) {
 			uint8_t userdata_area = MOVIE_LEVEL_ATOM;
 			uint8_t selected_track = 0;
 			uint8_t a_track = 0;//unused
-			short an_atom = 0;//unused
 			uint8_t asset_iterations = 0;
 
 			find_optional_args(argv, optind, packed_lang, set_UTF16_text, userdata_area, selected_track, 3);
@@ -2028,14 +2019,13 @@ int main( int argc, char *argv[]) {
 			if (userdata_area == MOVIE_LEVEL_ATOM || userdata_area == SINGLE_TRACK_ATOM) {
 				asset_iterations = 1;
 			} else if (userdata_area == ALL_TRACKS_ATOM) {
-				APar_TrackInfo(asset_iterations, a_track, an_atom); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
+				APar_FindAtomInTrack(asset_iterations, a_track, NULL); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
 				if (asset_iterations == 1) selected_track = 1;
 			}
 			
 			for (uint8_t i_asset = 1; i_asset <= asset_iterations; i_asset++) {
-				short description_3GP_atom = APar_UserData_atom_Init("dscp", optarg, userdata_area, asset_iterations == 1 ? selected_track : i_asset, packed_lang);
-				APar_Unified_atom_Put(description_3GP_atom, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
-				description_3GP_atom = -1;
+				AtomicInfo* description_asset = APar_UserData_atom_Init("dscp", optarg, userdata_area, asset_iterations == 1 ? selected_track : i_asset, packed_lang);
+				APar_Unified_atom_Put(description_asset, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
 			}
 			break;
 		}
@@ -2055,7 +2045,6 @@ int main( int argc, char *argv[]) {
 			uint8_t userdata_area = MOVIE_LEVEL_ATOM;
 			uint8_t selected_track = 0;
 			uint8_t a_track = 0;//unused
-			short an_atom = 0;//unused
 			uint8_t asset_iterations = 0;
 
 			find_optional_args(argv, optind, packed_lang, set_UTF16_text, userdata_area, selected_track, 3);
@@ -2063,14 +2052,13 @@ int main( int argc, char *argv[]) {
 			if (userdata_area == MOVIE_LEVEL_ATOM || userdata_area == SINGLE_TRACK_ATOM) {
 				asset_iterations = 1;
 			} else if (userdata_area == ALL_TRACKS_ATOM) {
-				APar_TrackInfo(asset_iterations, a_track, an_atom); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
+				APar_FindAtomInTrack(asset_iterations, a_track, NULL); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
 				if (asset_iterations == 1) selected_track = 1;
 			}
 			
 			for (uint8_t i_asset = 1; i_asset <= asset_iterations; i_asset++) {
-				short copyright_3GP_atom = APar_UserData_atom_Init("cprt", optarg, userdata_area, asset_iterations == 1 ? selected_track : i_asset, packed_lang);
-				APar_Unified_atom_Put(copyright_3GP_atom, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
-				copyright_3GP_atom = -1;
+				AtomicInfo* copyright_notice = APar_UserData_atom_Init("cprt", optarg, userdata_area, asset_iterations == 1 ? selected_track : i_asset, packed_lang);
+				APar_Unified_atom_Put(copyright_notice, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
 			}
 			break;
 		}
@@ -2085,7 +2073,6 @@ int main( int argc, char *argv[]) {
 			uint8_t userdata_area = MOVIE_LEVEL_ATOM;
 			uint8_t selected_track = 0;
 			uint8_t a_track = 0;//unused
-			short an_atom = 0;//unused
 			uint8_t asset_iterations = 0;
 			uint8_t tracknum = 0;
 			
@@ -2106,15 +2093,15 @@ int main( int argc, char *argv[]) {
 			if (userdata_area == MOVIE_LEVEL_ATOM || userdata_area == SINGLE_TRACK_ATOM) {
 				asset_iterations = 1;
 			} else if (userdata_area == ALL_TRACKS_ATOM) {
-				APar_TrackInfo(asset_iterations, a_track, an_atom); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
+				APar_FindAtomInTrack(asset_iterations, a_track, NULL); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
 				if (asset_iterations == 1) selected_track = 1;
 			}
 			
 			for (uint8_t i_asset = 1; i_asset <= asset_iterations; i_asset++) {
-				short album_3GP_atom = APar_UserData_atom_Init("albm", optarg, userdata_area, asset_iterations == 1 ? selected_track : i_asset, packed_lang);
-				APar_Unified_atom_Put(album_3GP_atom, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
+				AtomicInfo* album_asset = APar_UserData_atom_Init("albm", optarg, userdata_area, asset_iterations == 1 ? selected_track : i_asset, packed_lang);
+				APar_Unified_atom_Put(album_asset, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
 				if (tracknum != 0) {
-					APar_Unified_atom_Put(album_3GP_atom, NULL, UTF8_3GP_Style, (uint32_t)tracknum, 8);
+					APar_Unified_atom_Put(album_asset, NULL, UTF8_3GP_Style, (uint32_t)tracknum, 8);
 				}
 			}			
 			break;
@@ -2128,7 +2115,6 @@ int main( int argc, char *argv[]) {
 			uint8_t userdata_area = MOVIE_LEVEL_ATOM;
 			uint8_t selected_track = 0;
 			uint8_t a_track = 0;//unused
-			short an_atom = 0;//unused
 			uint8_t asset_iterations = 0;
 			uint16_t year_tag = 0;
 
@@ -2150,13 +2136,13 @@ int main( int argc, char *argv[]) {
 			if (userdata_area == MOVIE_LEVEL_ATOM || userdata_area == SINGLE_TRACK_ATOM) {
 				asset_iterations = 1;
 			} else if (userdata_area == ALL_TRACKS_ATOM) {
-				APar_TrackInfo(asset_iterations, a_track, an_atom); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
+				APar_FindAtomInTrack(asset_iterations, a_track, NULL); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
 				if (asset_iterations == 1) selected_track = 1;
 			}
 			
 			for (uint8_t i_asset = 1; i_asset <= asset_iterations; i_asset++) {
-				short rec_year_3GP_atom = APar_UserData_atom_Init("yrrc", optarg, userdata_area, asset_iterations == 1 ? selected_track : i_asset, 0);
-				APar_Unified_atom_Put(rec_year_3GP_atom, NULL, UTF8_3GP_Style, (uint32_t)year_tag, 16);
+				AtomicInfo* recordingyear_asset = APar_UserData_atom_Init("yrrc", optarg, userdata_area, asset_iterations == 1 ? selected_track : i_asset, 0);
+				APar_Unified_atom_Put(recordingyear_asset, NULL, UTF8_3GP_Style, (uint32_t)year_tag, 16);
 			}
 			break;	
 		}
@@ -2173,7 +2159,6 @@ int main( int argc, char *argv[]) {
 			uint8_t userdata_area = MOVIE_LEVEL_ATOM;
 			uint8_t selected_track = 0;
 			uint8_t a_track = 0;//unused
-			short an_atom = 0;//unused
 			uint8_t asset_iterations = 0;
 
 			find_optional_args(argv, optind, packed_lang, set_UTF16_text, userdata_area, selected_track, 5);
@@ -2197,17 +2182,16 @@ int main( int argc, char *argv[]) {
 			if (userdata_area == MOVIE_LEVEL_ATOM || userdata_area == SINGLE_TRACK_ATOM) {
 				asset_iterations = 1;
 			} else if (userdata_area == ALL_TRACKS_ATOM) {
-				APar_TrackInfo(asset_iterations, a_track, an_atom); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
+				APar_FindAtomInTrack(asset_iterations, a_track, NULL); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
 				if (asset_iterations == 1) selected_track = 1;
 			}
 			
 			for (uint8_t i_asset = 1; i_asset <= asset_iterations; i_asset++) {
-				short rating_3GP_atom = APar_UserData_atom_Init("rtng", optarg, userdata_area, asset_iterations == 1 ? selected_track : i_asset, packed_lang);
+				AtomicInfo* rating_asset = APar_UserData_atom_Init("rtng", optarg, userdata_area, asset_iterations == 1 ? selected_track : i_asset, packed_lang);
 			
-				APar_Unified_atom_Put(rating_3GP_atom, NULL, UTF8_3GP_Style, UInt32FromBigEndian(rating_entity), 32);
-				APar_Unified_atom_Put(rating_3GP_atom, NULL, UTF8_3GP_Style, UInt32FromBigEndian(rating_criteria), 32);
-				APar_Unified_atom_Put(rating_3GP_atom, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
-				rating_3GP_atom = -1;
+				APar_Unified_atom_Put(rating_asset, NULL, UTF8_3GP_Style, UInt32FromBigEndian(rating_entity), 32);
+				APar_Unified_atom_Put(rating_asset, NULL, UTF8_3GP_Style, UInt32FromBigEndian(rating_criteria), 32);
+				APar_Unified_atom_Put(rating_asset, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
 			}
 			break;	
 		}
@@ -2224,7 +2208,6 @@ int main( int argc, char *argv[]) {
 			uint8_t userdata_area = MOVIE_LEVEL_ATOM;
 			uint8_t selected_track = 0;
 			uint8_t a_track = 0;//unused
-			short an_atom = 0;//unused
 			uint8_t asset_iterations = 0;
 			
 			find_optional_args(argv, optind, packed_lang, set_UTF16_text, userdata_area, selected_track, 5);
@@ -2248,17 +2231,16 @@ int main( int argc, char *argv[]) {
 			if (userdata_area == MOVIE_LEVEL_ATOM || userdata_area == SINGLE_TRACK_ATOM) {
 				asset_iterations = 1;
 			} else if (userdata_area == ALL_TRACKS_ATOM) {
-				APar_TrackInfo(asset_iterations, a_track, an_atom); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
+				APar_FindAtomInTrack(asset_iterations, a_track, NULL); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
 				if (asset_iterations == 1) selected_track = 1;
 			}
 			
 			for (uint8_t i_asset = 1; i_asset <= asset_iterations; i_asset++) {
-				short classification_3GP_atom = APar_UserData_atom_Init("clsf", optarg, userdata_area, asset_iterations == 1 ? selected_track : i_asset, packed_lang);
+				AtomicInfo* classification_asset = APar_UserData_atom_Init("clsf", optarg, userdata_area, asset_iterations == 1 ? selected_track : i_asset, packed_lang);
 				
-				APar_Unified_atom_Put(classification_3GP_atom, NULL, UTF8_3GP_Style, UInt32FromBigEndian(classification_entity), 32);
-				APar_Unified_atom_Put(classification_3GP_atom, NULL, UTF8_3GP_Style, classification_index, 16);
-				APar_Unified_atom_Put(classification_3GP_atom, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
-				classification_3GP_atom = -1;
+				APar_Unified_atom_Put(classification_asset, NULL, UTF8_3GP_Style, UInt32FromBigEndian(classification_entity), 32);
+				APar_Unified_atom_Put(classification_asset, NULL, UTF8_3GP_Style, classification_index, 16);
+				APar_Unified_atom_Put(classification_asset, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
 			}
 			break;	
 		}
@@ -2273,7 +2255,6 @@ int main( int argc, char *argv[]) {
 			uint8_t userdata_area = MOVIE_LEVEL_ATOM;
 			uint8_t selected_track = 0;
 			uint8_t a_track = 0;//unused
-			short an_atom = 0;//unused
 			uint8_t asset_iterations = 0;
 			char* formed_keyword_struct = NULL;
 
@@ -2282,7 +2263,7 @@ int main( int argc, char *argv[]) {
 			if (userdata_area == MOVIE_LEVEL_ATOM || userdata_area == SINGLE_TRACK_ATOM) {
 				asset_iterations = 1;
 			} else if (userdata_area == ALL_TRACKS_ATOM) {
-				APar_TrackInfo(asset_iterations, a_track, an_atom); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
+				APar_FindAtomInTrack(asset_iterations, a_track, NULL); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
 				if (asset_iterations == 1) selected_track = 1;
 			}
 			
@@ -2314,20 +2295,18 @@ int main( int argc, char *argv[]) {
 				uint32_t keyword_struct_bytes = APar_3GP_Keyword_atom_Format(keywords_globbed, keyword_count, set_UTF16_text, formed_keyword_struct);
 				
 				for (uint8_t i_asset = 1; i_asset <= asset_iterations; i_asset++) {
-					short keyword_3GP_atom = APar_UserData_atom_Init("kywd", keyword_strlen ? "temporary" : "", userdata_area, asset_iterations == 1 ? selected_track : i_asset, packed_lang); //just a "temporary" valid string to satisfy a test there
+					AtomicInfo* keyword_asset = APar_UserData_atom_Init("kywd", keyword_strlen ? "temporary" : "", userdata_area, asset_iterations == 1 ? selected_track : i_asset, packed_lang); //just a "temporary" valid string to satisfy a test there
 					if (keyword_strlen > 0) {
-						APar_Unified_atom_Put(keyword_3GP_atom, NULL, UTF8_3GP_Style, (uint32_t)packed_lang, 16);
-						APar_Unified_atom_Put(keyword_3GP_atom, NULL, UTF8_3GP_Style, keyword_count, 8);
-						APar_atom_Binary_Put(keyword_3GP_atom, formed_keyword_struct, keyword_struct_bytes, 3);
+						APar_Unified_atom_Put(keyword_asset, NULL, UTF8_3GP_Style, (uint32_t)packed_lang, 16);
+						APar_Unified_atom_Put(keyword_asset, NULL, UTF8_3GP_Style, keyword_count, 8);
+						APar_atom_Binary_Put(keyword_asset, formed_keyword_struct, keyword_struct_bytes, 3);
 					}
-					keyword_3GP_atom = -1;
 				}
 				if (formed_keyword_struct != NULL) {
 					free(formed_keyword_struct);
 					formed_keyword_struct = NULL;
 				}
 			} else {
-				//APar_UserData_atom_Init("moov.udta.kywd", "", packed_lang);
 				for (uint8_t i_asset = 1; i_asset <= asset_iterations; i_asset++) {
 					APar_UserData_atom_Init("kywd", "", userdata_area, asset_iterations == 1 ? selected_track : i_asset, packed_lang);
 				}
@@ -2345,7 +2324,6 @@ int main( int argc, char *argv[]) {
 			uint8_t userdata_area = MOVIE_LEVEL_ATOM;
 			uint8_t selected_track = 0;
 			uint8_t a_track = 0;//unused
-			short an_atom = 0;//unused
 			uint8_t asset_iterations = 0;
 			double longitude = -73.98; //if you don't provide a place, you WILL be put right into Central Park. Welcome to New York City... now go away.
 			double latitude = 40.77;
@@ -2411,7 +2389,7 @@ int main( int argc, char *argv[]) {
 			if (userdata_area == MOVIE_LEVEL_ATOM || userdata_area == SINGLE_TRACK_ATOM) {
 				asset_iterations = 1;
 			} else if (userdata_area == ALL_TRACKS_ATOM) {
-				APar_TrackInfo(asset_iterations, a_track, an_atom); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
+				APar_FindAtomInTrack(asset_iterations, a_track, NULL); //With asset_iterations set to 0, it will return the total trak atom into total_tracks here.
 				if (asset_iterations == 1) selected_track = 1;
 			}
 			
@@ -2420,25 +2398,23 @@ int main( int argc, char *argv[]) {
 			} else {
 				for (uint8_t i_asset = 1; i_asset <= asset_iterations; i_asset++) {
 					//short location_3GP_atom = APar_UserData_atom_Init("moov.udta.loci", optarg, packed_lang);
-					short location_3GP_atom = APar_UserData_atom_Init("loci", optarg, userdata_area, asset_iterations == 1 ? selected_track : i_asset, packed_lang);
-					APar_Unified_atom_Put(location_3GP_atom, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
-					APar_Unified_atom_Put(location_3GP_atom, NULL, false, (uint32_t)role, 8);
+					AtomicInfo* location_asset = APar_UserData_atom_Init("loci", optarg, userdata_area, asset_iterations == 1 ? selected_track : i_asset, packed_lang);
+					APar_Unified_atom_Put(location_asset, optarg, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), (uint32_t)packed_lang, 16);
+					APar_Unified_atom_Put(location_asset, NULL, false, (uint32_t)role, 8);
 					
-					APar_Unified_atom_Put(location_3GP_atom, NULL, false, float_to_16x16bit_fixed_point(longitude), 32);
-					APar_Unified_atom_Put(location_3GP_atom, NULL, false, float_to_16x16bit_fixed_point(latitude), 32);
-					APar_Unified_atom_Put(location_3GP_atom, NULL, false, float_to_16x16bit_fixed_point(altitude), 32);
-					APar_Unified_atom_Put(location_3GP_atom, astronomical_body, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), 0, 0);
-					APar_Unified_atom_Put(location_3GP_atom, additional_notes, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), 0, 0);
-					location_3GP_atom = -1;
+					APar_Unified_atom_Put(location_asset, NULL, false, float_to_16x16bit_fixed_point(longitude), 32);
+					APar_Unified_atom_Put(location_asset, NULL, false, float_to_16x16bit_fixed_point(latitude), 32);
+					APar_Unified_atom_Put(location_asset, NULL, false, float_to_16x16bit_fixed_point(altitude), 32);
+					APar_Unified_atom_Put(location_asset, astronomical_body, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), 0, 0);
+					APar_Unified_atom_Put(location_asset, additional_notes, (set_UTF16_text ? UTF16_3GP_Style : UTF8_3GP_Style), 0, 0);
 				}
 			}
 			break;	
 		}
 		
-		case Meta_ReverseDNS_Form : { //--ReverseDNS "mv-ma" name=iTuneEXTC domain=com.apple.iTunes			
+		case Meta_ReverseDNS_Form : { //--rDNSatom "mv-ma" name=iTuneEXTC domain=com.apple.iTunes			
 			char* reverseDNS_atomname = NULL;
 			char* reverseDNS_atomdomain = NULL;
-			uint16_t reverseDNS_dataindex = 1;
 			uint32_t rdns_atom_flags = AtomFlags_Data_Text;
 			
 			APar_ScanAtoms(ISObasemediafile);
@@ -2453,13 +2429,8 @@ int main( int argc, char *argv[]) {
 						reverseDNS_atomname = argv[optind + i]+5;
 					} else if ( memcmp(argv[optind + i], "domain=", 7) == 0 ) {
 						reverseDNS_atomdomain = argv[optind + i]+7;
-					} else if ( memcmp(argv[optind + i], "index=", 6) == 0 ) {
-						sscanf(argv[optind + i]+6, "%hu", &reverseDNS_dataindex);
 					} else if ( memcmp(argv[optind + i], "datatype=", 9) == 0 ) {
-						//sscanf into an unsigned integer (of variable bit length); TODO: currently not implemented
-						if ( memcmp(argv[optind + i]+9, "text", 4) != 0 ) {
-							rdns_atom_flags = 100; //something non-sensical currently
-						}
+						sscanf(argv[optind + i]+9, "%u", &rdns_atom_flags);
 					}
 					if (memcmp(argv[optind + i], "-", 1) == 0) {
 						break; //we've hit another cli argument
@@ -2473,20 +2444,14 @@ int main( int argc, char *argv[]) {
 			} else if ((int)strlen(reverseDNS_atomname) != test_conforming_alpha_string(reverseDNS_atomname) ) {
 				fprintf(stdout, "AtomicParsley warning: Some part of the reverseDNS atom name was non-conforming. Skipping.\n");
 				
-			} else if (reverseDNS_dataindex != 1) {
-				fprintf(stdout, "AtomicParsley warning: only 1 index is currently supported in the reverseDNS form. Skipping.\n");
-				
 			} else if (reverseDNS_atomdomain == NULL) {
 				fprintf(stdout, "AtomicParsley warning: no domain for the reverseDNS form was found. Skipping.\n");
-				
-			} else if (memcmp(reverseDNS_atomdomain, "com.apple.iTunes", 16+1) != 0) {
-				fprintf(stdout, "AtomicParsley warning: currently, only the 'com.apple.iTunes' domain is supported. Skipping.\n");
 				
 			} else if (rdns_atom_flags != AtomFlags_Data_Text) {
 				fprintf(stdout, "AtomicParsley warning: currently, only the strings are supported in reverseDNS atoms. Skipping.\n");
 				
 			} else {
-				short rDNS_data_atom = APar_reverseDNS_atom_Init(reverseDNS_atomname, optarg, &rdns_atom_flags, reverseDNS_atomdomain, &reverseDNS_dataindex);
+				AtomicInfo* rDNS_data_atom = APar_reverseDNS_atom_Init(reverseDNS_atomname, optarg, &rdns_atom_flags, reverseDNS_atomdomain);
 				APar_Unified_atom_Put(rDNS_data_atom, optarg, UTF8_iTunesStyle_Unlimited, 0, 0);
 			}
 			
@@ -2496,12 +2461,11 @@ int main( int argc, char *argv[]) {
 		case Meta_rDNS_rating : {
 			char* media_rating = Expand_cli_mediastring(optarg);
 			uint32_t rDNS_data_flags = AtomFlags_Data_Text;
-			uint16_t rDNS_data_idx = 1;
 			
 			APar_ScanAtoms(ISObasemediafile);
 			
 			if (media_rating != NULL || strlen(optarg) == 0) {
-				short rDNS_rating_data_atom = APar_reverseDNS_atom_Init("iTunEXTC", media_rating, &rDNS_data_flags, "com.apple.iTunes", &rDNS_data_idx);
+				AtomicInfo* rDNS_rating_data_atom = APar_reverseDNS_atom_Init("iTunEXTC", media_rating, &rDNS_data_flags, "com.apple.iTunes");
 				APar_Unified_atom_Put(rDNS_rating_data_atom, media_rating, UTF8_iTunesStyle_Unlimited, 0, 0);
 			}
 		
@@ -2572,15 +2536,10 @@ int main( int argc, char *argv[]) {
 				if (memcmp("1", find_ID3_optarg(argv, optind, "compressed"), 1) == 0) {
 					id3args->zlibCompressed = true;
 				}
-				if (frameType == ID3_TEXT_FRAME) {
-					if (memcmp("1", find_ID3_optarg(argv, optind, "text++"), 1) == 0) { //TODO: this needs to be more transparent
-						id3args->multistringtext = true;
-					}
-				}
 				
 				char* groupsymbol = find_ID3_optarg(argv, optind, "groupsymbol=");
 				if (groupsymbol[0] == '0' && groupsymbol[1] == 'x') {
-					sscanf(groupsymbol, "%hhx", &id3args->groupSymbol);
+					sscanf(groupsymbol, "%hhX", &id3args->groupSymbol);
 					if (id3args->groupSymbol < 0x80 || id3args->groupSymbol > 0xF0) id3args->groupSymbol = 0;
 				}
 			}
@@ -2589,16 +2548,18 @@ int main( int argc, char *argv[]) {
 			if (id3args->targetLang == NULL) id3args->targetLang = "eng";
 			
 			APar_OpenISOBaseMediaFile(ISObasemediafile, true); //if not already scanned, the whole tag for *this* ID32 atom needs to be read from file
-			short id3_atom = APar_ID32_atom_Init(target_frame_ID, meta_container, id3args->targetLang, packed_lang);
+			AtomicInfo* id32_atom = APar_ID32_atom_Init(target_frame_ID, meta_container, id3args->targetLang, packed_lang);
 			
 			if (memcmp(argv[optind + 0], "extract", 7) == 0 && (memcmp(target_frame_ID, "APIC", 4) == 0 || memcmp(target_frame_ID, "GEOB", 4) == 0)) {
-				APar_ID3ExtractFile(id3_atom, target_frame_ID, ISObasemediafile, NULL, id3args);
-				APar_OpenISOBaseMediaFile(ISObasemediafile, false);
+				if (id32_atom != NULL) {
+					APar_Extract_ID3v2_file(id32_atom, target_frame_ID, ISObasemediafile, NULL, id3args);
+					APar_OpenISOBaseMediaFile(ISObasemediafile, false);
+				}
 				exit(0);
 			} 
 			
 			APar_OpenISOBaseMediaFile(ISObasemediafile, false);
-			APar_ID3FrameAmmend(id3_atom, target_frame_ID, argv[optind + 0], id3args, char_encoding);
+			APar_ID3FrameAmmend(id32_atom, target_frame_ID, argv[optind + 0], id3args, char_encoding);
 			
 			free(id3args);
 			id3args = NULL;

@@ -15,7 +15,7 @@
     cannot, write to the Free Software Foundation, 59 Temple Place
     Suite 330, Boston, MA 02111-1307, USA.  Or www.fsf.org
 
-    Copyright ©2006 puck_lock
+    Copyright ©2006-2007 puck_lock
 																																		*/
 //==================================================================//
 
@@ -70,8 +70,8 @@ typedef struct {
 } TrackInfo;
 
 typedef struct {
-	uint32_t creation_time;
-	uint32_t modified_time;
+	uint64_t creation_time;
+	uint64_t modified_time;
 	uint32_t timescale;
 	uint32_t duration;
 	uint32_t playback_rate; //fixed point 16.16

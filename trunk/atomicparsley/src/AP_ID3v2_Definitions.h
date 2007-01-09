@@ -15,7 +15,7 @@
     cannot, write to the Free Software Foundation, 59 Temple Place
     Suite 330, Boston, MA 02111-1307, USA.  Or www.fsf.org
 
-    Copyright ©2006 puck_lock
+    Copyright ©2006-2007 puck_lock
                                                                    */
 //==================================================================//
 
@@ -132,6 +132,28 @@ enum ID3v2FrameIDs {
 	ID3v2_FRAME_PRIVATE,
 	ID3v2_FRAME_PLAYCOUNTER,
 	ID3v2_FRAME_POPULARITY
+};
+
+enum ID3v2_TagFlags {
+	ID32_TAGFLAG_BIT0 = 0x01,
+	ID32_TAGFLAG_BIT1 = 0x02,
+	ID32_TAGFLAG_BIT2 = 0x04,
+	ID32_TAGFLAG_BIT3 = 0x08,
+	ID32_TAGFLAG_FOOTER = 0x10,
+	ID32_TAGFLAG_EXPERIMENTAL = 0x20,
+	ID32_TAGFLAG_EXTENDEDHEADER = 0x40,
+	ID32_TAGFLAG_UNSYNCRONIZATION = 0x80
+};
+
+enum ID3v2_FrameFlags {
+	ID32_FRAMEFLAG_STATUS         =  0x4000,
+	ID32_FRAMEFLAG_PRESERVE       =  0x2000,
+	ID32_FRAMEFLAG_READONLY       =  0x1000,
+	ID32_FRAMEFLAG_GROUPING       =  0x0040,
+	ID32_FRAMEFLAG_COMPRESSED     =  0x0008,
+	ID32_FRAMEFLAG_ENCRYPTED      =  0x0004,
+	ID32_FRAMEFLAG_UNSYNCED       =  0x0002,
+	ID32_FRAMEFLAG_LENINDICATED   =  0x0001
 };
 
 // the wording of the ID3 (v2.4 in this case) 'informal standard' is not always replete with clarity.
