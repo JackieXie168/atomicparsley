@@ -15,12 +15,19 @@
     cannot, write to the Free Software Foundation, 59 Temple Place
     Suite 330, Boston, MA 02111-1307, USA.  Or www.fsf.org
 
-    Copyright ©2005-2006 puck_lock
+    Copyright ©2005-2007 puck_lock
 */
 //==================================================================//
 
 #include <string.h>
 #include <stdlib.h>
+
+#if defined (WIN32)
+#include <windows.h>
+#include "AP_iconv.h"
+#endif
+
+#include "AP_commons.h"
 
 //==================================================================//
 // utf conversion functions from libxml2
@@ -695,6 +702,59 @@ unsigned int utf8_length(const char *in_string, unsigned int char_limit) {
 	return utf8_string_length;
 }
 
+#if defined (WIN32)
+unsigned char APar_Return_rawutf8_CP(unsigned short cp_bound_glyph) {
+	unsigned short total_known_points = 0;
+	unsigned int win32cp = GetConsoleCP();
+	
+	if (win32cp == 437 || win32cp == 850 || win32cp == 852 || win32cp == 855 || win32cp == 858) {
+		total_known_points = 128;
+	} else {
+		if (cp_bound_glyph >= 0x0080) {
+			exit(win32cp);
+		}
+	}
+	if (cp_bound_glyph < 0x0080) {
+		return cp_bound_glyph << 0;
+	} else if (total_known_points) {
+		if (win32cp == 437) {
+			for (uint16_t i = 0; i < total_known_points; i++) {
+				if (cp_bound_glyph == cp437upperbytes[i]) {
+					return i+128;
+				}
+			}
+		} else if (win32cp == 850) {
+			for (uint16_t i = 0; i < total_known_points; i++) {
+				if (cp_bound_glyph == cp850upperbytes[i]) {
+					return i+128;
+				}
+			}
+		} else if (win32cp == 852) {
+			for (uint16_t i = 0; i < total_known_points; i++) {
+				if (cp_bound_glyph == cp852upperbytes[i]) {
+					return i+128;
+				}
+			}
+		} else if (win32cp == 855) {
+			for (uint16_t i = 0; i < total_known_points; i++) {
+				if (cp_bound_glyph == cp855upperbytes[i]) {
+					return i+128;
+				}
+			}
+		} else if (win32cp == 858) {
+			for (uint16_t i = 0; i < total_known_points; i++) {
+				if (cp_bound_glyph == cp858upperbytes[i]) {
+					return i+128;
+				}
+			}
+		} else {
+			fprintf(stderr, "AtomicParsley error: this windows codepage(%u) is unsupported.\nProvide the output of the 'CPTester' utility run from the bat script\n", win32cp);
+			exit(win32cp);
+		}
+	}
+	return 0;
+}
+
 int strip_bogusUTF16toRawUTF8 (unsigned char* out, int inlen, wchar_t* in, int outlen) {
 
     unsigned char* outstart = out;
@@ -710,12 +770,13 @@ int strip_bogusUTF16toRawUTF8 (unsigned char* out, int inlen, wchar_t* in, int o
     instop = inend;
     
     while (in < inend && out < outend - 1) {
-    	*out++ = *in << 0;
+    	*out++ = APar_Return_rawutf8_CP(*in); //*in << 0;
 	    ++in;
 	}
     outlen = out - outstart;
     return(outlen);
 }
+#endif
 
 /*----------------------
 test_conforming_alpha_string

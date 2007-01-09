@@ -1,6 +1,6 @@
 //==================================================================//
 /*
-    AtomicParsley - AtomicParsley_genres.cpp
+    AtomicParsley - AP_arrays.cpp
 
     AtomicParsley is GPL software; you can freely distribute, 
     redistribute, modify & use under the terms of the GNU General
@@ -15,7 +15,7 @@
     cannot, write to the Free Software Foundation, 59 Temple Place
     Suite 330, Boston, MA 02111-1307, USA.  Or www.fsf.org
 
-    Copyright ©2005-2006 puck_lock
+    Copyright ©2005-2007 puck_lock
 		
 		----------------------
     Code Contributions by:

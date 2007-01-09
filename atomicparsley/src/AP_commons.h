@@ -15,7 +15,7 @@
     cannot, write to the Free Software Foundation, 59 Temple Place
     Suite 330, Boston, MA 02111-1307, USA.  Or www.fsf.org
 
-    Copyright ©2006 puck_lock
+    Copyright ©2006-2007 puck_lock
 																																		*/
 //==================================================================//
 
@@ -90,10 +90,12 @@ void TestFileExistence(const char *filePath, bool errorOut);
 #if defined (_MSC_VER)
 int fseeko(FILE *stream, uint64_t pos, int whence);
 #endif
+bool IsUnicodeWinOS();
 
 uint8_t APar_read8(FILE* ISObasemediafile, uint32_t pos);
 uint16_t APar_read16(char* buffer, FILE* ISObasemediafile, uint32_t pos);
 uint32_t APar_read32(char* buffer, FILE* ISObasemediafile, uint32_t pos);
+uint64_t APar_read64(char* buffer, FILE* ISObasemediafile, uint32_t pos);
 void APar_readX(char* buffer, FILE* ISObasemediafile, uint32_t pos, uint32_t length);
 uint32_t APar_ReadFile(char* destination_buffer, FILE* a_file, uint32_t bytes_to_read);
 uint32_t APar_FindValueInAtom(char* uint32_buffer, FILE* ISObasemediafile, short an_atom, uint32_t start_position, uint32_t eval_number);
@@ -108,6 +110,10 @@ int lroundf(float a);
 #ifndef HAVE_STRSEP
 char *strsep (char **stringp, const char *delim);
 #endif
+
+char* APar_extract_UTC(uint64_t total_secs);
+uint32_t APar_get_mpeg4_time();
+void APar_StandardTime(char* &formed_time);
 
 wchar_t* Convert_multibyteUTF16_to_wchar(char* input_unicode, size_t glyph_length, bool skip_BOM);
 unsigned char* Convert_multibyteUTF16_to_UTF8(char* input_utf8, size_t glyph_length, size_t byte_count);

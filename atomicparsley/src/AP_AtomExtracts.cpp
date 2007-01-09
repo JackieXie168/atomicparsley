@@ -15,7 +15,7 @@
     cannot, write to the Free Software Foundation, 59 Temple Place
     Suite 330, Boston, MA 02111-1307, USA.  Or www.fsf.org
 
-    Copyright ©2006 puck_lock
+    Copyright ©2006-2007 puck_lock
 																																		*/
 //==================================================================//
 
@@ -26,6 +26,8 @@
 #include <math.h>
 
 #include "AtomicParsley.h"
+#include "AP_ID3v2_tags.h"
+#include "AP_MetadataListings.h"
 #include "AP_AtomExtracts.h"
 
 MovieInfo movie_info = {0};
@@ -105,25 +107,6 @@ void mem_append(char* add_string, char* dest_string) {
 		memcpy(dest_string, add_string, strlen(add_string) );
 	}
 	return;
-}
-
-/*----------------------
-ExtractUTC
-  total_secs - the time in seconds (from Jan 1, 1904)
-
-    Convert the seconds to a calendar date with seconds.
-----------------------*/
-char* ExtractUTC(uint32_t total_secs) {
-	//2082844800 seconds between 01/01/1904 & 01/01/1970
-	//  2,081,376,000 (60 seconds * 60 minutes * 24 hours * 365 days * 66 years)
-	//    + 1,468,800 (60 * 60 * 24 * 17 leap days in 01/01/1904 to 01/01/1970 duration) 
-	//= 2,082,844,800
-	total_secs -= 2082844800;
-	static char utc_time[50];
-	memset(utc_time, 0, 50);
-	
-	strftime(*&utc_time, 50 , "%a %b %e %k:%M:%S %Y", gmtime((time_t*)&total_secs) );
-	return *&utc_time;
 }
 
 /*----------------------
@@ -1135,23 +1118,22 @@ APar_ExtractMovieDetails
 		of a track in seconds. A rough approximation of the overall bitrate is done off this too using the sum of the mdat lengths.
 ----------------------*/
 void APar_ExtractMovieDetails(char* uint32_buffer, FILE* isofile, AtomicInfo* mvhd_atom) {	
-	if (mvhd_atom->AtomicVerFlags == 0) {
-		movie_info.creation_time = APar_read32(uint32_buffer, isofile, mvhd_atom->AtomicStart + 12);
-		movie_info.modified_time = APar_read32(uint32_buffer, isofile, mvhd_atom->AtomicStart + 16);
-		movie_info.timescale = APar_read32(uint32_buffer, isofile, mvhd_atom->AtomicStart + 20);
-		movie_info.duration = APar_read32(uint32_buffer, isofile, mvhd_atom->AtomicStart + 24);
-		movie_info.playback_rate = APar_read32(uint32_buffer, isofile, mvhd_atom->AtomicStart + 28);
-		movie_info.volume = APar_read16(uint32_buffer, isofile, mvhd_atom->AtomicStart + 32);
-	} else {
-		//version 1 has 64-bit creation/modified times which AP currently doesn't support
-		//movie_info->creation_time = APar_read64(uint32_buffer, isofile, mvhdAtom->AtomicStart + 12);
-		//movie_info->modified_time = APar_read64(uint32_buffer, isofile, mvhdAtom->AtomicStart + 20);
+	if (mvhd_atom->AtomicVerFlags == 1) {
+		movie_info.creation_time = APar_read64(uint32_buffer, isofile, mvhd_atom->AtomicStart + 12);
+		movie_info.modified_time = APar_read64(uint32_buffer, isofile, mvhd_atom->AtomicStart + 20);
 		movie_info.timescale = APar_read32(uint32_buffer, isofile, mvhd_atom->AtomicStart + 28);
 		movie_info.duration = APar_read32(uint32_buffer, isofile, mvhd_atom->AtomicStart + 32);
 		movie_info.timescale = APar_read32(uint32_buffer, isofile, mvhd_atom->AtomicStart + 36);
 		movie_info.duration = APar_read32(uint32_buffer, isofile, mvhd_atom->AtomicStart + 40);
 		movie_info.playback_rate = APar_read32(uint32_buffer, isofile, mvhd_atom->AtomicStart + 44);
 		movie_info.volume = APar_read16(uint32_buffer, isofile, mvhd_atom->AtomicStart + 48);
+	} else {
+		movie_info.creation_time = (uint64_t)APar_read32(uint32_buffer, isofile, mvhd_atom->AtomicStart + 12);
+		movie_info.modified_time = (uint64_t)APar_read32(uint32_buffer, isofile, mvhd_atom->AtomicStart + 16);
+		movie_info.timescale = APar_read32(uint32_buffer, isofile, mvhd_atom->AtomicStart + 20);
+		movie_info.duration = APar_read32(uint32_buffer, isofile, mvhd_atom->AtomicStart + 24);
+		movie_info.playback_rate = APar_read32(uint32_buffer, isofile, mvhd_atom->AtomicStart + 28);
+		movie_info.volume = APar_read16(uint32_buffer, isofile, mvhd_atom->AtomicStart + 32);
 	}
 	
 	movie_info.seconds = (float)movie_info.duration / (float)movie_info.timescale;
@@ -1230,8 +1212,12 @@ void APar_ExtractDetails(FILE* isofile, uint8_t optional_output) {
 	if (mvhdAtom != NULL) {
 		APar_ExtractMovieDetails(uint32_buffer, isofile, mvhdAtom);
 		fprintf(stdout, "Movie duration: %.3lf seconds (%s) - %.2lf* kbp/sec bitrate (*=approximate)\n", movie_info.seconds, secsTOtime(movie_info.seconds), movie_info.simple_bitrate_calc);
+		if (optional_output & SHOW_DATE_INFO) {
+			fprintf(stdout, "  Presentation Creation Date (UTC):     %s\n", APar_extract_UTC(movie_info.creation_time) );
+			fprintf(stdout, "  Presentation Modification Date (UTC): %s\n", APar_extract_UTC(movie_info.modified_time) );
+		}
 	}
-	
+		
 	AtomicInfo* iodsAtom = APar_FindAtom("moov.iods", false, VERSIONED_ATOM, 0);
 	if (iodsAtom != NULL) {
 		movie_info.contains_iods = true;
@@ -1284,8 +1270,8 @@ void APar_ExtractDetails(FILE* isofile, uint8_t optional_output) {
 				}
 				
 				if (optional_output & SHOW_DATE_INFO) {
-					fprintf(stdout, "       Creation Date (UTC):     %s\n", ExtractUTC(track_info.creation_time) );
-					fprintf(stdout, "       Modification Date (UTC): %s\n", ExtractUTC(track_info.modified_time) );
+					fprintf(stdout, "       Creation Date (UTC):     %s\n", APar_extract_UTC(track_info.creation_time) );
+					fprintf(stdout, "       Modification Date (UTC): %s\n", APar_extract_UTC(track_info.modified_time) );
 				}
 					
 			}

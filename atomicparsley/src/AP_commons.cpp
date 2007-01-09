@@ -15,7 +15,7 @@
     cannot, write to the Free Software Foundation, 59 Temple Place
     Suite 330, Boston, MA 02111-1307, USA.  Or www.fsf.org
 
-    Copyright ©2006 puck_lock
+    Copyright ©2006-2007 puck_lock
 		
 		----------------------
     Code Contributions by:
@@ -30,6 +30,12 @@
 #include <time.h>
 #include <wchar.h>
 #include <errno.h>
+
+#if defined (WIN32)
+#include <windows.h>
+#else
+#include <sys/time.h>
+#endif
 
 #include "AP_commons.h"
 #include "AP_iconv.h"
@@ -137,7 +143,7 @@ void TestFileExistence(const char *filePath, bool errorOut) {
 #if defined (_MSC_VER)
 
 ///////////////////////////////////////////////////////////////////////////////////////
-//                 Win32 function to support 2-4GB large files                       //
+//                                Win32 functions                                    //
 ///////////////////////////////////////////////////////////////////////////////////////
 
 int fseeko(FILE *stream, uint64_t pos, int whence) { //only using SEEK_SET here
@@ -150,6 +156,19 @@ int fseeko(FILE *stream, uint64_t pos, int whence) { //only using SEEK_SET here
 	return -1;
 }
 #endif
+
+
+// http://www.flipcode.com/articles/article_advstrings01.shtml
+bool IsUnicodeWinOS() {
+#if defined (_MSC_VER)
+  OSVERSIONINFOW		os;
+  memset(&os, 0, sizeof(OSVERSIONINFOW));
+  os.dwOSVersionInfoSize = sizeof(OSVERSIONINFOW);
+  return (GetVersionExW(&os) != 0);
+#else
+	return false;
+#endif
+}
 
 ///////////////////////////////////////////////////////////////////////////////////////
 //                             File reading routines                                 //
@@ -172,6 +191,12 @@ uint32_t APar_read32(char* buffer, FILE* ISObasemediafile, uint32_t pos) {
 	fseeko(ISObasemediafile, pos, SEEK_SET);
 	fread(buffer, 1, 4, ISObasemediafile);
 	return UInt32FromBigEndian(buffer);
+}
+
+uint64_t APar_read64(char* buffer, FILE* ISObasemediafile, uint32_t pos) {
+	fseeko(ISObasemediafile, pos, SEEK_SET);
+	fread(buffer, 1, 8, ISObasemediafile);
+	return UInt64FromBigEndian(buffer);
 }
 
 void APar_readX(char* buffer, FILE* ISObasemediafile, uint32_t pos, uint32_t length) {
@@ -305,6 +330,149 @@ char *strsep (char **stringp, const char *delim)
   return begin;
 }
 #endif
+
+void determine_MonthDay(int literal_day, int &month, int &day) {
+	if (literal_day <= 31) {
+		month = 1; day = literal_day;
+	
+	} else if (literal_day <= 59) {
+		month = 2; day = literal_day - 31;
+	
+	} else if (literal_day <= 90) {
+		month = 3; day = literal_day - 59;
+	
+	} else if (literal_day <= 120) {
+		month = 4; day = literal_day - 90;
+	
+	} else if (literal_day <= 151) {
+		month = 5; day = literal_day - 120;
+	
+	} else if (literal_day <= 181) {
+		month = 6; day = literal_day - 151;
+	
+	} else if (literal_day <= 212) {
+		month = 7; day = literal_day - 181;
+		
+	} else if (literal_day <= 243) {
+		month = 8; day = literal_day - 212;
+	
+	} else if (literal_day <= 273) {
+		month = 9; day = literal_day - 243;
+	
+	} else if (literal_day <= 304) {
+		month = 10; day = literal_day - 273;
+	
+	} else if (literal_day <= 334) {
+		month = 11; day = literal_day - 304;
+	
+	} else if (literal_day <= 365) {
+		month = 12; day = literal_day - 334;
+	}
+	return;
+}
+
+char* APar_gmtime64(uint64_t total_secs) {
+	static char utc_time[50];
+	memset(utc_time, 0, 50);
+	
+	//this will probably be off between Jan 1 & Feb 28 on a leap year by a day.... I'll somehow cope & deal.
+	struct tm timeinfo = {0,0,0,0,0};
+
+	int offset_year = (int)( (double)total_secs / 31536000 ); //60 * 60 * 24 * 365 (ordinary year in seconds; doesn't account for leap year)
+	int literal_year = 1904 + offset_year;
+	int literal_days_into_year = ((total_secs % 31536000) / 86400) - (offset_year / 4); //accounts for the leap year
+	
+	uint32_t literal_seconds_into_day = total_secs % 86400;
+	
+	int month =  0;
+	int days = 0;
+	
+	determine_MonthDay(literal_days_into_year, month, days);
+	
+	if (literal_days_into_year < 0 ) {
+		literal_year -=1;
+		literal_days_into_year = 31 +literal_days_into_year;
+		month = 12;
+		days = literal_days_into_year;
+	}
+	
+	int hours = literal_seconds_into_day / 3600;
+	
+	timeinfo.tm_year = literal_year - 1900;
+	timeinfo.tm_yday = literal_days_into_year;
+	timeinfo.tm_mon = month - 1;
+	timeinfo.tm_mday = days;
+	timeinfo.tm_wday = (((total_secs / 86400) - (offset_year / 4)) - 5 ) % 7;
+	
+	timeinfo.tm_hour = hours;
+	timeinfo.tm_min = (literal_seconds_into_day - (hours * 3600)) / 60;
+	timeinfo.tm_sec = (int)(literal_seconds_into_day % 60);
+		
+	strftime(*&utc_time, 50 , "%a %b %d %H:%M:%S %Y", &timeinfo);
+	return *&utc_time;
+}
+
+/*----------------------
+ExtractUTC
+  total_secs - the time in seconds (from Jan 1, 1904)
+
+    Convert the seconds to a calendar date with seconds.
+----------------------*/
+char* APar_extract_UTC(uint64_t total_secs) {
+	//2082844800 seconds between 01/01/1904 & 01/01/1970
+	//  2,081,376,000 (60 seconds * 60 minutes * 24 hours * 365 days * 66 years)
+	//    + 1,468,800 (60 * 60 * 24 * 17 leap days in 01/01/1904 to 01/01/1970 duration) 
+	//= 2,082,844,800
+	if (total_secs > 6377812095ULL) {
+		return APar_gmtime64(total_secs);
+	} else {
+		total_secs -= 2082844800;
+		static char utc_time[50];
+		memset(utc_time, 0, 50);
+		uint32_t reduced_seconds = (uint32_t)total_secs;
+	
+		strftime(*&utc_time, 50 , "%a %b %d %H:%M:%S %Y", gmtime((time_t*)&reduced_seconds) );
+		return *&utc_time;
+	}
+}
+
+uint32_t APar_get_mpeg4_time() {
+#if defined(WIN32)
+	FILETIME  file_time;
+	uint64_t wintime = 0;
+	GetSystemTimeAsFileTime (&file_time);
+	wintime = (((uint64_t) file_time.dwHighDateTime << 32) | file_time.dwLowDateTime) / 10000000;
+	wintime -= 9561628800;
+	return (uint32_t)wintime;
+
+#else
+	uint32_t current_time_in_seconds = 0;
+	struct timeval tv;
+	gettimeofday(&tv, NULL);
+	current_time_in_seconds = tv.tv_sec;
+	return current_time_in_seconds + 2082844800;
+
+#endif
+	return 0;
+}
+
+
+/*----------------------
+APar_StandardTime
+	formed_time - the destination string
+
+    Print the ISO 8601 Coordinated Universal Time (UTC) timestamp (in YYYY-MM-DDTHH:MM:SSZ form)
+----------------------*/
+void APar_StandardTime(char* &formed_time) {
+  time_t rawtime;
+  struct tm *timeinfo;
+
+  time (&rawtime);
+  timeinfo = gmtime (&rawtime);
+	strftime(formed_time ,100 , "%Y-%m-%dT%H:%M:%SZ", timeinfo); //that hanging Z is there; denotes the UTC
+	
+	return;
+}
 
 ///////////////////////////////////////////////////////////////////////////////////////
 //                                     strings                                       //

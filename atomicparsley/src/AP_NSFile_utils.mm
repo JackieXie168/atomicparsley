@@ -15,47 +15,89 @@
     cannot, write to the Free Software Foundation, 59 Temple Place
     Suite 330, Boston, MA 02111-1307, USA.  Or www.fsf.org
 
-    Copyright ©2006 puck_lock
+    Copyright ©2006-2007 puck_lock
                                                                    */
 //==================================================================//
 
 #import <Cocoa/Cocoa.h>
-//#include <Carbon/Carbon.h>
 #include "AP_commons.h"
 #include "AtomicParsley.h"
 
-/*
-char* APar_4CC_CreatorCodeCARBON(const char* filepath, const char* new_creator_code) {
-	
-	//FSpGetFInfo() is deprecated on 10.4, but this doesn't  work anyway, so onto Cocoa
-	//update: maybe it was working but I used FileBuddy - and didn't notice how conveniently it added the T/C codes when they weren't there, so that is the source of my troubles.
+/*----------------------
+APar_TestTracksForKind
 
-	FSRef file_system_ref;
-	FSCatalogInfo catalogInfo;
-	FileInfo* finder_file_nfo = NULL;
-  OSStatus status = noErr;
-	OSErr err = noErr;
-	FourCharCode filetypeCode, creatorCode;
-	
-	status = FSPathMakeRef( (const UInt8 *)filepath, &file_system_ref, false);
-	if (status == noErr) {
-		err = FSGetCatalogInfo (&file_system_ref, kFSCatInfoFinderInfo, &catalogInfo, NULL, NULL, NULL);
-	} else {
-		fprintf(stderr, "FSGetCatalogInfo error %d\n", (int)err);
-	}
-	
-	finder_file_nfo = (FileInfo*) &catalogInfo.finderInfo;
-	
-	filetypeCode = ((FileInfo*)&catalogInfo.finderInfo)->fileType;
-	if (filetypeCode != (OSType)0x00000000) {
-    printf("Type: '%s'\n", (char*)&filetypeCode);
-  } else {
-    printf("No Type code found!\n");
-	}
+    By testing which tracks are contained within the file, for Mac OS X we can avoid having to change file extension by instead using Finder.app metadata to signal
+		the same info as file extension. For each trak atom, find the 'stsd' atom - its ancillary_data will contain the track type that is contained - the info is filled
+		in as the file was initially parsed in APar_ScanAtoms. Then using Mac OS X Cocoa calls (in AP_NSFile_utils), set the Finder TYPE/CREATOR codes to signal to the
+		OS/Finder/iTunes that this file is .m4a or .m4v without having to change its extension based on what the tracks actually contain.
+		
+		There are 2 issues with this - iTunes requires the Quicktime player type/creator codes for video that has multi-channel audio, and for chapterized video files.
+		TODO: address these issues.
+----------------------*/
+void APar_TestTracksForKind() {
+	uint8_t total_tracks = 0;
+	uint8_t track_num = 0;
+	AtomicInfo* codec_atom = NULL; //short codec_atom = 0;
 
-	return NULL;
+	//With track_num set to 0, it will return the total trak atom into total_tracks here.
+	APar_FindAtomInTrack(total_tracks, track_num, NULL);
+	
+	if (total_tracks > 0) {
+		while (total_tracks > track_num) {
+			track_num+= 1;
+			
+			codec_atom = APar_FindAtomInTrack(total_tracks, track_num, "stsd");
+			if (codec_atom == NULL) return;
+			
+			//now test this trak's stsd codec against these 4cc codes:			
+			switch(codec_atom->ancillary_data) {
+				//video types
+				case 0x61766331 : // "avc1"
+					track_codecs.has_avc1 = true;
+					break;
+				case 0x6D703476 : // "mp4v"
+					track_codecs.has_mp4v = true;
+					break;
+				case 0x64726D69 : // "drmi"
+					track_codecs.has_drmi = true;
+					break;
+					
+				//audio types
+				case 0x616C6163 : // "alac"
+					track_codecs.has_alac = true;
+					break;
+				case 0x6D703461 : // "mp4a"
+					track_codecs.has_mp4a = true;
+					break;
+				case 0x64726D73 : // "drms"
+					track_codecs.has_drms = true;
+					break;
+				
+				//chapterized types (audio podcasts or movies)
+				case 0x74657874 : // "text"
+					track_codecs.has_timed_text = true;
+					break;
+				case 0x6A706567 : // "jpeg"
+					track_codecs.has_timed_jpeg = true;
+					break;
+				
+				//either podcast type (audio-only) or timed text subtitles
+				case 0x74783367 : // "tx3g"
+					track_codecs.has_timed_tx3g = true;
+					break;
+				
+				//other
+				case 0x6D703473 : // "mp4s"
+					track_codecs.has_mp4s = true;
+					break;
+				case 0x72747020  : // "rtp "
+					track_codecs.has_rtp_hint = true;
+					break;
+			}
+		}
+	}	
+	return;
 }
-*/
 
 
 //TODO: there is a problem with this code seen in: "5.1channel audio-orig.mp4"
