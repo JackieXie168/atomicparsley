@@ -247,7 +247,7 @@ extern bool parsedfile;
 extern bool file_opened;
 extern bool modified_atoms;
 extern bool alter_original;
-extern bool tree_display_only;
+extern bool deep_atom_scan;
 extern bool cvs_build;
 extern bool force_existing_hierarchy;
 extern bool move_moov_atom;
@@ -304,7 +304,7 @@ AtomicInfo* APar_FindAtom(const char* atom_name, bool createMissing, uint8_t ato
                                                  bool match_full_uuids = false, const char* reverseDNSdomain = NULL);
 
 int APar_MatchToKnownAtom(const char* atom_name, const char* atom_container, bool fromFile, const char* find_atom_path);
-void APar_ScanAtoms(const char *path, bool scan_for_tree_ONLY = false);
+void APar_ScanAtoms(const char *path, bool deepscan_REQ = false);
 void APar_IdentifyBrand(char* file_brand);
 
 AtomicInfo* APar_CreateSparseAtom(AtomicInfo* surrogate_atom, AtomicInfo* parent_atom, short preceding_atom);
@@ -321,6 +321,9 @@ AtomicInfo* APar_reverseDNS_atom_Init(const char* rDNS_atom_name, const char* rD
 
 /* uuid user extension metadata; made to look much like iTunes-style metadata with a 4byte NULL */
 AtomicInfo* APar_uuid_atom_Init(const char* atom_path, char* uuidName, const uint32_t dataType, const char* uuidValue, bool shellAtom);
+
+uint16_t APar_TestVideoDescription(AtomicInfo* video_desc_atom, FILE* ISObmff_file); //test whether the ipod uuid can be added for a video track
+void APar_Generate_iPod_uuid(char* atom_path);
 
 /* 3GP-style metadata */
 uint32_t APar_3GP_Keyword_atom_Format(char* keywords_globbed, uint8_t keyword_count, bool set_UTF16_text, char* &formed_keyword_struct);

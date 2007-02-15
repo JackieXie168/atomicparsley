@@ -81,6 +81,11 @@ typedef unsigned long UINT; /* Type for random 32 or 64-bit integer,
 #undef HAVE_SRANDDEV
 #endif
 
+#if defined (_WIN32)
+#define MAXTIME_32 (uint64_t)6377812095
+#else
+#define MAXTIME_32 6377812095ULL
+#endif
 
 off_t findFileSize(const char *utf8_filepath);
 FILE* APar_OpenFile(const char* utf8_filepath, const char* file_flags);

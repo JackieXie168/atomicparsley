@@ -98,6 +98,7 @@
 #define Meta_uuid                'z'
 #define Opt_Extract_all_uuids    0xB8
 #define Opt_Extract_a_uuid       0xB9
+#define Opt_Ipod_AVC_uuid        0xBE
 
 #define Metadata_Purge           'P'
 #define UserData_Purge           'X'
@@ -368,10 +369,18 @@ static char* fileLevelHelp_text =
 "  --overWrite        ,  -W            Writes to temp file; deletes original, renames temp to original\n"
 "                                      If possible, padding will be used to update without a full rewrite.\n"
 "\n"
+"  --DeepScan                          Parse areas of the file that are normally skipped (must be the 3rd arg)\n"
+"  --iPod-uuid                (num)    Place the ipod-required uuid for higher resolution avc video files\n"
+"                                      Currently, the only number used is 1200 - the maximum number of macro-\n"
+"                                      blocks allowed by the higher resolution iPod setting.\n"
+"                                      NOTE: this requires the \"--DeepScan\" option as the 3rd cli argument\n"
+"                                      NOTE2: only works on the first avc video track, not all avc tracks\n"
+"\n"
 "Examples: \n"
 "  --freefree 0         (deletes all top-level non-padding atoms preceding 'mooov') \n"
 "  --freefree 1         (deletes all non-padding atoms at the top most level) \n"
 "  --output ~/Desktop/newfile.mp4\n"
+"  AP /path/to/file.m4v --DeepScan --iPod-uuid 1200\n"
 
 "------------------------------------------------------------------------------------------------\n"
 " Padding & 'free' atoms:\n"
@@ -977,6 +986,7 @@ int main( int argc, char *argv[]) {
 		APar_ExtractBrands(argv[1]); exit(0);
 	}
 	
+	int extr = 99;
 	total_args = argc;
 	char* ISObasemediafile = argv[1];
 	
@@ -990,6 +1000,11 @@ int main( int argc, char *argv[]) {
 	if (strlen(ISObasemediafile) + 11 > MAXPATHLEN) {
 		fprintf(stderr, "%c %s", '\a', "AtomicParsley error: filename/filepath was too long.\n");
 		exit(1);
+	}
+	
+	if ( argc > 3 && memcmp(argv[2], "--DeepScan", 10) == 0) {
+		deep_atom_scan = true;
+		APar_ScanAtoms(ISObasemediafile, true);
 	}
 	
 	while (1) {
@@ -1041,6 +1056,7 @@ int main( int argc, char *argv[]) {
 		{ "meta-uuid",        required_argument,  NULL,           Meta_uuid },
 		{ "extract-uuids",    optional_argument,  NULL,           Opt_Extract_all_uuids },
 		{ "extract1uuid",     required_argument,  NULL,           Opt_Extract_a_uuid },
+		{ "iPod-uuid",        required_argument,  NULL,           Opt_Ipod_AVC_uuid },
 		
 		{ "freefree",         optional_argument,  NULL,           Opt_FreeFree },
 		{ "metaEnema",        0,                  NULL,						Metadata_Purge },
@@ -1069,6 +1085,8 @@ int main( int argc, char *argv[]) {
 		{ "3gp-location",     required_argument,  NULL,           _3GP_Location },
 		
 		{ "ID3Tag",           required_argument,  NULL,           Meta_ID3v2Tag },
+		
+		{ "DeepScan",         0,                  &extr,          1 },
 		
 		{ 0, 0, 0, 0 }
 	};
@@ -1102,7 +1120,7 @@ int main( int argc, char *argv[]) {
 		}
 					
 		case OPT_TEST: {
-			tree_display_only = true;
+			deep_atom_scan = true;
 			APar_ScanAtoms(ISObasemediafile, true);
 			APar_PrintAtomicTree();
 			if (argv[optind]) {
@@ -1118,7 +1136,7 @@ int main( int argc, char *argv[]) {
 		case OPT_ShowTextData: {
 			if (argv[optind]) { //for utilities that write iTunes-style metadata into 3gp branded files
 				APar_ExtractBrands(ISObasemediafile);
-				tree_display_only=true;
+				deep_atom_scan=true;
 				APar_ScanAtoms(ISObasemediafile);
 				
 				APar_OpenISOBaseMediaFile(ISObasemediafile, true);
@@ -1138,7 +1156,7 @@ int main( int argc, char *argv[]) {
 				}
 				
 			} else {
-				tree_display_only=true;
+				deep_atom_scan=true;
 				APar_ScanAtoms(ISObasemediafile);
 				APar_OpenISOBaseMediaFile(ISObasemediafile, true);
 				
@@ -1833,6 +1851,45 @@ int main( int argc, char *argv[]) {
 			free(uuid_binary_str); uuid_binary_str = NULL;
 			exit(0);
 			break; //never gets here
+		}
+		
+		case Opt_Ipod_AVC_uuid : {
+			if (deep_atom_scan == true) {
+				if (memcmp(optarg, "1200", 3) != 0) {
+					fprintf(stdout, "the ipod-uuid has a single preset of '1200' which is required\n"); //1200 might not be the only max macroblock setting down the pike
+					break;
+				}
+				uint8_t total_tracks = 0;
+				uint8_t a_track = 0;//unused
+				char atom_path[100];
+				AtomicInfo* video_desc_atom = NULL;
+				AtomicInfo* ipod_uuid = NULL;
+				
+				memset(atom_path, 0, 100);
+	
+				APar_FindAtomInTrack(total_tracks, a_track, NULL); //With track_num set to 0, it will return the total trak atom into total_tracks here.
+				
+				while (a_track < total_tracks) {
+					a_track++;
+					sprintf(atom_path, "moov.trak[%hhu].mdia.minf.stbl.stsd.avc1", a_track);
+					video_desc_atom = APar_FindAtom(atom_path, false, VERSIONED_ATOM, 0, false);
+					
+					if (video_desc_atom != NULL) {
+						uint16_t mb_t = APar_TestVideoDescription(video_desc_atom, APar_OpenFile(ISObasemediafile, "rb"));
+						if (mb_t > 0 && mb_t <= 1200) {
+							sprintf(atom_path, "moov.trak[%hhu].mdia.minf.stbl.stsd.avc1.uuid=", a_track);
+							uint8_t uuid_baselen = (uint8_t)strlen(atom_path);
+							APar_uuid_scanf(atom_path + uuid_baselen, "6b6840f2-5f24-4fc5-ba39-a51bcf0323f3");
+							APar_endian_uuid_bin_str_conversion(atom_path + uuid_baselen);
+							APar_Generate_iPod_uuid(atom_path);
+						}
+					}
+				}
+				
+			} else {
+				fprintf(stdout, "the --DeepScan option is required for this operation. Skipping\n");
+			}
+			break;
 		}
 		
 		case Manual_atom_removal : {
@@ -2647,7 +2704,7 @@ int main( int argc, char *argv[]) {
 			APar_OpenISOBaseMediaFile(ISObasemediafile, false);
 		}
 	} else {
-		if (ISObasemediafile != NULL && argc > 3 && !tree_display_only) {
+		if (ISObasemediafile != NULL && argc > 3 && !deep_atom_scan) {
 			fprintf(stdout, "No changes.\n");
 		}
 	}

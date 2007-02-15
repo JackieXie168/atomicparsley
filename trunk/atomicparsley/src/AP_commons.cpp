@@ -378,7 +378,7 @@ char* APar_gmtime64(uint64_t total_secs) {
 	//this will probably be off between Jan 1 & Feb 28 on a leap year by a day.... I'll somehow cope & deal.
 	struct tm timeinfo = {0,0,0,0,0};
 
-	int offset_year = (int)( (double)total_secs / 31536000 ); //60 * 60 * 24 * 365 (ordinary year in seconds; doesn't account for leap year)
+	int offset_year = total_secs / 31536000; //60 * 60 * 24 * 365 (ordinary year in seconds; doesn't account for leap year)
 	int literal_year = 1904 + offset_year;
 	int literal_days_into_year = ((total_secs % 31536000) / 86400) - (offset_year / 4); //accounts for the leap year
 	
@@ -423,7 +423,7 @@ char* APar_extract_UTC(uint64_t total_secs) {
 	//  2,081,376,000 (60 seconds * 60 minutes * 24 hours * 365 days * 66 years)
 	//    + 1,468,800 (60 * 60 * 24 * 17 leap days in 01/01/1904 to 01/01/1970 duration) 
 	//= 2,082,844,800
-	if (total_secs > 6377812095ULL) {
+	if (total_secs > MAXTIME_32) {
 		return APar_gmtime64(total_secs);
 	} else {
 		total_secs -= 2082844800;
@@ -611,8 +611,8 @@ uint64_t UInt64FromBigEndian(const char *string) {
 	memcpy(&test,string,8);
 	return test;
 #else
-	return ((string[0] & 0xff) >> 0 | (string[1] & 0xff) >> 8 | (string[2] & 0xff) >> 16 | (string[3] & 0xff) >> 24 | 
-					(string[4] & 0xff) << 24 | (string[5] & 0xff) << 16 | (string[6] & 0xff) << 8 | string[7] & 0xff) << 0;
+	return (uint64_t)(string[0] & 0xff) << 54 | (uint64_t)(string[1] & 0xff) << 48 | (uint64_t)(string[2] & 0xff) << 40 | (uint64_t)(string[3] & 0xff) << 32 | 
+				 (uint64_t)(string[4] & 0xff) << 24 | (uint64_t)(string[5] & 0xff) << 16 | (uint64_t)(string[6] & 0xff) <<  8 | (uint64_t)(string[7] & 0xff) <<  0;
 #endif
 }
 
