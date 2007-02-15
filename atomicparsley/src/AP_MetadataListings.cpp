@@ -22,6 +22,10 @@
 #include <string.h>
 #include <stdlib.h>
 
+#if defined (WIN32)
+#include <wchar.h> 
+#endif
+
 #include "AP_commons.h"
 #include "AP_iconv.h"
 #include "AtomicParsley.h"

@@ -134,7 +134,9 @@ ImageFileFormatDefinition ImageList[] = {
 	{ "image/jp2",				".jp2",  12, "\x00\x00\x00\x0C\x6A\x50\x20\x20\x0D\x0A\x87\x0A\x00\x00\x00\x14\x66\x74\x79\x70\x6A\x70\x32\x20" },
 	{ "image/gif",				".gif",  6,  "GIF89a" },
 	{ "image/tiff",				".tiff", 4,  "\x4D\x4D\x00\x2A" },
-	{ "image/bmp",				".bmp",  3,  "\x42\x4D\x56" },
+	{ "image/tiff",				".tiff", 4,  "\x49\x49\x2A\x00" },
+	{ "image/bmp",				".bmp",  2,  "\x42\x4D" },
+	{ "image/bmp",				".bmp",  2,  "\x42\x41" },
 	{ "image/photoshop",  ".psd",  4,  "8BPS" },
 	{ "image/other",			".img",  0,  "" }
 };

@@ -26,6 +26,10 @@
                                                                    */
 //==================================================================//
 
+#if defined HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <stdio.h>
@@ -36,6 +40,12 @@
 #include <math.h>
 #include <wchar.h>
 
+#if defined (HAVE_UNISTD_H)
+#include <unistd.h>
+#elif defind (_MSC_VER)
+#include <io.h>
+#endif
+
 #include "AtomicParsley.h"
 #include "AP_AtomDefinitions.h"
 #include "AP_iconv.h"
@@ -44,14 +54,9 @@
 #include "AP_ID3v2_tags.h"
 #include "AP_MetadataListings.h"
 
-
 #if defined (DARWIN_PLATFORM)
 #include "AP_NSImage.h"
 #include "AP_NSFile_utils.h"
-#endif
-
-#if !defined (_MSC_VER)
-#include <unistd.h>
 #endif
 
 //#define DEBUG_V
@@ -83,7 +88,7 @@ bool complete_free_space_erasure = false;
 bool psp_brand = false;
 bool force_existing_hierarchy = false;
 int metadata_style = UNDEFINED_STYLE;
-bool tree_display_only = false;
+bool deep_atom_scan = false;
 
 uint32_t max_buffer = 4096*125; // increased to 512KB
 
@@ -1279,7 +1284,7 @@ void APar_Manually_Determine_Parent(uint32_t atom_start, uint32_t atom_length, c
 /*----------------------
 APar_ScanAtoms
   path - the complete path to the originating file to be tested
-  scan_for_tree_ONLY - controls whether we go into 'stsd' or just a superficial scan
+  deepscan_REQ - controls whether we go into 'stsd' or just a superficial scan
 
     if the file has not yet been scanned (this gets called by nearly every cli option), then open the file and start scanning. Read in the first 12 bytes
 		and see if bytes 4-8 are 'ftyp' as any modern MPEG-4 file will have 'ftyp' first. Accommodations are also in place for the jpeg2000 signature, but the sig.
@@ -1296,7 +1301,7 @@ APar_ScanAtoms
 		fall into a hybrid category (DUAL_STATE_ATOMs) are explicitly handled. If an atom is listed has having a language attribute, it is read to support
 		multiple langauges (as most 3GP assets do).
 ----------------------*/
-void APar_ScanAtoms(const char *path, bool scan_for_tree_ONLY) {
+void APar_ScanAtoms(const char *path, bool deepscan_REQ) {
 	if (!parsedfile) {
 		file_size = findFileSize(path);
 		
@@ -1521,7 +1526,7 @@ void APar_ScanAtoms(const char *path, bool scan_for_tree_ONLY) {
 								jump += 14;
 							
 							} else if (memcmp(atom, "stsd", 4) == 0) {
-								if (scan_for_tree_ONLY) {
+								if (deepscan_REQ) {
 									//for a tree ONLY, we go all the way, parsing everything; for any other option, we leave this atom as a monolithic entity
 									jump += 16;
 								} else {
@@ -1631,7 +1636,7 @@ void APar_ScanAtoms(const char *path, bool scan_for_tree_ONLY) {
 		}
 		parsedfile = true;
 	}
-	if (!tree_display_only && !parsedfile && APar_FindAtom("moov", false, SIMPLE_ATOM, 0) == NULL) {
+	if (!deep_atom_scan && !parsedfile && APar_FindAtom("moov", false, SIMPLE_ATOM, 0) == NULL) {
 		fprintf(stderr, "\nAtomicParsley error: bad mpeg4 file (no 'moov' atom).\n\n");
 		exit(1);
 	}
@@ -1919,7 +1924,7 @@ short APar_InterjectNewAtom(char* atom_name, uint8_t cntr_state, uint8_t atom_cl
 														uint32_t atom_verflags, uint16_t packed_lang, uint8_t atom_level,
 														short preceding_atom) {
 														
-	if (tree_display_only) {
+	if (deep_atom_scan && !modified_atoms) {
 		return 0;
 	}
 
@@ -2016,10 +2021,17 @@ APar_Unified_atom_Put
 		TODO: work past the max malloced amount onto a new larger array
 ----------------------*/
 void APar_Unified_atom_Put(AtomicInfo* target_atom, const char* unicode_data, uint8_t text_tag_style, uint32_t ancillary_data, uint8_t anc_bit_width) {
+	uint32_t atom_data_pos = 0;
 	if (target_atom == NULL) {
 		return;
 	}
-	uint32_t atom_data_pos = target_atom->AtomicLength - (target_atom->AtomicClassification == EXTENDED_ATOM ? 32 : 12);
+	if (target_atom->AtomicClassification == EXTENDED_ATOM) {
+		if (target_atom->uuid_style == UUID_SHA1_NAMESPACE) atom_data_pos = target_atom->AtomicLength - 32;
+		else if (target_atom->uuid_style == UUID_OTHER) atom_data_pos = target_atom->AtomicLength - 24;
+	} else {
+		atom_data_pos = target_atom->AtomicLength - 12;
+	}
+	
 	switch (anc_bit_width) {
 		case 0 : { //aye, 'twas a false alarm; arg (I'm a pirate), we just wanted to set a text string
 			break;
@@ -2908,6 +2920,107 @@ void APar_RenderAllID32Atoms() {
 	return;
 }
 
+/*----------------------
+APar_TestVideoDescription
+	video_desc_atom - the avc1 atom after stsd that contains the height/width
+	ISObmff_file - the reopened source file
+
+    read in the height, width, profile & level of an avc (non-drm) track. If the the macroblocks are between 300 & 1200, return a non-zero number to allow the ipod
+		uuid to be written
+		
+    NOTE: this requires the deep scan cli flag to break out stsd from its normal monolithic form
+----------------------*/
+uint16_t APar_TestVideoDescription(AtomicInfo* video_desc_atom, FILE* ISObmff_file) {
+	uint16_t video_width = 0;
+	uint16_t video_height = 0;
+	uint16_t video_macroblocks = 0;
+	uint8_t video_profile = 0;
+	uint8_t video_level = 0;	
+	AtomicInfo* avcC_atom = NULL;
+	
+	if (ISObmff_file == NULL) return 0;
+	
+	char* avc1_contents = (char*)calloc(1, sizeof(char)* (size_t)video_desc_atom->AtomicLength);
+	if (avc1_contents == NULL) {
+		fclose(ISObmff_file);
+		return 0;
+	}
+	
+	APar_readX(avc1_contents, ISObmff_file, video_desc_atom->AtomicStart, video_desc_atom->AtomicLength); //actually reads in avcC as well, but is unused
+	video_width = UInt16FromBigEndian(avc1_contents+32); // well, iTunes only allows 640 max but the avc wiki says it *could* go up to 720, so I won't bother to check it
+	video_height = UInt16FromBigEndian(avc1_contents+34);
+	video_macroblocks = (video_width / 16) * (video_height / 16);
+	
+	avcC_atom = APar_FindChildAtom(video_desc_atom->AtomicNumber, "avcC");
+	if (avcC_atom != NULL) {
+		uint32_t avcC_offset = avcC_atom->AtomicStart - video_desc_atom->AtomicStart;
+		video_profile = *(avc1_contents+avcC_offset+9);
+		video_level = *(avc1_contents+avcC_offset+11);
+	}
+	
+	if (video_profile == 66 && video_level <= 30) {
+		if (video_macroblocks > 300 && video_macroblocks <= 1200) {
+		
+			if (video_level <= 30 && avcC_atom != NULL) {
+				avcC_atom->AtomicData = (char*)calloc(1, sizeof(char)* (size_t)avcC_atom->AtomicLength);
+				APar_readX(avcC_atom->AtomicData, ISObmff_file, avcC_atom->AtomicStart+8, avcC_atom->AtomicLength-8);
+				if (video_macroblocks > 396 && video_macroblocks <= 792) {
+					*(avcC_atom->AtomicData + 3) = 21;
+				} else if (video_macroblocks > 792) {
+					*(avcC_atom->AtomicData + 3) = 22;
+				}
+			}
+
+			fclose(ISObmff_file);
+			return video_macroblocks;
+		} else {
+			fprintf(stdout, "AtomicParsley warning: the AVC track macroblocks were not in the required range (300-1200). Skipping.\n");
+		}
+	} else {
+		fprintf(stdout, "AtomicParsley warning: the AVC track profile/level was too high. The ipod hi-res uuid was not added.\n");
+	}
+	
+	fclose(ISObmff_file);
+	return 0;
+}
+
+/*----------------------
+APar_TestVideoDescription
+	atom_path - pointer to the string containing the atom.path already targeted to the right track
+		
+		Find/Create the ipod hi-res (1200 macroblock) uuid for the avc1 track & set up its default parameters
+
+    NOTE: this requires the deep scan cli flag to break out stsd from its normal monolithic form
+----------------------*/
+void APar_Generate_iPod_uuid(char* atom_path) {
+	AtomicInfo* ipod_uuid_atom = NULL;
+	
+	ipod_uuid_atom = APar_FindAtom(atom_path, false, EXTENDED_ATOM, 0, true);
+	if (ipod_uuid_atom == NULL) {
+		ipod_uuid_atom = APar_FindAtom(atom_path, true, EXTENDED_ATOM, 0, true);
+		if (ipod_uuid_atom == NULL) {
+			fprintf(stdout, "An error occured trying to create the ipod uuid atom for the avc track\n");
+			return;
+		}
+		ipod_uuid_atom->AtomicData = (char*)calloc(1, sizeof(char)* 60 );
+		ipod_uuid_atom->AtomicContainerState = CHILD_ATOM;
+		ipod_uuid_atom->AtomicClassification = EXTENDED_ATOM;
+		ipod_uuid_atom->uuid_style = UUID_OTHER;
+		ipod_uuid_atom->AtomicLength = 24;
+		APar_Unified_atom_Put(ipod_uuid_atom, NULL, UTF8_iTunesStyle_Unlimited, 1, 32);
+		modified_atoms = true;
+		
+		APar_FlagTrackHeader(ipod_uuid_atom);
+		APar_FlagMovieHeader();
+		
+		track_codecs.has_avc1 = true; //only used on Mac OS X when setting the ipod uuid *only* (otherwise it gets set properly)
+	} else {
+		fprintf(stdout, "the ipod higher-resolution uuid is already present.\n");
+	}
+	
+	return;
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////
 //                            offset calculations                                    //
 ///////////////////////////////////////////////////////////////////////////////////////
@@ -3306,7 +3419,7 @@ bool APar_Readjust_STCO_atom(uint32_t mdat_position, short stco_number) {
 ///////////////////////////////////////////////////////////////////////////////////////
 
 /*----------------------
-APar_AdjustPadding
+APar_CreatePadding
 	padding_length - the new length of padding
 
     Create a 'free' atom at a pre-determined area of a given length & set that atom as the global padding store atom
@@ -3327,9 +3440,10 @@ APar_AdjustPadding
     Adjust the consolidated padding store atom to the new size - creating if necessary when forced.
 ----------------------*/
 void APar_AdjustPadding(uint32_t new_padding_length, bool force_padding = false) {
+	if ( (psp_brand || force_existing_hierarchy) && (dynUpd.optimization_flags & MEDIADATA__PRECEDES__MOOV) ) return;
 	if (!alter_original && !force_padding) return;
 	if (dynUpd.padding_store == NULL) {
-		if (force_padding) {
+		if (force_padding || alter_original) {
 			if (new_padding_length >= 8) {
 				APar_CreatePadding(new_padding_length);
 			} else {
@@ -3339,6 +3453,7 @@ void APar_AdjustPadding(uint32_t new_padding_length, bool force_padding = false)
 			return;
 		}
 	}
+	
 	if (new_padding_length < 8) APar_EliminateAtom(dynUpd.padding_store->AtomicNumber, dynUpd.padding_store->NextAtomNumber);
 	if (new_padding_length > dynUpd.padding_store->AtomicLength) {
 		free(dynUpd.padding_store->AtomicData);
@@ -3413,17 +3528,22 @@ void APar_DetermineDynamicUpdate() {
 		if (mdat_pos >= dynUpd.first_mdat_atom->AtomicStart) {
 			uint32_t offset_increase = mdat_pos - dynUpd.first_mdat_atom->AtomicStart;
 			if (offset_increase > dynUpd.padding_bytes) {
-				dynUpd.prevent_dynamic_update = true;
+				if ( (psp_brand || force_existing_hierarchy) && (dynUpd.optimization_flags & MEDIADATA__PRECEDES__MOOV) ) {
+					dynUpd.updage_by_padding = true;
+				} else {
+					dynUpd.prevent_dynamic_update = true;
+				}
 			} else {
 				uint32_t padding_remaining = dynUpd.padding_bytes - offset_increase;
 				uint32_t padding_allowed = APar_PaddingAmount(padding_remaining, true);
 				
 				if (padding_remaining == padding_allowed) {
 					dynUpd.updage_by_padding = true;
+					APar_AdjustPadding(padding_allowed);
 				} else {
 					dynUpd.updage_by_padding = false;
+					APar_AdjustPadding(padding_allowed, true);
 				}
-				APar_AdjustPadding(padding_allowed);
 			}
 			
 		} else {
@@ -3432,10 +3552,11 @@ void APar_DetermineDynamicUpdate() {
 			
 			if (padding_replenishment == padding_allowed) {
 				dynUpd.updage_by_padding = true;
+				APar_AdjustPadding(padding_replenishment);
 			} else {
-				dynUpd.updage_by_padding = false;	
-			}
-			APar_AdjustPadding(padding_replenishment);
+				dynUpd.updage_by_padding = false;
+				APar_AdjustPadding(padding_allowed, true);
+			}			
 		}
 	}
 	if (!dynUpd.updage_by_padding && dynUpd.padding_bytes < pad_prefs.default_padding_size) {
@@ -3471,7 +3592,9 @@ void APar_ConsolidatePadding() {
 	bytes_o_padding = APar_PaddingAmount(dynUpd.padding_bytes, !alter_original);
 		
 	if (bytes_o_padding >= 8) {
-		APar_CreatePadding(bytes_o_padding);
+		if ( !(psp_brand || force_existing_hierarchy) && (dynUpd.optimization_flags & MEDIADATA__PRECEDES__MOOV) ) {
+			APar_CreatePadding(bytes_o_padding);
+		}
 	}
 	return;
 }
@@ -3815,10 +3938,70 @@ void APar_DetermineAtomLengths() {
 			case 0x69696E66 : //'iinf'
 				atom_size += 14;
 				break;
+				
+			//accommodate parsing of atoms under stsd when required
+			case 0x6D703473 : { //mp4s
+				if (parsedAtoms[rev_atom_loop].AtomicLevel == 7 && parsedAtoms[rev_atom_loop].AtomicContainerState == DUAL_STATE_ATOM && deep_atom_scan) {
+					atom_size += 16;
+				} else {
+					atom_size += 8;
+				}
+				break;
+			}
+			case 0x73727470 :		//srtp
+			case 0x72747020 : { //'rtp '
+				if (parsedAtoms[rev_atom_loop].AtomicLevel == 7 && parsedAtoms[rev_atom_loop].AtomicContainerState == DUAL_STATE_ATOM && deep_atom_scan) {
+					atom_size += 24;
+				} else {
+					atom_size += 8;
+				}
+				break;
+			}
+			case 0x616C6163 :		//alac
+			case 0x6D703461 :		//mp4a
+			case 0x73616D72 :		//samr
+			case 0x73617762 :		//sawb
+			case 0x73617770 :		//sawp
+			case 0x73657663 :		//sevc
+			case 0x73716370 :		//sqcp
+			case 0x73736D76 :		//ssmv
+			case 0x64726D73 : { //drms
+				if (parsedAtoms[rev_atom_loop].AtomicLevel == 7 && parsedAtoms[rev_atom_loop].AtomicContainerState == DUAL_STATE_ATOM && deep_atom_scan) {
+					atom_size += 36;
+				} else {
+					atom_size += 8;
+				}
+				break;
+			}
+			case 0x74783367  : { //tx3g
+				if (parsedAtoms[rev_atom_loop].AtomicLevel == 7 && parsedAtoms[rev_atom_loop].AtomicContainerState == DUAL_STATE_ATOM && deep_atom_scan) {
+					atom_size += 46;
+				} else {
+					atom_size += 8;
+				}
+				break;
+			}
+			case 0x6D6A7032 :		//mjp2
+			case 0x6D703476 :		//mp4v
+			case 0x61766331 :		//avc1
+			case 0x6A706567 :		//jpeg
+			case 0x73323633 :		//s263
+			case 0x64726D69 : { //drmi
+				if (parsedAtoms[rev_atom_loop].AtomicLevel == 7 && parsedAtoms[rev_atom_loop].AtomicContainerState == DUAL_STATE_ATOM && deep_atom_scan) {
+					atom_size += 86;
+				} else {
+					atom_size += 8;
+				}
+				break;
+			}
 			
 			default :
-				atom_size += 8; //all atoms have *at least* 4bytes length & 4 bytes name
-				break;		
+				if (parsedAtoms[rev_atom_loop].AtomicLevel == 7 && parsedAtoms[rev_atom_loop].AtomicContainerState == DUAL_STATE_ATOM) {
+					atom_size += parsedAtoms[rev_atom_loop].AtomicLength;
+				} else {
+					atom_size += 8; //all atoms have *at least* 4bytes length & 4 bytes name
+				}
+				break;
 		}
 		
 		if (parsedAtoms[rev_atom_loop].NextAtomNumber != 0) {
@@ -4160,6 +4343,14 @@ void APar_MergeTempFile(FILE* dest_file, FILE *src_file, uint32_t src_file_size,
 			break;
 		}		
 	}
+	if (dynUpd.optimization_flags & MEDIADATA__PRECEDES__MOOV) {
+#if defined (WIN32)
+		fflush(dest_file);
+		SetEndOfFile((HANDLE)_get_osfhandle(fileno(dest_file)));
+#else
+		ftruncate(fileno(dest_file), src_file_size+dest_position);
+#endif
+	}
 	return;
 }
 
@@ -4187,6 +4378,51 @@ uint32_t APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file
 			parsedAtoms[this_atom].AtomicLength = 16;
 		} else if (memcmp(parsedAtoms[this_atom].AtomicName, "iinf", 4) == 0) {
 			parsedAtoms[this_atom].AtomicLength = 14;
+		}
+	}
+	
+	if (deep_atom_scan && parsedAtoms[this_atom].AtomicContainerState == DUAL_STATE_ATOM) {
+		uint32_t atom_val = UInt32FromBigEndian(parsedAtoms[this_atom].AtomicName);
+		if (atom_val == 0x73747364 ) { //stsd
+			parsedAtoms[this_atom].AtomicLength = 16;
+		} else if (atom_val == 0x6D703473 ) { //mp4s
+			parsedAtoms[this_atom].AtomicLength = 16;
+			
+		} else if (atom_val == 0x73727470 ) { //srtp
+			parsedAtoms[this_atom].AtomicLength = 24;
+		} else if (atom_val == 0x72747020 && parsedAtoms[this_atom].AtomicLevel == 7) { //'rtp '
+			parsedAtoms[this_atom].AtomicLength = 24;
+		
+		} else if (atom_val == 0x616C6163 && parsedAtoms[this_atom].AtomicLevel == 7) { //alac
+			parsedAtoms[this_atom].AtomicLength = 36;
+		} else if (atom_val == 0x6D703461 ) { //mp4a
+			parsedAtoms[this_atom].AtomicLength = 36;
+		} else if (atom_val == 0x73616D72 ) { //samr
+			parsedAtoms[this_atom].AtomicLength = 36;
+		} else if (atom_val == 0x73617762 ) { //sawb
+			parsedAtoms[this_atom].AtomicLength = 36;
+		} else if (atom_val == 0x73617770 ) { //sawp
+			parsedAtoms[this_atom].AtomicLength = 36;
+		} else if (atom_val == 0x73657663 ) { //sevc
+			parsedAtoms[this_atom].AtomicLength = 36;
+		} else if (atom_val == 0x73716370 ) { //sqcp
+			parsedAtoms[this_atom].AtomicLength = 36;
+		} else if (atom_val == 0x73736D76 ) { //ssmv
+			parsedAtoms[this_atom].AtomicLength = 36;
+			
+		} else if (atom_val == 0x74783367 ) { //tx3g
+			parsedAtoms[this_atom].AtomicLength = 46;
+				
+		} else if (atom_val == 0x6D6A7032 ) { //mjp2
+			parsedAtoms[this_atom].AtomicLength = 86;
+		} else if (atom_val == 0x6D703476 ) { //mp4v
+			parsedAtoms[this_atom].AtomicLength = 86;
+		} else if (atom_val == 0x61766331 ) { //avc1
+			parsedAtoms[this_atom].AtomicLength = 86;
+		} else if (atom_val == 0x6A706567 ) { //jpeg
+			parsedAtoms[this_atom].AtomicLength = 86;
+		} else if (atom_val == 0x73323633 ) { //s263
+			parsedAtoms[this_atom].AtomicLength = 86;
 		}
 	}
 	
@@ -4233,6 +4469,7 @@ uint32_t APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file
 			fwrite("uuid", 4, 1, temp_file);
 			atom_name_len = 16; //total of 20 bytes for a uuid atom
 			//fprintf(stdout, "%u\n", parsedAtoms[this_atom].AtomicLength);
+			if (parsedAtoms[this_atom].AtomicClassification == EXTENDED_ATOM && parsedAtoms[this_atom].uuid_style == UUID_OTHER) bytes_written += 4;
 		}
 		
 		fwrite(parsedAtoms[this_atom].AtomicName, atom_name_len, 1, temp_file);
@@ -4259,15 +4496,19 @@ uint32_t APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file
 						atom_data_size = parsedAtoms[this_atom].AtomicLength - 12;
 						break;
 					}
-					//no need to accommodate 'schi' here because it only exists inside the monolithic (unparsed) 'stsd'; same for all the codecs under 'stsd'
+					case 0x73636869 : { //schi (code only executes when deep_atom_scan = true; otherwise schi is contained by the monolithic/unparsed 'stsd')
+						atom_data_size = parsedAtoms[this_atom].AtomicLength - 12;
+					}
 				}
 				break;
 			}
 			case UNKNOWN_ATOM_TYPE :
 			case CHILD_ATOM : {
-				if (parsedAtoms[this_atom].AtomicClassification == EXTENDED_ATOM) {
+				if (parsedAtoms[this_atom].AtomicClassification == EXTENDED_ATOM && parsedAtoms[this_atom].uuid_style == UUID_AP_SHA1_NAMESPACE) {
 					//4bytes length, 4 bytes 'uuid', 4bytes name, 4bytes NULL (AP writes its own uuid atoms - not those copied - iTunes style with atom versioning)
 					atom_data_size = parsedAtoms[this_atom].AtomicLength - (16 + 12); //16 uuid; 16 = 4bytes * ('uuid', ap_uuid_name, verflag, 4 NULL bytes)
+				} else if (parsedAtoms[this_atom].AtomicClassification == EXTENDED_ATOM && parsedAtoms[this_atom].uuid_style != UUID_DEPRECATED_FORM) {
+					atom_data_size = parsedAtoms[this_atom].AtomicLength - (16 + 8);
 				} else if (parsedAtoms[this_atom].AtomicClassification == VERSIONED_ATOM || parsedAtoms[this_atom].AtomicClassification == PACKED_LANG_ATOM) {
 					//4bytes legnth, 4bytes name, 4bytes flag&versioning (language would be 2 bytes, but because its in different places, it gets stored as data)
 					atom_data_size = parsedAtoms[this_atom].AtomicLength - 12;
@@ -4279,7 +4520,7 @@ uint32_t APar_WriteAtomically(FILE* source_file, FILE* temp_file, bool from_file
 			}
 		}
 		
-		if (parsedAtoms[this_atom].AtomicClassification == EXTENDED_ATOM) {
+		if (parsedAtoms[this_atom].AtomicClassification == EXTENDED_ATOM && parsedAtoms[this_atom].uuid_style == UUID_AP_SHA1_NAMESPACE) {
 			//AP writes uuid atoms much like iTunes style metadata; with version/flags to connote what type of data is being carried
 		  //4bytes atom length, 4 bytes 'uuid', 16bytes uuidv5, 4bytes name of uuid in AP namespace, 4bytes versioning, 4bytes NULL, Xbytes data
 			fwrite(parsedAtoms[this_atom].uuid_ap_atomname, 4, 1, temp_file);
@@ -4353,19 +4594,14 @@ void APar_WriteFile(const char* ISObasemediafile, const char* outfile, bool rewr
 	
 	APar_RenderAllID32Atoms();
 	
-	if (!psp_brand || !force_existing_hierarchy) {
+	if (!(psp_brand || force_existing_hierarchy)) {
 		APar_Optimize(false);
-		APar_FindPadding(false);
-		APar_ConsolidatePadding();
 	} else {
-		//'moov' & the last child of 'udta' are discovered in APar_Optimize and must be known to do dynamic updating (for PSP files)
-		//udta_dynamics.moov_atom = APar_FindAtom("moov",false, SIMPLE_ATOM, 0)->AtomicNumber;
-		//AtomicInfo* udta_atom = APar_FindAtom("moov.udta", false, SIMPLE_ATOM, 0);
-		//if (udta_atom != NULL) { //its possible it was erased...
-			//udta_dynamics.last_udta_child_atom = APar_FindLastChild_of_ParentAtom(udta_atom->AtomicNumber);
-		//}
+		APar_LocateAtomLandmarks();
 	}
 	
+	APar_FindPadding(false);
+	APar_ConsolidatePadding();
 	APar_DetermineAtomLengths();
 
 	if (!complete_free_space_erasure) {
@@ -4382,7 +4618,7 @@ void APar_WriteFile(const char* ISObasemediafile, const char* outfile, bool rewr
 	uint32_t mdat_position = APar_DetermineMediaData_AtomPosition(); 
 	
 	if (dynUpd.updage_by_padding) {
-		APar_DeriveNewPath(ISObasemediafile, temp_file_name, -1, "-data-", NULL);
+		APar_DeriveNewPath(ISObasemediafile, temp_file_name, 0, "-data-", NULL); //APar_DeriveNewPath(ISObasemediafile, temp_file_name, -1, "-data-", NULL);
 		temp_file = APar_OpenFile(temp_file_name, "wb");
 #if defined (_MSC_VER)
 		char* invisi_command=(char*)malloc(sizeof(char)*2*MAXPATHLEN);
@@ -4511,21 +4747,28 @@ void APar_WriteFile(const char* ISObasemediafile, const char* outfile, bool rewr
 	
 	if (dynUpd.updage_by_padding && rewrite_original) {
 		fclose(temp_file);
+		uint32_t metadata_len = (uint32_t)findFileSize(temp_file_name);
+
 		temp_file = APar_OpenFile(temp_file_name, "rb");
 		fclose(source_file);
 		source_file = APar_OpenFile(ISObasemediafile, "r+b");
 		if (source_file == NULL) {
 			fclose(temp_file);
 			remove(temp_file_name);
+			fprintf(stdout, "AtomicParsley error: the original file was no longer found.\nExiting.\n");
 			exit(1);
+		} else if (!(dynUpd.optimization_flags & MEDIADATA__PRECEDES__MOOV) && metadata_len != (dynUpd.first_mdat_atom->AtomicStart - dynUpd.initial_update_atom->AtomicStart)) {
+			fclose(temp_file);
+			remove(temp_file_name);
+			fprintf(stdout, "AtomicParsley error: the insuffiecient space to retag the source file (%u!=%u).\nExiting.\n", metadata_len, dynUpd.first_mdat_atom->AtomicStart - dynUpd.initial_update_atom->AtomicStart);
+			exit(1);		
 		}
 		
 		APar_MergeTempFile(source_file, temp_file, temp_file_bytes_written, dynUpd.initial_update_atom->AtomicStart, file_buffer);
 	
 		fclose(source_file);
 		fclose(temp_file);
-		//remove(temp_file_name);
-
+		remove(temp_file_name);
 
 	} else if (rewrite_original && !outfile) { //disable overWrite when writing out to a specifically named file; presumably the enumerated output file was meant to be the final destination
 		fclose(source_file);

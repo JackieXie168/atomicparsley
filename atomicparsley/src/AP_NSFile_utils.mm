@@ -174,6 +174,8 @@ void APar_SupplySelectiveTypeCreatorCodes(const char *inputPath, const char *out
 		} else {
 			type_code = APar_4CC_CreatorCode(outputPath, 'M4A ');
 		}
+	} else if (track_codecs.has_avc1 || track_codecs.has_mp4v || track_codecs.has_drmi) {
+			type_code = APar_4CC_CreatorCode(outputPath, 'M4V ');
 	}
 	
 	return;

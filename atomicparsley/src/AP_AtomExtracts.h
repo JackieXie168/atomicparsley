@@ -30,9 +30,9 @@ typedef struct { //if any of these are unused, they are set to 0xFF
 } iods_OD;
 
 typedef struct {
-	uint32_t creation_time;
-	uint32_t modified_time;
-	uint32_t duration;
+	uint64_t creation_time;
+	uint64_t modified_time;
+	uint64_t duration;
 	bool track_enabled;
 	unsigned char unpacked_lang[4];
 	char track_hdlr_name[100];

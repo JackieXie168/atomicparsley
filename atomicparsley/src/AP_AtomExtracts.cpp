@@ -974,9 +974,13 @@ void APar_ExtractTrackDetails(char* uint32_buffer, FILE* isofile, Trackage* trac
 		if (APar_read8(isofile, parsedAtoms[track->track_atom].AtomicStart + 11) & 1) {
 			track_info->track_enabled = true;
 		}
-		track_info->creation_time = APar_read32(uint32_buffer, isofile, parsedAtoms[track->track_atom].AtomicStart + 12);
-		track_info->modified_time = APar_read32(uint32_buffer, isofile, parsedAtoms[track->track_atom].AtomicStart + 16);
-		track_info->duration = APar_read32(uint32_buffer, isofile, parsedAtoms[track->track_atom].AtomicStart + 28);
+		track_info->creation_time = (uint64_t)APar_read32(uint32_buffer, isofile, parsedAtoms[track->track_atom].AtomicStart + 12);
+		track_info->modified_time = (uint64_t)APar_read32(uint32_buffer, isofile, parsedAtoms[track->track_atom].AtomicStart + 16);
+		track_info->duration = (uint64_t)APar_read32(uint32_buffer, isofile, parsedAtoms[track->track_atom].AtomicStart + 28);
+	} else {
+		track_info->creation_time = APar_read64(uint32_buffer, isofile, parsedAtoms[track->track_atom].AtomicStart + 12);
+		track_info->modified_time = APar_read64(uint32_buffer, isofile, parsedAtoms[track->track_atom].AtomicStart + 20);
+		track_info->duration = APar_read64(uint32_buffer, isofile, parsedAtoms[track->track_atom].AtomicStart + 36);
 	}
 	
 	//language code
@@ -1118,7 +1122,7 @@ APar_ExtractMovieDetails
 		of a track in seconds. A rough approximation of the overall bitrate is done off this too using the sum of the mdat lengths.
 ----------------------*/
 void APar_ExtractMovieDetails(char* uint32_buffer, FILE* isofile, AtomicInfo* mvhd_atom) {	
-	if (mvhd_atom->AtomicVerFlags == 1) {
+	if (mvhd_atom->AtomicVerFlags & 0x01000000) {
 		movie_info.creation_time = APar_read64(uint32_buffer, isofile, mvhd_atom->AtomicStart + 12);
 		movie_info.modified_time = APar_read64(uint32_buffer, isofile, mvhd_atom->AtomicStart + 20);
 		movie_info.timescale = APar_read32(uint32_buffer, isofile, mvhd_atom->AtomicStart + 28);
@@ -1158,12 +1162,13 @@ void APar_Print_TrackDetails(TrackInfo* track_info) {
 #if defined (_MSC_VER)
 		fprintf(stdout, "     %.2lf* kbp/s", ( (double)((__int64)track_info->sample_aggregate) /
 																						( (double)((__int64)track_info->duration) / (double)((__int64)movie_info.timescale)) ) / 1000.0 * 8);
+		fprintf(stdout, "  %.3f sec", (float)((uint32_t)track_info->duration) / (float)((uint32_t)movie_info.timescale));
 #else
 		fprintf(stdout, "     %.2lf* kbp/s", ( (double)track_info->sample_aggregate /
 																						( (double)track_info->duration / (double)movie_info.timescale) ) / 1000.0 * 8);
+		fprintf(stdout, "  %.3f sec", (float)track_info->duration / (float)movie_info.timescale);
 #endif
 	}
-	fprintf(stdout, "  %.3f sec", (float)track_info->duration / (float)movie_info.timescale);
 						
 	if (track_info->track_codec == 0x6D703476 ) { //mp4v profile
 		APar_ShowObjectProfileInfo(MP4V_TRACK, track_info);											
