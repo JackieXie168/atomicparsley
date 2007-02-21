@@ -371,10 +371,7 @@ void determine_MonthDay(int literal_day, int &month, int &day) {
 	return;
 }
 
-char* APar_gmtime64(uint64_t total_secs) {
-	static char utc_time[50];
-	memset(utc_time, 0, 50);
-	
+char* APar_gmtime64(uint64_t total_secs, char* utc_time) {	
 	//this will probably be off between Jan 1 & Feb 28 on a leap year by a day.... I'll somehow cope & deal.
 	struct tm timeinfo = {0,0,0,0,0};
 
@@ -407,9 +404,9 @@ char* APar_gmtime64(uint64_t total_secs) {
 	timeinfo.tm_hour = hours;
 	timeinfo.tm_min = (literal_seconds_into_day - (hours * 3600)) / 60;
 	timeinfo.tm_sec = (int)(literal_seconds_into_day % 60);
-		
-	strftime(*&utc_time, 50 , "%a %b %d %H:%M:%S %Y", &timeinfo);
-	return *&utc_time;
+	
+	strftime(utc_time, 50 , "%a %b %d %H:%M:%S %Y", &timeinfo);
+	return utc_time;
 }
 
 /*----------------------
@@ -423,17 +420,22 @@ char* APar_extract_UTC(uint64_t total_secs) {
 	//  2,081,376,000 (60 seconds * 60 minutes * 24 hours * 365 days * 66 years)
 	//    + 1,468,800 (60 * 60 * 24 * 17 leap days in 01/01/1904 to 01/01/1970 duration) 
 	//= 2,082,844,800
+	static char utc_time[50];
+	memset(utc_time, 0, 50);
+		
 	if (total_secs > MAXTIME_32) {
-		return APar_gmtime64(total_secs);
+		return APar_gmtime64(total_secs, utc_time);
 	} else {
-		total_secs -= 2082844800;
-		static char utc_time[50];
-		memset(utc_time, 0, 50);
-		uint32_t reduced_seconds = (uint32_t)total_secs;
-	
-		strftime(*&utc_time, 50 , "%a %b %d %H:%M:%S %Y", gmtime((time_t*)&reduced_seconds) );
-		return *&utc_time;
+		if (total_secs < 2082844800) {
+			return APar_gmtime64(total_secs, utc_time); //less than Unix epoch
+		} else {
+			total_secs -= 2082844800;
+			uint32_t reduced_seconds = (uint32_t)total_secs;
+			strftime(*&utc_time, 50 , "%a %b %d %H:%M:%S %Y", gmtime((time_t*)&reduced_seconds) );
+			return *&utc_time;
+		}
 	}
+	return *&utc_time;
 }
 
 uint32_t APar_get_mpeg4_time() {

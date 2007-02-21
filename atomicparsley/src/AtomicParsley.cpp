@@ -42,7 +42,7 @@
 
 #if defined (HAVE_UNISTD_H)
 #include <unistd.h>
-#elif defind (_MSC_VER)
+#elif defined (_MSC_VER)
 #include <io.h>
 #endif
 
@@ -3650,11 +3650,14 @@ void APar_FindPadding(bool listing_purposes_only) {
 	if (dynUpd.moov_udta_atom != NULL) {
 		if (dynUpd.iTunes_list_handler_atom == NULL) {
 			dynUpd.iTunes_list_handler_atom = APar_FindAtom("moov.udta.meta.hdlr", false, VERSIONED_ATOM, 0);
-			if (parsedAtoms[dynUpd.iTunes_list_handler_atom->NextAtomNumber].AtomicLevel >= dynUpd.iTunes_list_handler_atom->AtomicLevel) {
-				dynUpd.consolidated_padding_insertion = dynUpd.iTunes_list_handler_atom->AtomicNumber;
+			if (dynUpd.iTunes_list_handler_atom != NULL) {
+				if (parsedAtoms[dynUpd.iTunes_list_handler_atom->NextAtomNumber].AtomicLevel >= dynUpd.iTunes_list_handler_atom->AtomicLevel) {
+					dynUpd.consolidated_padding_insertion = dynUpd.iTunes_list_handler_atom->AtomicNumber;
+				}
 			}
 		}
-	} else if (dynUpd.consolidated_padding_insertion == 0) {
+	}
+	if (dynUpd.consolidated_padding_insertion == 0) {
 		if (dynUpd.first_mdat_atom != NULL && !(dynUpd.optimization_flags & MEDIADATA__PRECEDES__MOOV)) {
 			dynUpd.consolidated_padding_insertion = APar_FindPrecedingAtom(dynUpd.first_mdat_atom->AtomicNumber);
 		} else {
