@@ -3426,40 +3426,77 @@ APar_CreatePadding
 ----------------------*/
 void APar_CreatePadding(uint32_t padding_length) {
 	AtomicInfo* next_atom = &parsedAtoms[ parsedAtoms[dynUpd.consolidated_padding_insertion].NextAtomNumber ];
-	short padding_atom = APar_InterjectNewAtom("free", CHILD_ATOM, SIMPLE_ATOM, padding_length, 0, 0,
-		                       (next_atom->AtomicLevel == 1? 1 : parsedAtoms[dynUpd.consolidated_padding_insertion].AtomicLevel), dynUpd.consolidated_padding_insertion );
-	dynUpd.padding_store = &parsedAtoms[padding_atom];
+	if (padding_length > 2000 && next_atom->AtomicLevel > 1) {
+		short padding_atom = APar_InterjectNewAtom("free", CHILD_ATOM, SIMPLE_ATOM, 2000, 0, 0,
+		                       (next_atom->AtomicLevel == 1 ? 1 : parsedAtoms[dynUpd.consolidated_padding_insertion].AtomicLevel), dynUpd.consolidated_padding_insertion );
+		dynUpd.padding_store = &parsedAtoms[padding_atom];
+		
+		if (dynUpd.first_mdat_atom != NULL && padding_length - 2000 >= 8) {
+			short padding_res_atom = APar_InterjectNewAtom("free", CHILD_ATOM, SIMPLE_ATOM, padding_length - 2000, 0, 0, 1, 
+			                                                APar_FindPrecedingAtom(dynUpd.first_mdat_atom->AtomicNumber) );
+			dynUpd.padding_resevoir = &parsedAtoms[padding_res_atom];
+		}
+	} else {
+		short padding_atom = APar_InterjectNewAtom("free", CHILD_ATOM, SIMPLE_ATOM, padding_length, 0, 0,
+		                       (next_atom->AtomicLevel == 1 ? 1 : parsedAtoms[dynUpd.consolidated_padding_insertion].AtomicLevel), dynUpd.consolidated_padding_insertion );
+		dynUpd.padding_store = &parsedAtoms[padding_atom];
+	}
 	return;
 }
 
 /*----------------------
 APar_AdjustPadding
 	new_padding_length - the new length of padding
-	force_padding - for a file that will be fully-rewritten, force a minimum amount of padding
 
-    Adjust the consolidated padding store atom to the new size - creating if necessary when forced.
+    Adjust the consolidated padding store atom to the new size - creating&splitting if necessary.
 ----------------------*/
-void APar_AdjustPadding(uint32_t new_padding_length, bool force_padding = false) {
+void APar_AdjustPadding(uint32_t new_padding_length) {
+	uint32_t avail_padding = 0;
+	
 	if ( (psp_brand || force_existing_hierarchy) && (dynUpd.optimization_flags & MEDIADATA__PRECEDES__MOOV) ) return;
-	if (!alter_original && !force_padding) return;
+	
 	if (dynUpd.padding_store == NULL) {
-		if (force_padding || alter_original) {
-			if (new_padding_length >= 8) {
-				APar_CreatePadding(new_padding_length);
-			} else {
-				return;
-			}
+		if (new_padding_length >= 8) {
+			APar_CreatePadding(new_padding_length);
 		} else {
 			return;
 		}
 	}
 	
-	if (new_padding_length < 8) APar_EliminateAtom(dynUpd.padding_store->AtomicNumber, dynUpd.padding_store->NextAtomNumber);
-	if (new_padding_length > dynUpd.padding_store->AtomicLength) {
+	if (new_padding_length < 8) {
+		APar_EliminateAtom(dynUpd.padding_store->AtomicNumber, dynUpd.padding_store->NextAtomNumber);
+		dynUpd.updage_by_padding = false;
+	}
+	
+	if (dynUpd.padding_store != NULL) avail_padding += dynUpd.padding_store->AtomicLength;
+	if (dynUpd.padding_resevoir != NULL) avail_padding += dynUpd.padding_resevoir->AtomicLength;
+	
+	if ((new_padding_length > avail_padding && new_padding_length < 2000) || dynUpd.padding_store->AtomicLevel == 1 ) {
 		free(dynUpd.padding_store->AtomicData);
 		dynUpd.padding_store->AtomicData = (char*)calloc(1, sizeof(char)*new_padding_length );
+		dynUpd.padding_store->AtomicLength = new_padding_length;
+	} else {
+		free(dynUpd.padding_store->AtomicData);
+		dynUpd.padding_store->AtomicData = (char*)calloc(1, sizeof(char)*2007 );
+		dynUpd.padding_store->AtomicLength = 2000;
+		
+		if (new_padding_length - 2000 < 8) {
+			dynUpd.padding_store->AtomicLength = new_padding_length;
+			return;
+		}
+		
+		if (dynUpd.padding_resevoir == NULL && dynUpd.first_mdat_atom != NULL) {
+			short pad_res_atom = APar_InterjectNewAtom("free", CHILD_ATOM, SIMPLE_ATOM, new_padding_length - 2000, 0, 0, 1,
+			                                              APar_FindPrecedingAtom(dynUpd.first_mdat_atom->AtomicNumber) );
+			dynUpd.padding_resevoir = &parsedAtoms[pad_res_atom];
+			dynUpd.padding_resevoir->AtomicLength = new_padding_length - 2000;
+		} else if (dynUpd.padding_resevoir != NULL) {
+			free(dynUpd.padding_resevoir->AtomicData);
+			dynUpd.padding_resevoir->AtomicData = (char*)calloc(1, sizeof(char)*(new_padding_length - 2000) );
+			dynUpd.padding_resevoir->AtomicLength = new_padding_length - 2000;
+		}
 	}
-	dynUpd.padding_store->AtomicLength = new_padding_length;
+	
 	return;
 }
 
@@ -3488,6 +3525,7 @@ uint32_t APar_PaddingAmount(uint32_t target_amount, bool limit_by_prefs) {
 		padding_allowance = target_amount;
 	}
 	if (padding_allowance < 8 ) return 0;
+	if (!alter_original) return pad_prefs.default_padding_size;
 	return padding_allowance;
 }
 
@@ -3538,11 +3576,13 @@ void APar_DetermineDynamicUpdate() {
 				uint32_t padding_allowed = APar_PaddingAmount(padding_remaining, true);
 				
 				if (padding_remaining == padding_allowed) {
-					dynUpd.updage_by_padding = true;
+					if (alter_original) {
+						dynUpd.updage_by_padding = true;
+					}
 					APar_AdjustPadding(padding_allowed);
 				} else {
 					dynUpd.updage_by_padding = false;
-					APar_AdjustPadding(padding_allowed, true);
+					APar_AdjustPadding(padding_allowed);
 				}
 			}
 			
@@ -3551,16 +3591,18 @@ void APar_DetermineDynamicUpdate() {
 			uint32_t padding_allowed = APar_PaddingAmount(padding_replenishment, true);
 			
 			if (padding_replenishment == padding_allowed) {
-				dynUpd.updage_by_padding = true;
-				APar_AdjustPadding(padding_replenishment);
+				if (alter_original) {
+					dynUpd.updage_by_padding = true;
+				}
+				APar_AdjustPadding(padding_allowed);
 			} else {
 				dynUpd.updage_by_padding = false;
-				APar_AdjustPadding(padding_allowed, true);
+				APar_AdjustPadding(padding_allowed);
 			}			
 		}
 	}
 	if (!dynUpd.updage_by_padding && dynUpd.padding_bytes < pad_prefs.default_padding_size) {
-		APar_AdjustPadding(pad_prefs.default_padding_size, true); //if there is a full rewrite, add a default amount of padding
+		APar_AdjustPadding(pad_prefs.default_padding_size); //if there is a full rewrite, add a default amount of padding
 	}
 	APar_DetermineAtomLengths();
 	return;
@@ -3700,6 +3742,7 @@ void APar_LocateAtomLandmarks() {
 	dynUpd.first_padding_atom = NULL;          //this *won't* get filled here; it is only tracked for the purposes of dynamic updating
 	dynUpd.last_padding_atom = NULL;           //this *won't* get filled here; it is only tracked for the purposes of dynamic updating
 	dynUpd.padding_store = NULL;               //this *won't* get filled here; it gets filled in APar_ConsolidatePadding
+	dynUpd.padding_resevoir = NULL;
 	
 	//scan through all top level atoms; fragmented files won't be optimized
 	for(uint8_t iii = 1; iii <= total_file_level_atoms; iii++) {
@@ -3828,8 +3871,8 @@ void APar_Optimize(bool mdat_test_only) {
 		
 		/* -----------moving extra movie-level atoms (![trak,free,skip,meta,udta]) to precede the first metadata tagging hierarchy (moov.meta or moov.udta)--------- */
 		if (extra_atom_count > 0 && dynUpd.first_movielevel_metadata_tagging_atom != NULL) {
-			for (uint8_t xxi = 0; xxi <= extra_atom_count; xxi++) {
-				APar_MoveAtom(other_track_level_atom[xxi]->AtomicNumber, dynUpd.first_movielevel_metadata_tagging_atom->AtomicNumber);
+			for (uint8_t xxi = 0; xxi < extra_atom_count; xxi++) {
+				APar_MoveAtom((*other_track_level_atom + xxi)->AtomicNumber, dynUpd.first_movielevel_metadata_tagging_atom->AtomicNumber);
 			}
 		}
 		
