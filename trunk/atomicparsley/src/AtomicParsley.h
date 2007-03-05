@@ -133,6 +133,7 @@ struct DynamicUpdateStat  {
 	AtomicInfo* initial_update_atom;
 	AtomicInfo* first_otiose_freespace_atom;
 	AtomicInfo* padding_store;
+	AtomicInfo* padding_resevoir;
 	FreeAtomListing* first_padding_atom;
 	FreeAtomListing* last_padding_atom;
 };
