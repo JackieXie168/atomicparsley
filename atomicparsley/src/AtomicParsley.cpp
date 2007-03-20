@@ -1046,6 +1046,9 @@ void APar_IdentifyBrand(char* file_brand ) {
 		case 0x69736F6D : //'isom'
 		case 0x69736F32 : //'iso2'
 		case 0x61766331 : //'avc1'
+		
+		case 0x4D345648 : //'MV4H'
+
 			metadata_style = ITUNES_STYLE;
 			break;
 		

@@ -88,6 +88,7 @@
 #define Meta_PurchaseDate        'D'
 #define Meta_EncodingTool        0xB7
 #define Meta_PlayGapless         0xBA
+#define Meta_SortOrder           0xBF
 
 #define Meta_ReverseDNS_Form     'M'
 #define Meta_rDNS_rating         0xBB
@@ -217,9 +218,10 @@ static char* longHelp_text =
 "Usage: AtomicParsley [mp4FILE]... [OPTION]... [ARGUMENT]... [ [OPTION2]...[ARGUMENT2]...] \n"
 "\n"
 "example: AtomicParsley /path/to.mp4 -e ~/Desktop/pix\n"
-"example: Atomicparsley /path/to.mp4 --podcastURL \"http://www.url.net\" --tracknum 45/356\n"
-"example: Atomicparsley /path/to.mp4 --copyright \"\342\204\227 \302\251 2006\"\n"
-"example: Atomicparsley /path/to.mp4 --year \"2006-07-27T14:00:43Z\" --purchaseDate timestamp\n"
+"example: AtomicParsley /path/to.mp4 --podcastURL \"http://www.url.net\" --tracknum 45/356\n"
+"example: AtomicParsley /path/to.mp4 --copyright \"\342\204\227 \302\251 2006\"\n"
+"example: AtomicParsley /path/to.mp4 --year \"2006-07-27T14:00:43Z\" --purchaseDate timestamp\n"
+"example: AtomicParsley /path/to.mp4 --sortOrder artist \"Mighty Dub Cats, The\n"
 "------------------------------------------------------------------------------------------------\n"
 "  Extract any pictures in user data \"covr\" atoms to separate files. \n"
 "  --extractPix       ,  -E                     Extract to same folder (basename derived from file).\n"
@@ -270,7 +272,11 @@ static char* longHelp_text =
 "  --purchaseDate     ,  -D   (UTC)    Set Universal Coordinated Time of purchase on a \"purd\" atom\n"
 "                                       (use \"timestamp\" to set UTC to now; can be akin to id3v2 TDTG tag)\n"
 "  --encodingTool     ,       (str)    Set the name of the encoder on the \"\302©too\" atom\n"
-"  --gapless          ,       (bool)   Sets the gapless playback flag for a track in a gapless album"
+"  --gapless          ,       (bool)   Sets the gapless playback flag for a track in a gapless album\n"
+
+"  --sortOrder    (type)      (str)    Sets the sort order string for that type of tag.\n"
+"                                       (available types are: \"name\", \"artist\", \"albumartist\",\n"
+"                                        \"album\", \"composer\", \"show\")\n"
 "\n"
 "NOTE: Except for artwork, only 1 of each tag is allowed; artwork allows multiple pieces.\n"
 "NOTE: Tags that carry text(str) have a limit of 255 utf8 characters; lyrics have no limit.\n"
@@ -1046,6 +1052,7 @@ int main( int argc, char *argv[]) {
 		{ "purchaseDate",     required_argument,  NULL,           Meta_PurchaseDate },
 		{ "encodingTool",     required_argument,  NULL,           Meta_EncodingTool },
 		{ "gapless",          required_argument,  NULL,           Meta_PlayGapless },
+		{ "sortOrder",        required_argument,  NULL,           Meta_SortOrder } ,
 		
 		{ "rDNSatom",         required_argument,  NULL,           Meta_ReverseDNS_Form },
 		{ "contentRating",    required_argument,  NULL,           Meta_rDNS_rating },
@@ -1658,8 +1665,38 @@ int main( int argc, char *argv[]) {
 			} else {
 				//gapless playback: [0, 0, 0, 0,   boolean_value]; BUT that first uint32_t is already accounted for in APar_MetaData_atom_Init
 				AtomicInfo* gaplessData_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.pgap.data", optarg, AtomFlags_Data_UInt);
-				APar_Unified_atom_Put(gaplessData_atom, NULL, UTF8_iTunesStyle_256glyphLimited, 1, 8); //a hard coded uint8_t of: 1 is compilation
+				APar_Unified_atom_Put(gaplessData_atom, NULL, UTF8_iTunesStyle_256glyphLimited, 1, 8);
 			}
+			break;
+		}
+		
+		case Meta_SortOrder : {
+			AtomicInfo* sortOrder_atom = NULL;
+			APar_ScanAtoms(ISObasemediafile);
+			if ( !APar_assert(metadata_style == ITUNES_STYLE, 1, "sort order tags") ) {
+				break;
+			}
+			
+			if (argv[optind] == NULL) {
+				fprintf(stdout, "AP warning, skipping setting the sort order %s tag\n", optarg);
+				break;
+			}
+			
+			if ( memcmp(optarg, "name", 5) == 0 ) {
+				sortOrder_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.sonm.data", argv[optind], AtomFlags_Data_Text);			
+			} else if ( memcmp(optarg, "artist", 7) == 0 ) {
+				sortOrder_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.soar.data", argv[optind], AtomFlags_Data_Text);
+			} else if ( memcmp(optarg, "albumartist", 12) == 0 ) {
+				sortOrder_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.soaa.data", argv[optind], AtomFlags_Data_Text);
+			} else if ( memcmp(optarg, "album", 6) == 0 ) {
+				sortOrder_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.soal.data", argv[optind], AtomFlags_Data_Text);
+			} else if ( memcmp(optarg, "composer", 9) == 0 ) {
+				sortOrder_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.soco.data", argv[optind], AtomFlags_Data_Text);
+			} else if ( memcmp(optarg, "show", 5) == 0 ) {
+				sortOrder_atom = APar_MetaData_atom_Init("moov.udta.meta.ilst.sosn.data", argv[optind], AtomFlags_Data_Text);
+			}
+			APar_Unified_atom_Put(sortOrder_atom, argv[optind], UTF8_iTunesStyle_256glyphLimited, 0, 0);
+			
 			break;
 		}
 		
