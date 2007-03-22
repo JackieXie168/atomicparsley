@@ -2692,6 +2692,7 @@ AtomicInfo* APar_reverseDNS_atom_Init(const char* rDNS_atom_name, const char* rD
 	}	else {
 		if (memcmp(rDNS_domain, "com.apple.iTunes", 17) == 0) { //for the iTunes domain, only support 1 'data' entry
 			APar_MetaData_atom_QuickInit(desiredAtom->NextAtomNumber, *atomFlags, 0, MAXDATA_PAYLOAD);
+			desiredAtom = &parsedAtoms[desiredAtom->NextAtomNumber];
 			
 		} else { //now create a 'data' atom at the end of the hierarchy (allowing multiple entries)		
 			short rDNSparent_idx = APar_FindParentAtom(desiredAtom->AtomicNumber, desiredAtom->AtomicLevel);
